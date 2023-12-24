@@ -1,6 +1,6 @@
 pub mod cpu;
-pub mod utils;
 pub mod ops;
+pub mod utils;
 
 fn main() {
     println!("Hello, world!");
