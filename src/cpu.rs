@@ -30,7 +30,8 @@ impl CPU {
 mod test {
     use super::*;
 
-    fn helper_test_cpu(prg: Vec<usize>) -> CPU {
+    fn helper_test_op(op: &str) -> CPU {
+        let prg = crate::utils::parse_rdna3_file(&format!("./tests/{}.s", op));
         let mut cpu = CPU::new();
         cpu.interpret(prg);
         return cpu;
@@ -38,7 +39,7 @@ mod test {
 
     #[test]
     fn test_s_endpgm() {
-        let cpu = helper_test_cpu([0xbfb00000].to_vec());
+        let cpu = helper_test_op("s_endpgm");
         assert_eq!(cpu.prg_counter, 1);
     }
 }
