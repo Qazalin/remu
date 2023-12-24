@@ -1,10 +1,11 @@
 use crate::ops::OPCODES_MAP;
 use crate::utils::DEBUG;
 
+const BASE_ADDRESS: u32 = 0xf8000000;
 pub struct CPU {
     prg_counter: usize,
-    memory: Vec<u8>,
-    registers: [u32; 32],
+    pub memory: Vec<u8>,
+    pub registers: [u32; 32],
 }
 
 impl CPU {
@@ -29,11 +30,11 @@ impl CPU {
                 println!("{} {:?}", self.prg_counter, op);
             }
 
-            match op.code {
-                0xbfb00000 => return,
-                0xbf850001 => {}
-                0xf8000000 => {
-                    let offset = prg[self.prg_counter];
+            match op.mnemonic {
+                "s_endpgm" => return,
+                "s_clause" => {}
+                "s_load_b128" => {
+                    let offset = prg[self.prg_counter] - (BASE_ADDRESS as usize);
                     println!("{} with offset 0x{:08x} {}", op.mnemonic, offset, offset);
                     self.prg_counter += 1;
                 }
