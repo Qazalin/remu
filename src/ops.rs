@@ -1,6 +1,7 @@
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 
+#[derive(Debug)]
 pub struct OpCode {
     pub code: usize,
     pub mnemonic: &'static str,
@@ -12,7 +13,11 @@ impl OpCode {
 }
 
 lazy_static! {
-    pub static ref OPS: Vec<OpCode> = vec![OpCode::new(0xBFB00000, "s_endpgm"),]; // TODO tbc
+    pub static ref OPS: Vec<OpCode> = vec![
+        OpCode::new(0xbfb00000, "s_endpgm"),
+        OpCode::new(0xbf850001, "s_clause"),
+        OpCode::new(0xf8000000, "s_load_b128"),
+    ];
     pub static ref OPCODES_MAP: HashMap<usize, &'static OpCode> = {
         let mut map = HashMap::new();
         for cpuop in &*OPS {
