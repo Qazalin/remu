@@ -12,7 +12,7 @@ impl OpCode {
 }
 
 lazy_static! {
-    pub static ref OPS: Vec<OpCode> = vec![]; // TODO tbc
+    pub static ref OPS: Vec<OpCode> = vec![OpCode::new(0xBFB00000, "s_endpgm"),]; // TODO tbc
     pub static ref OPCODES_MAP: HashMap<usize, &'static OpCode> = {
         let mut map = HashMap::new();
         for cpuop in &*OPS {
