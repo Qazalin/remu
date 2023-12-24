@@ -17,6 +17,32 @@ impl CPU {
         };
     }
 
+    pub fn read_register(&self, reg: usize) -> u32 {
+        self.registers[reg]
+    }
+    pub fn write_register(&mut self, reg: usize, value: u32) {
+        self.registers[reg] = value;
+    }
+
+    pub fn read_memory_32(&self, addr: usize) -> u32 {
+        if addr + 4 > self.memory.len() {
+            panic!("Memory read out of bounds");
+        }
+        (self.memory[addr] as u32)
+            | ((self.memory[addr + 1] as u32) << 8)
+            | ((self.memory[addr + 2] as u32) << 16)
+            | ((self.memory[addr + 3] as u32) << 24)
+    }
+    pub fn write_memory_32(&mut self, address: usize, value: u32) {
+        if address + 4 > self.memory.len() {
+            panic!("Memory write out of bounds");
+        }
+        self.memory[address] = (value & 0xFF) as u8;
+        self.memory[address + 1] = ((value >> 8) & 0xFF) as u8;
+        self.memory[address + 2] = ((value >> 16) & 0xFF) as u8;
+        self.memory[address + 3] = ((value >> 24) & 0xFF) as u8;
+    }
+
     pub fn interpret(&mut self, prg: Vec<usize>) {
         self.prg_counter = 0;
 
@@ -36,7 +62,13 @@ impl CPU {
                 "s_load_b128" => {
                     let offset = prg[self.prg_counter] - (BASE_ADDRESS as usize);
                     println!("{} with offset 0x{:08x} {}", op.mnemonic, offset, offset);
+
                     self.prg_counter += 1;
+
+                    let low = self.read_memory_32(offset);
+                    let high = self.read_memory_32(offset + 4);
+
+                    // TODO which registers do i allocate?
                 }
                 _ => todo!(),
             }
