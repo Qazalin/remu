@@ -1,8 +1,16 @@
-# prioritize which ops to implement
-import os
+import os, string
 import pandas as pd
 import plotly.express as px
 
+# prioritize which ops to implement
+def code_freq(df):
+  df = df.groupby("code").count().reset_index().sort_values(by="test", ascending=False)
+  px.bar(df, x="code", y="test", title="frequency of each code based on number of tests").show()
+
+def unique_binaries(df):
+  df = df.loc[df["code"] == "s_mov_b32"]
+  df = df.groupby("binary").count().reset_index()[["binary", "test"]].sort_values(by="test", ascending=False)
+  px.bar(df, x="binary", y="test").show()
 data = []
 for base in ["./tests/test_ops", "./tests/test_dtype"]:
   files = os.listdir(base)
@@ -10,9 +18,16 @@ for base in ["./tests/test_ops", "./tests/test_dtype"]:
     if not f.endswith(".s"): continue
     asm = open(base+"/"+f).read().splitlines()[6:]
     for i in asm:
-      code = i.strip().split(" ")[0]
-      data.append({ "test": f.split(".")[0], "code": code })
+      parts = i.strip().split(" ")
+      code = parts[0]
+      binary = ' '.join(s for s in parts[1:] if len(s) == 8 and all(c in string.hexdigits for c in s))
+      data.append({ "test": f.split(".")[0], "code": code, "binary": binary, "line": i.strip() })
 
 df = pd.DataFrame(data)
-df = df.groupby("code").count().reset_index().sort_values(by="test", ascending=False)
-fig = px.bar(df, x="code", y="test", title="frequency of each code based on number of tests").show()
+df = df.loc[df["code"] == "s_mov_b32"][["line", "binary"]]
+
+i = input("idx: ")
+df = df[df.apply(lambda x: x["line"].startswith(f"s_mov_b32 {i}"), axis=1)]
+print(df["binary"].unique())
+if len(df["binary"].unique()) > 1:
+  print(df["line"].unique())

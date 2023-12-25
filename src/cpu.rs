@@ -84,6 +84,7 @@ impl CPU {
                     self.write_memory_32(offset, self.vec_reg[1]);
                     self.prg_counter += 2;
                 }
+                0xbe82000f => {}
                 0xbf800000 => {}
                 0xbfb60003 => self.vec_reg = [0; 32],
                 _ => todo!(),
@@ -103,26 +104,24 @@ mod test_ops {
         assert_eq!(cpu.prg_counter, 1);
     }
 
-    fn helper_test_mov(vals: &Vec<usize>, expected: usize) {
+    fn helper_test_mov(code: usize, vals: &Vec<usize>, register_idx: usize, expected: u32) {
         let mut cpu = CPU::new();
         cpu.interpret(
-            &vec![0xf4040000, 0xf8000000, 0xca100080]
+            &vec![0xf4040000, 0xf8000000, code]
                 .iter()
                 .chain(vals)
-                .chain(&vec![
-                    0xbf89fc07, 0xdc6a0000, 0x00000100, 0xbf800000, 0xbfb60003, 0xbfb00000,
-                ])
                 .map(|x| *x)
+                .chain([0xbfb00000])
                 .collect::<Vec<usize>>(),
         );
-        assert_eq!(cpu.read_memory_32(0), expected as u32);
+        assert_eq!(cpu.vec_reg[register_idx], expected);
     }
     #[test]
     fn test_mov() {
-        helper_test_mov(&vec![0x000000aa], 42);
-        helper_test_mov(&vec![0x000000ff, 0x000000aa], 170);
-        helper_test_mov(&vec![0x000000ff, 0x00000012], 18);
-        helper_test_mov(&vec![0x000000ff, 0x000000ff], 255);
+        helper_test_mov(0xca100080, &vec![0x000000aa], 1, 42);
+        helper_test_mov(0xca100080, &vec![0x000000ff, 0x000000aa], 1, 170);
+        helper_test_mov(0xca100080, &vec![0x000000ff, 0x00000012], 1, 18);
+        helper_test_mov(0xca100080, &vec![0x000000ff, 0x000000ff], 1, 255);
     }
 }
 
