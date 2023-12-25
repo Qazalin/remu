@@ -19,8 +19,6 @@ impl CPU {
         };
     }
 
-    pub fn write_register(&mut self, reg: usize, value: u32) {}
-
     pub fn read_memory_32(&self, addr: usize) -> u32 {
         if addr + 4 > self.memory.len() {
             panic!("Memory read out of bounds");
@@ -102,7 +100,7 @@ mod test {
     }
 
     #[test]
-    fn test_kernel() {
-        helper_test_op("add_2_2_0");
+    fn test_global_store() {
+        helper_test_op("global_store");
     }
 }
