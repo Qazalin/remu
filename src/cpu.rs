@@ -37,7 +37,7 @@ impl CPU {
         self.memory[address + 3] = ((value >> 24) & 0xFF) as u8;
     }
 
-    pub fn interpret(&mut self, prg: Vec<usize>) {
+    pub fn interpret(&mut self, prg: &Vec<usize>) {
         self.prg_counter = 0;
 
         loop {
@@ -85,20 +85,48 @@ impl CPU {
 }
 
 #[cfg(test)]
-mod test {
+mod test_ops {
+    use super::*;
+
+    #[test]
+    fn test_s_endpgm() {
+        let mut cpu = CPU::new();
+        cpu.interpret(&vec![0xbfb00000]);
+        assert_eq!(cpu.prg_counter, 1);
+    }
+
+    fn helper_test_mov(vals: &Vec<usize>, expected: usize) {
+        let mut cpu = CPU::new();
+        cpu.interpret(
+            &vec![0xf4040000, 0xf8000000, 0xca100080]
+                .iter()
+                .chain(vals)
+                .chain(&vec![
+                    0xbf89fc07, 0xdc6a0000, 0x00000100, 0xbf800000, 0xbfb60003, 0xbfb00000,
+                ])
+                .map(|x| *x)
+                .collect::<Vec<usize>>(),
+        );
+        assert_eq!(cpu.read_memory_32(0), expected as u32);
+    }
+    #[test]
+    fn test_mov() {
+        helper_test_mov(&vec![0x000000aa], 42);
+        helper_test_mov(&vec![0x000000ff, 0x000000aa], 170);
+        helper_test_mov(&vec![0x000000ff, 0x00000012], 18);
+        helper_test_mov(&vec![0x000000ff, 0x000000ff], 255);
+    }
+}
+
+#[cfg(test)]
+mod test_real_world {
     use super::*;
 
     fn helper_test_op(op: &str) -> CPU {
         let prg = crate::utils::parse_rdna3_file(&format!("./tests/{}.s", op));
         let mut cpu = CPU::new();
-        cpu.interpret(prg);
+        cpu.interpret(&prg);
         return cpu;
-    }
-
-    #[test]
-    fn test_s_endpgm() {
-        let cpu = helper_test_op("s_endpgm");
-        assert_eq!(cpu.prg_counter, 1);
     }
 
     #[test]
