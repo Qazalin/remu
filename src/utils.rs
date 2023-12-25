@@ -14,7 +14,7 @@ fn parse_rdna3(content: &str) -> Vec<usize> {
     let instructions = kernel
         .map(|line| {
             line.split_whitespace()
-                .filter(|p| usize::from_str_radix(p, 16).is_ok())
+                .filter(|p| usize::from_str_radix(p, 16).is_ok() && p.len() == 8)
                 .collect::<Vec<&str>>()
         })
         .flatten()
@@ -45,25 +45,18 @@ mod test {
 Disassembly of section .text:
 
 0000000000001600 <E_4>:
-	s_clause 0x1                                               // 000000001600: BF850001
-	s_load_b128 s[4:7], s[0:1], null                           // 000000001604: F4080100 F8000000
-	s_load_b64 s[0:1], s[0:1], 0x10                            // 00000000160C: F4040000 F8000010
+	s_load_b64 s[0:1], s[0:1], null                            // 000000001600: F4040000 F8000000
+	v_dual_mov_b32 v0, 0 :: v_dual_mov_b32 v1, 4               // 000000001608: CA100080 00000084
 ",
         );
-        assert_eq!(instructions.len(), 5);
+        assert_eq!(instructions.len(), 4);
         let hexed = instructions
             .iter()
             .map(|i| format!("0x{:08x}", i))
             .collect::<Vec<String>>();
         assert_eq!(
             hexed,
-            [
-                "0xbf850001",
-                "0xf4080100",
-                "0xf8000000",
-                "0xf4040000",
-                "0xf8000010"
-            ]
+            ["0xf4040000", "0xf8000000", "0xca100080", "0x00000084",]
         );
     }
 }
