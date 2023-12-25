@@ -1,4 +1,4 @@
-use crate::utils::{print_hex, DEBUG};
+use crate::utils::DEBUG;
 
 const BASE_ADDRESS: u32 = 0xf8000000;
 pub struct CPU {
@@ -12,7 +12,7 @@ impl CPU {
     pub fn new() -> Self {
         return CPU {
             prg_counter: 0,
-            memory: vec![0; 256],
+            memory: vec![0; 1_000_000],
             scalar_reg: [0; 32],
             vec_reg: [0; 32],
         };
@@ -45,7 +45,7 @@ impl CPU {
             self.prg_counter += 1;
 
             if *DEBUG {
-                println!("{} {:?}", self.prg_counter, op);
+                println!("{} 0x{:08x}", self.prg_counter, op);
             }
 
             match op {
@@ -53,10 +53,8 @@ impl CPU {
                 0xbf850001 => {}
                 0xf4040000 => {
                     let offset = prg[self.prg_counter] - (BASE_ADDRESS as usize);
-                    let low = self.read_memory_32(offset);
-                    let high = self.read_memory_32(offset + 4);
-                    self.scalar_reg[0] = low;
-                    self.scalar_reg[1] = high;
+                    self.scalar_reg[0] = self.read_memory_32(offset);
+                    self.scalar_reg[1] = self.read_memory_32(offset + 4);
                     self.prg_counter += 1;
                 }
                 0xca100080 => {
@@ -68,11 +66,15 @@ impl CPU {
                         val = prg[self.prg_counter + 1];
                         self.prg_counter += 2;
                     }
+                    self.vec_reg[0] = 0;
+                    self.vec_reg[1] = val as u32;
                 }
                 0xbf89fc07 => {}
                 _ if (0xdc6a0000..=0xdc6affff).contains(op) => {
                     let offset = prg[self.prg_counter - 1] - 0xdc6a0000;
-                    self.prg_counter += 1;
+                    let _addr = prg[self.prg_counter + 1];
+                    self.write_memory_32(offset, self.vec_reg[1]);
+                    self.prg_counter += 2;
                 }
                 0xbf800000 => {}
                 0xbfb60003 => self.vec_reg = [0; 32],
