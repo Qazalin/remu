@@ -56,19 +56,16 @@ impl CPU {
                 println!("{} {:?}", self.prg_counter, op);
             }
 
-            match op.mnemonic {
-                "s_endpgm" => return,
-                "s_clause" => {}
-                "s_load_b128" => {
+            match op.code {
+                0xbfb00000 => return,
+                0xbf850001 => {}
+                0xf4040000 => {
                     let offset = prg[self.prg_counter] - (BASE_ADDRESS as usize);
-                    println!("{} with offset 0x{:08x} {}", op.mnemonic, offset, offset);
-
-                    self.prg_counter += 1;
-
                     let low = self.read_memory_32(offset);
                     let high = self.read_memory_32(offset + 4);
-
-                    // TODO which registers do i allocate?
+                    self.write_register(0, low);
+                    self.write_register(1, high);
+                    self.prg_counter += 1;
                 }
                 _ => todo!(),
             }
@@ -95,6 +92,6 @@ mod test {
 
     #[test]
     fn test_kernel() {
-        helper_test_op("E_4");
+        helper_test_op("add_2_2_0");
     }
 }
