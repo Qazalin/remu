@@ -1,4 +1,3 @@
-use crate::ops::OPCODES_MAP;
 use crate::utils::{print_hex, DEBUG};
 
 const BASE_ADDRESS: u32 = 0xf8000000;
@@ -42,16 +41,14 @@ impl CPU {
         self.prg_counter = 0;
 
         loop {
-            let op = OPCODES_MAP
-                .get(&prg[self.prg_counter])
-                .expect(&format!("invalid code 0x{:08x}", &prg[self.prg_counter]));
+            let op = &prg[self.prg_counter];
             self.prg_counter += 1;
 
             if *DEBUG {
                 println!("{} {:?}", self.prg_counter, op);
             }
 
-            match op.code {
+            match op {
                 0xbfb00000 => return,
                 0xbf850001 => {}
                 0xf4040000 => {
@@ -71,12 +68,10 @@ impl CPU {
                         val = prg[self.prg_counter + 1];
                         self.prg_counter += 2;
                     }
-                    println!("value {}", val);
                 }
                 0xbf89fc07 => {}
-                0xdc6a0000 => {
-                    let addr = prg[self.prg_counter];
-                    // let value = self.read_memory_32(addr);
+                _ if (0xdc6a0000..=0xdc6affff).contains(op) => {
+                    let offset = prg[self.prg_counter - 1] - 0xdc6a0000;
                     self.prg_counter += 1;
                 }
                 0xbf800000 => {}
