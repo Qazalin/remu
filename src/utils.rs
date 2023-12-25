@@ -7,6 +7,9 @@ pub fn parse_rdna3_file(file_path: &str) -> Vec<usize> {
     let content = fs::read_to_string(file_path).unwrap();
     parse_rdna3(&content)
 }
+pub fn print_hex(i: &usize) {
+    println!("0x{:08x}", i);
+}
 
 fn parse_rdna3(content: &str) -> Vec<usize> {
     let mut kernel = content.lines().skip(5);

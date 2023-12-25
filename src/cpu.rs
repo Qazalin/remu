@@ -1,11 +1,12 @@
 use crate::ops::OPCODES_MAP;
-use crate::utils::DEBUG;
+use crate::utils::{print_hex, DEBUG};
 
 const BASE_ADDRESS: u32 = 0xf8000000;
 pub struct CPU {
     prg_counter: usize,
     pub memory: Vec<u8>,
-    pub registers: [u32; 32],
+    pub scalar_reg: [u32; 32],
+    pub vec_reg: [u32; 32],
 }
 
 impl CPU {
@@ -13,16 +14,12 @@ impl CPU {
         return CPU {
             prg_counter: 0,
             memory: vec![0; 256],
-            registers: [0; 32],
+            scalar_reg: [0; 32],
+            vec_reg: [0; 32],
         };
     }
 
-    pub fn read_register(&self, reg: usize) -> u32 {
-        self.registers[reg]
-    }
-    pub fn write_register(&mut self, reg: usize, value: u32) {
-        self.registers[reg] = value;
-    }
+    pub fn write_register(&mut self, reg: usize, value: u32) {}
 
     pub fn read_memory_32(&self, addr: usize) -> u32 {
         if addr + 4 > self.memory.len() {
@@ -63,10 +60,24 @@ impl CPU {
                     let offset = prg[self.prg_counter] - (BASE_ADDRESS as usize);
                     let low = self.read_memory_32(offset);
                     let high = self.read_memory_32(offset + 4);
-                    self.write_register(0, low);
-                    self.write_register(1, high);
+                    self.scalar_reg[0] = low;
+                    self.scalar_reg[1] = high;
                     self.prg_counter += 1;
                 }
+                0xca100080 => {
+                    let loc = prg[self.prg_counter];
+                    self.vec_reg[0] = self.read_memory_32(loc);
+                    self.vec_reg[1] = self.read_memory_32(loc + 4);
+                    self.prg_counter += 1;
+                }
+                0xbf89fc07 => {}
+                0xdc6a0000 => {
+                    let addr = prg[self.prg_counter];
+                    // let value = self.read_memory_32(addr);
+                    self.prg_counter += 1;
+                }
+                0xbf800000 => {}
+                0xbfb60003 => self.vec_reg = [0; 32],
                 _ => todo!(),
             }
         }
