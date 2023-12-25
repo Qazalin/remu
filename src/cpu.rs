@@ -4,7 +4,7 @@ const BASE_ADDRESS: u32 = 0xf8000000;
 pub struct CPU {
     prg_counter: usize,
     pub memory: Vec<u8>,
-    pub scalar_reg: [u32; 32],
+    pub scalar_reg: [u32; 100],
     pub vec_reg: [u32; 32],
 }
 
@@ -13,7 +13,7 @@ impl CPU {
         return CPU {
             prg_counter: 0,
             memory: vec![0; 1_000_000],
-            scalar_reg: [0; 32],
+            scalar_reg: [0; 100],
             vec_reg: [0; 32],
         };
     }
@@ -41,14 +41,14 @@ impl CPU {
         self.prg_counter = 0;
 
         loop {
-            let op = &prg[self.prg_counter];
+            let instruction = &prg[self.prg_counter];
             self.prg_counter += 1;
 
             if *DEBUG {
-                println!("{} 0x{:08x}", self.prg_counter, op);
+                println!("{} 0x{:08x}", self.prg_counter, instruction);
             }
 
-            match op {
+            match instruction {
                 0xbfb00000 => return,
                 0xbf850001 => {}
                 0xf4040000 => {
@@ -78,15 +78,20 @@ impl CPU {
                     self.vec_reg[1] = val as u32;
                 }
                 0xbf89fc07 => {}
-                _ if (0xdc6a0000..=0xdc6affff).contains(op) => {
+                _ if (0xdc6a0000..=0xdc6affff).contains(instruction) => {
                     let offset = prg[self.prg_counter - 1] - 0xdc6a0000;
                     let _addr = prg[self.prg_counter + 1];
                     self.write_memory_32(offset, self.vec_reg[1]);
                     self.prg_counter += 2;
                 }
-                0xbe82000f => {}
                 0xbf800000 => {}
                 0xbfb60003 => self.vec_reg = [0; 32],
+                _ if (0xbe800080..=0xbeffffff).contains(instruction) => {
+                    let sdst = (instruction >> 16) & 0x7F;
+                    let _op = (instruction >> 8) & 0xFF;
+                    let ssrc0 = instruction & 0xFF;
+                    self.scalar_reg[sdst] = self.scalar_reg[ssrc0];
+                }
                 _ => todo!(),
             }
         }
@@ -117,11 +122,23 @@ mod test_ops {
         assert_eq!(cpu.vec_reg[register_idx], expected);
     }
     #[test]
-    fn test_mov() {
+    fn test_vec_mov() {
         helper_test_mov(0xca100080, &vec![0x000000aa], 1, 42);
         helper_test_mov(0xca100080, &vec![0x000000ff, 0x000000aa], 1, 170);
         helper_test_mov(0xca100080, &vec![0x000000ff, 0x00000012], 1, 18);
         helper_test_mov(0xca100080, &vec![0x000000ff, 0x000000ff], 1, 255);
+    }
+
+    fn helper_test_sop1(op: usize, src: usize, dest: usize) {
+        let mut cpu = CPU::new();
+        cpu.scalar_reg[src] = 42;
+        cpu.interpret(&vec![op, 0xbfb00000]);
+        assert_eq!(cpu.scalar_reg[dest], 42);
+    }
+    #[test]
+    fn test_sop1() {
+        helper_test_sop1(0xbe82000f, 15, 2);
+        helper_test_sop1(0xbe94000f, 15, 20);
     }
 }
 

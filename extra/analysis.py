@@ -26,8 +26,21 @@ for base in ["./tests/test_ops", "./tests/test_dtype"]:
 df = pd.DataFrame(data)
 df = df.loc[df["code"] == "s_mov_b32"][["line", "binary"]]
 
-i = input("idx: ")
-df = df[df.apply(lambda x: x["line"].startswith(f"s_mov_b32 {i}"), axis=1)]
-print(df["binary"].unique())
-if len(df["binary"].unique()) > 1:
-  print(df["line"].unique())
+def get_binary_at_idx(df):
+  while True:
+    try:
+      i = input("idx: ")
+      data = df[df.apply(lambda x: x["line"].startswith(f"s_mov_b32 {i}"), axis=1)]
+      print(data["binary"].unique())
+      if len(data["binary"].unique()) > 1:
+        print(data["line"].unique())
+    except:
+      return
+
+
+def lol(df):
+  df = df[df.apply(lambda x: x["line"].startswith(f"s_mov_b32"), axis=1)]
+  s_vals = []
+  for _,data in df.iterrows(): print(' '.join(data["line"].strip().split(" ")[1:3]).split(", "))
+
+get_binary_at_idx(df)
