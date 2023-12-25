@@ -57,6 +57,18 @@ impl CPU {
                     self.scalar_reg[1] = self.read_memory_32(offset + 4);
                     self.prg_counter += 1;
                 }
+                0xf4080100 => {
+                    let offset = prg[self.prg_counter] - (BASE_ADDRESS as usize);
+                    self.scalar_reg[0] = self.read_memory_32(offset);
+                    self.scalar_reg[1] = self.read_memory_32(offset + 4);
+                    self.scalar_reg[2] = self.read_memory_32(offset + 8);
+                    self.scalar_reg[3] = self.read_memory_32(offset + 16);
+                    self.prg_counter += 1;
+                }
+                0xbe82000f => {
+                    let addr = prg[self.prg_counter - 1];
+                    println!("mov 0x{:08x}", addr);
+                }
                 0xca100080 => {
                     let mut val = prg[self.prg_counter];
                     if val < 255 {
