@@ -134,4 +134,10 @@ mod test_real_world {
         let cpu = helper_test_op("global_store");
         assert_eq!(cpu.read_memory_32(0), 42);
     }
+
+    #[test]
+    fn test_add_a_b() {
+        let cpu = helper_test_op("add_a_b");
+        assert_eq!(cpu.read_memory_32(0), 42);
+    }
 }
