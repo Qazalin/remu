@@ -4,16 +4,18 @@ const BASE_ADDRESS: u32 = 0xf8000000;
 pub struct CPU {
     prg_counter: usize,
     pub memory: Vec<u8>,
-    pub scalar_reg: [u32; 100],
+    pub scalar_reg: [u32; 10000],
     pub vec_reg: [u32; 32],
+    scc: u32,
 }
 
 impl CPU {
     pub fn new() -> Self {
         return CPU {
             prg_counter: 0,
+            scc: 0,
             memory: vec![0; 1_000_000],
-            scalar_reg: [0; 100],
+            scalar_reg: [0; 10000],
             vec_reg: [0; 32],
         };
     }
@@ -91,6 +93,15 @@ impl CPU {
                     let _op = (instruction >> 8) & 0xFF;
                     let ssrc0 = instruction & 0xFF;
                     self.scalar_reg[sdst] = self.scalar_reg[ssrc0];
+                }
+                _ if (0x86008100..=0x86ffffff).contains(instruction) => {
+                    let sdst = (instruction >> 16) & 0x7F;
+                    let ssrc1 = (instruction >> 8) & 0xFF;
+                    let ssrc0 = instruction & 0xFF;
+
+                    let result = self.scalar_reg[ssrc0] >> (self.scalar_reg[ssrc1] & 0b11111);
+                    self.scc = (result != 0) as u32;
+                    self.scalar_reg[sdst] = result;
                 }
                 _ => todo!(),
             }
