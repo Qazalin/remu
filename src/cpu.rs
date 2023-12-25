@@ -63,10 +63,15 @@ impl CPU {
                     self.prg_counter += 1;
                 }
                 0xca100080 => {
-                    let loc = prg[self.prg_counter];
-                    self.vec_reg[0] = self.read_memory_32(loc);
-                    self.vec_reg[1] = self.read_memory_32(loc + 4);
-                    self.prg_counter += 1;
+                    let mut val = prg[self.prg_counter];
+                    if val < 255 {
+                        val -= 128;
+                        self.prg_counter += 1;
+                    } else {
+                        val = prg[self.prg_counter + 1];
+                        self.prg_counter += 2;
+                    }
+                    println!("value {}", val);
                 }
                 0xbf89fc07 => {}
                 0xdc6a0000 => {
@@ -101,6 +106,7 @@ mod test {
 
     #[test]
     fn test_global_store() {
-        helper_test_op("global_store");
+        let cpu = helper_test_op("global_store");
+        assert_eq!(cpu.read_memory_32(0), 42);
     }
 }
