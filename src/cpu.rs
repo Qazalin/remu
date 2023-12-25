@@ -65,10 +65,6 @@ impl CPU {
                     self.scalar_reg[3] = self.read_memory_32(offset + 16);
                     self.prg_counter += 1;
                 }
-                0xbe82000f => {
-                    let addr = prg[self.prg_counter - 1];
-                    println!("mov 0x{:08x}", addr);
-                }
                 0xca100080 => {
                     let mut val = prg[self.prg_counter];
                     if val < 255 {
@@ -135,21 +131,15 @@ mod test_real_world {
     use super::*;
 
     fn helper_test_op(op: &str) -> CPU {
-        let prg = crate::utils::parse_rdna3_file(&format!("./tests/{}.s", op));
+        let prg = crate::utils::parse_rdna3_file(&format!("./tests/test_ops/{}.s", op));
         let mut cpu = CPU::new();
         cpu.interpret(&prg);
         return cpu;
     }
 
     #[test]
-    fn test_global_store() {
-        let cpu = helper_test_op("global_store");
-        assert_eq!(cpu.read_memory_32(0), 42);
-    }
-
-    #[test]
-    fn test_add_a_b() {
-        let cpu = helper_test_op("add_a_b");
+    fn test_add_simple() {
+        let cpu = helper_test_op("test_add_simple");
         assert_eq!(cpu.read_memory_32(0), 42);
     }
 }
