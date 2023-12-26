@@ -56,6 +56,7 @@ impl CPU {
                 // control flow
                 &END_PRG => return,
                 _ if instruction >> 24 == 0xbf => {}
+                0xd5030000 => {}
                 // smem
                 _ if instruction >> 26 == 0b111101 => {
                     let sbase = instruction & 0x3F;
@@ -162,6 +163,20 @@ impl CPU {
                     let vsrc = instruction & 0x1FF;
                     self.vec_reg[vdst] = self.vec_reg[vsrc];
                 }
+                // vop2
+                _ if instruction >> 31 == 0b0 => {
+                    let src0 = instruction & 0xFF;
+                    let vsc1 = (instruction >> 8) & 0xFF;
+                    let vdst = (instruction >> 16) & 0xFF;
+                    let op = (instruction >> 24) & 0x7F;
+
+                    println!("srsc0={} vsc1={} vdst={} op={}", src0, vsc1, vdst, op);
+
+                    match op {
+                        _ => todo!("vop2 opcode {}", op),
+                    };
+                }
+
                 _ => todo!(),
             }
         }
