@@ -111,9 +111,8 @@ impl CPU {
                     let op = (instruction >> 8) & 0xFF;
                     let sdst = (instruction >> 16) & 0x7F;
 
-                    println!("ssrc0={} op={} sdst={}", ssrc0, op, sdst);
-
                     match op {
+                        0 => self.write_to_sdst(sdst, ssrc0 as u32),
                         _ => todo!("sop1 opcode {}", op),
                     }
                 }
@@ -186,6 +185,13 @@ pub const END: usize = 0xbfb00000;
 mod test_sop1 {
     use super::*;
 
+    #[test]
+    fn test_s_mov_b32() {
+        let mut cpu = CPU::new();
+        cpu.scalar_reg[15] = 42;
+        cpu.interpret(&vec![0xbe82000f, END]);
+        assert_eq!(cpu.scalar_reg[2], 42);
+    }
 }
 #[cfg(test)]
 mod test_sop2 {
