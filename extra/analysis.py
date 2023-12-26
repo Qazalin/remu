@@ -47,4 +47,7 @@ sop2 = df[df.apply(lambda x: ((x["instruction0"] >> 30) == 0b10) and ((x["instru
 
 # smem: startswith 111101 and is 64 bits long (two instructions)
 smem = df[df.apply(lambda x: x["instruction0"] >> 26 == 0b111101 and x["instruction1"] is not np.nan, axis=1)]
-code_freq(smem)
+
+sop1 = df[df.apply(lambda x: x["instruction0"] >> 23 == 0b10_1111101, axis=1)]
+#code_freq(sop1)
+print(sop1.loc[sop1["line"].str.startswith("s_mov_b64")].head()["line"].unique())

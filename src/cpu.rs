@@ -113,6 +113,10 @@ impl CPU {
 
                     match op {
                         0 => self.write_to_sdst(sdst, ssrc0 as u32),
+                        1 => {
+                            self.write_to_sdst(sdst, ssrc0 as u32);
+                            self.write_to_sdst(sdst + 1, ssrc0 as u32);
+                        }
                         _ => todo!("sop1 opcode {}", op),
                     }
                 }
@@ -168,6 +172,7 @@ impl CPU {
     fn resolve_ssrc(&self, ssrc_bf: usize) -> i32 {
         match ssrc_bf {
             0..=SGPR_COUNT => self.scalar_reg[ssrc_bf] as i32,
+            128 => 0,
             129..=192 => (ssrc_bf - 128) as i32,
             _ => todo!("resolve ssrc {}", ssrc_bf),
         }
@@ -192,7 +197,16 @@ mod test_sop1 {
         cpu.interpret(&vec![0xbe82000f, END]);
         assert_eq!(cpu.scalar_reg[2], 42);
     }
+
+    #[test]
+    fn test_s_mov_b64() {
+        let mut cpu = CPU::new();
+        cpu.interpret(&vec![0xbe920180, END]);
+        assert_eq!(cpu.scalar_reg[18], 0);
+        assert_eq!(cpu.scalar_reg[19], 0);
+    }
 }
+
 #[cfg(test)]
 mod test_sop2 {
     use super::*;
