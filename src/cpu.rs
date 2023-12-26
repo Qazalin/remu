@@ -96,8 +96,9 @@ impl CPU {
                     self.scalar_reg[sdst] = self.scalar_reg[ssrc0];
                 }
                 // sop2
-                _ if (0x86008100..=0x86ffffff).contains(instruction) => {
+                _ if instruction >> 30 == 0b10 => {
                     let sdst = (instruction >> 16) & 0x7F;
+                    let op = (instruction >> 8) & 0xFF;
                     let ssrc1 = (instruction >> 8) & 0xFF;
                     let ssrc0 = instruction & 0xFF;
 
