@@ -107,7 +107,7 @@ impl CPU {
                     };
                     let ssrc0 = resolve_ssrc(instruction & 0xFF);
                     let ssrc1 = resolve_ssrc((instruction >> 8) & 0xFF);
-                    let sdst = resolve_ssrc((instruction >> 16) & 0x7F) as usize;
+                    let sdst = (instruction >> 16) & 0x7F;
                     let op = (instruction >> 23) & 0xFF;
 
                     match op {
@@ -129,6 +129,8 @@ impl CPU {
         }
     }
 }
+
+const END: usize = 0xbfb00000;
 
 #[cfg(test)]
 mod test_ops {
@@ -184,12 +186,19 @@ mod test_ops {
                 assert_eq!(cpu.vec_reg[*dest], 42);
             });
     }
+}
+
+#[cfg(test)]
+mod test_sop2 {
+    use super::*;
 
     #[test]
-    fn test_sop2() {
+    fn test_s_ashr_i32() {
         let mut cpu = CPU::new();
-        cpu.interpret(&vec![0x86039f0f, 0xbfb00000]);
-        panic!();
+        cpu.scalar_reg[15] = 42;
+        cpu.interpret(&vec![0x86039f0f, END]);
+        assert_eq!(cpu.scalar_reg[3], 0);
+        assert_eq!(cpu.scc, 0);
     }
 }
 
