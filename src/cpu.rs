@@ -80,6 +80,10 @@ impl CPU {
 
                     let addr = self.scalar_reg[sbase] + offset + soffset;
                     match op {
+                        0 => {
+                            let addr = addr as usize;
+                            self.scalar_reg[sdata] = self.read_memory_32(addr);
+                        }
                         2 => {
                             let addr = addr as usize;
                             self.scalar_reg[sdata] = self.read_memory_32(addr);
@@ -215,6 +219,14 @@ mod test_sop2 {
 #[cfg(test)]
 mod test_smem {
     use super::*;
+
+    #[test]
+    fn test_s_load_b32() {
+        let mut cpu = CPU::new();
+        cpu.write_memory_32(0, 42);
+        cpu.interpret(&vec![0xf4000183, 0xf8000000, END]);
+        assert_eq!(cpu.scalar_reg[6], 42);
+    }
 
     #[test]
     fn test_s_load_b128() {
