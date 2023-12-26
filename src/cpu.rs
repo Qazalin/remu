@@ -116,6 +116,11 @@ impl CPU {
                     }
 
                     match op {
+                        0 => {
+                            let tmp = (ssrc0 as u64) + (ssrc1 as u64);
+                            self.scalar_reg[sdst] = tmp as u32;
+                            self.scc = (tmp >= 0x100000000) as u32;
+                        }
                         9 => {
                             self.scalar_reg[sdst] = (ssrc0 << (ssrc1 & 0x1F)) as u32;
                             self.scc = (self.scalar_reg[sdst] != 0) as u32;
@@ -200,6 +205,16 @@ mod test_ops {
 #[cfg(test)]
 mod test_sop2 {
     use super::*;
+
+    #[test]
+    fn test_s_add_u32() {
+        let mut cpu = CPU::new();
+        cpu.scalar_reg[2] = 42;
+        cpu.scalar_reg[6] = 13;
+        cpu.interpret(&vec![0x80060206, END]);
+        assert_eq!(cpu.scalar_reg[6], 55);
+        assert_eq!(cpu.scc, 0);
+    }
 
     #[test]
     fn test_s_ashr_i32() {
