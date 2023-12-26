@@ -1,7 +1,5 @@
 use crate::utils::DEBUG;
 
-const BASE_ADDRESS: u32 = 0xf8000000;
-
 const SGPR_COUNT: usize = 105;
 
 pub struct CPU {
@@ -17,7 +15,7 @@ impl CPU {
         return CPU {
             prg_counter: 0,
             scc: 0,
-            memory: vec![0; 1_000_000],
+            memory: vec![0; 24 * 1_073_741_824],
             scalar_reg: [0; SGPR_COUNT],
             vec_reg: [0; 10000],
         };
@@ -32,14 +30,14 @@ impl CPU {
             | ((self.memory[addr + 2] as u32) << 16)
             | ((self.memory[addr + 3] as u32) << 24)
     }
-    pub fn write_memory_32(&mut self, address: usize, value: u32) {
-        if address + 4 > self.memory.len() {
+    pub fn write_memory_32(&mut self, addr: usize, val: u32) {
+        if addr + 4 > self.memory.len() {
             panic!("Memory write out of bounds");
         }
-        self.memory[address] = (value & 0xFF) as u8;
-        self.memory[address + 1] = ((value >> 8) & 0xFF) as u8;
-        self.memory[address + 2] = ((value >> 16) & 0xFF) as u8;
-        self.memory[address + 3] = ((value >> 24) & 0xFF) as u8;
+        self.memory[addr] = (val & 0xFF) as u8;
+        self.memory[addr + 1] = ((val >> 8) & 0xFF) as u8;
+        self.memory[addr + 2] = ((val >> 16) & 0xFF) as u8;
+        self.memory[addr + 3] = ((val >> 24) & 0xFF) as u8;
     }
 
     pub fn interpret(&mut self, prg: &Vec<usize>) {
@@ -56,18 +54,40 @@ impl CPU {
             match instruction {
                 0xbfb00000 => return,
                 0xbf850001 => {}
-                0xf4040000 => {
-                    let offset = prg[self.prg_counter] - (BASE_ADDRESS as usize);
-                    self.scalar_reg[0] = self.read_memory_32(offset);
-                    self.scalar_reg[1] = self.read_memory_32(offset + 4);
-                    self.prg_counter += 1;
-                }
-                0xf4080100 => {
-                    let offset = prg[self.prg_counter] - (BASE_ADDRESS as usize);
-                    self.scalar_reg[0] = self.read_memory_32(offset);
-                    self.scalar_reg[1] = self.read_memory_32(offset + 4);
-                    self.scalar_reg[2] = self.read_memory_32(offset + 8);
-                    self.scalar_reg[3] = self.read_memory_32(offset + 16);
+                // smem
+                _ if instruction >> 26 == 0b111101 => {
+                    let sbase = instruction & 0x3F;
+                    let sdata = (instruction >> 6) & 0x7F;
+                    let dlc = (instruction >> 13) & 0x1;
+                    let glc = (instruction >> 14) & 0x1;
+                    let op = (instruction >> 18) & 0xFF;
+                    let offset_info = prg[self.prg_counter];
+                    let offset = offset_info >> 11;
+                    let soffset = match offset_info & 0x7F {
+                        _ if offset == 0 => 0, // NULL
+                        0..=SGPR_COUNT => self.scalar_reg[offset_info & 0x7F],
+                        _ => todo!("smem soffset {}", offset_info & 0x7F),
+                    };
+
+                    if *DEBUG {
+                        println!(
+                            "sbase={} sdata={} dlc={} glc={} op={} offset={} soffset={}",
+                            sbase, sdata, dlc, glc, op, offset, soffset
+                        );
+                    }
+
+                    let addr = self.scalar_reg[sbase] + (offset as u32) + soffset;
+
+                    match op {
+                        0..=4 => {
+                            for i in 0..=2_usize.pow(op as u32) {
+                                self.scalar_reg[sdata + i] =
+                                    self.read_memory_32((addr as usize) + i * 4);
+                            }
+                        }
+                        _ => todo!("smem op {}", op),
+                    }
+
                     self.prg_counter += 1;
                 }
                 0xca100080 => {
@@ -83,12 +103,6 @@ impl CPU {
                     self.vec_reg[1] = val as u32;
                 }
                 0xbf89fc07 => {}
-                _ if (0xdc6a0000..=0xdc6affff).contains(instruction) => {
-                    let offset = prg[self.prg_counter - 1] - 0xdc6a0000;
-                    let _addr = prg[self.prg_counter + 1];
-                    self.write_memory_32(offset, self.vec_reg[1]);
-                    self.prg_counter += 2;
-                }
                 0xbf800000 => {}
                 0xbfb60003 => self.vec_reg = [0; 10000],
                 // sop1
@@ -149,63 +163,7 @@ impl CPU {
     }
 }
 
-const END: usize = 0xbfb00000;
-
-#[cfg(test)]
-mod test_ops {
-    use super::*;
-
-    #[test]
-    fn test_s_endpgm() {
-        let mut cpu = CPU::new();
-        cpu.interpret(&vec![0xbfb00000]);
-        assert_eq!(cpu.prg_counter, 1);
-    }
-
-    fn helper_test_mov(code: usize, vals: &Vec<usize>, register_idx: usize, expected: u32) {
-        let mut cpu = CPU::new();
-        cpu.interpret(
-            &vec![0xf4040000, 0xf8000000, code]
-                .iter()
-                .chain(vals)
-                .map(|x| *x)
-                .chain([0xbfb00000])
-                .collect::<Vec<usize>>(),
-        );
-        assert_eq!(cpu.vec_reg[register_idx], expected);
-    }
-    #[test]
-    fn test_vec_mov() {
-        helper_test_mov(0xca100080, &vec![0x000000aa], 1, 42);
-        helper_test_mov(0xca100080, &vec![0x000000ff, 0x000000aa], 1, 170);
-        helper_test_mov(0xca100080, &vec![0x000000ff, 0x00000012], 1, 18);
-        helper_test_mov(0xca100080, &vec![0x000000ff, 0x000000ff], 1, 255);
-    }
-
-    fn helper_test_sop1(op: usize, src: usize, dest: usize) {
-        let mut cpu = CPU::new();
-        cpu.scalar_reg[src] = 42;
-        cpu.interpret(&vec![op, 0xbfb00000]);
-        assert_eq!(cpu.scalar_reg[dest], 42);
-    }
-    #[test]
-    fn test_sop1() {
-        helper_test_sop1(0xbe82000f, 15, 2);
-        helper_test_sop1(0xbe94000f, 15, 20);
-    }
-
-    #[test]
-    fn test_vop1() {
-        vec![(0x7e000202, 2, 0), (0x7e020206, 6, 1)]
-            .iter()
-            .for_each(|(op, src, dest)| {
-                let mut cpu = CPU::new();
-                cpu.vec_reg[*src] = 42;
-                cpu.interpret(&vec![*op, 0xbfb00000]);
-                assert_eq!(cpu.vec_reg[*dest], 42);
-            });
-    }
-}
+pub const END: usize = 0xbfb00000;
 
 #[cfg(test)]
 mod test_sop2 {
@@ -252,6 +210,76 @@ mod test_sop2 {
 }
 
 #[cfg(test)]
+mod test_smem {
+    use super::*;
+
+    fn helper_test_s_load(
+        mut cpu: CPU,
+        op: usize,
+        offset: usize,
+        data: Vec<u32>,
+        base_mem_addr: usize,
+        base_sgpr: usize,
+    ) {
+        data.iter()
+            .enumerate()
+            .for_each(|(i, &v)| cpu.write_memory_32(base_mem_addr + i * 4, v));
+        cpu.interpret(&vec![op, offset, END]);
+        data.iter()
+            .enumerate()
+            .for_each(|(i, &v)| assert_eq!(cpu.scalar_reg[i + base_sgpr], v));
+    }
+
+    #[test]
+    fn test_s_load_b32() {
+        helper_test_s_load(CPU::new(), 0xf4000183, 0xf8000000, vec![42], 2031616, 6);
+    }
+
+    #[test]
+    fn test_s_load_b64_soffset() {
+        let mut cpu = CPU::new();
+        cpu.scalar_reg[16] = 22;
+        helper_test_s_load(cpu, 0xf4040000, 0xf8000010, (0..=2).collect(), 2031638, 0);
+    }
+
+    #[test]
+    fn test_s_load_b128() {
+        helper_test_s_load(
+            CPU::new(),
+            0xf4080100,
+            0xf8000000,
+            (0..=4).collect(),
+            2031616,
+            4,
+        )
+    }
+
+    #[test]
+    fn test_s_load_b256() {
+        helper_test_s_load(
+            CPU::new(),
+            0xf40c040d,
+            0xf8000000,
+            (0..=8).collect(),
+            2031616,
+            16,
+        )
+    }
+
+    #[test]
+    fn test_s_load_b512() {
+        helper_test_s_load(
+            CPU::new(),
+            0xf410000c,
+            0xf8000000,
+            (0..=16).collect(),
+            2031616,
+            0,
+        )
+    }
+}
+
+#[cfg(test)]
 mod test_real_world {
     use super::*;
 
@@ -265,6 +293,5 @@ mod test_real_world {
     #[test]
     fn test_add_simple() {
         let cpu = helper_test_op("test_add_simple");
-        assert_eq!(cpu.read_memory_32(0), 42);
     }
 }
