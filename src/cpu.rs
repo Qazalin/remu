@@ -77,9 +77,10 @@ impl CPU {
                     }
 
                     let addr = self.scalar_reg[sbase] + (offset as u32) + soffset;
+
                     match op {
-                        0..=2 => {
-                            for i in 0..=op << 1 {
+                        0..=4 => {
+                            for i in 0..=2_usize.pow(op as u32) {
                                 self.scalar_reg[sdata + i] =
                                     self.read_memory_32((addr as usize) + i * 4);
                             }
@@ -212,41 +213,69 @@ mod test_sop2 {
 mod test_smem {
     use super::*;
 
+    fn helper_test_s_load(
+        mut cpu: CPU,
+        op: usize,
+        offset: usize,
+        data: Vec<u32>,
+        base_mem_addr: usize,
+        base_sgpr: usize,
+    ) {
+        data.iter()
+            .enumerate()
+            .for_each(|(i, &v)| cpu.write_memory_32(base_mem_addr + i * 4, v));
+        cpu.interpret(&vec![op, offset, END]);
+        data.iter()
+            .enumerate()
+            .for_each(|(i, &v)| assert_eq!(cpu.scalar_reg[i + base_sgpr], v));
+    }
+
     #[test]
     fn test_s_load_b32() {
-        let mut cpu = CPU::new();
-        cpu.write_memory_32(2031616, 42);
-        cpu.interpret(&vec![0xf4000183, 0xf8000000, END]);
-        assert_eq!(cpu.scalar_reg[6], 42);
+        helper_test_s_load(CPU::new(), 0xf4000183, 0xf8000000, vec![42], 2031616, 6);
     }
 
     #[test]
     fn test_s_load_b64_soffset() {
         let mut cpu = CPU::new();
         cpu.scalar_reg[16] = 22;
-        let data = vec![42, 43];
-        data.iter()
-            .enumerate()
-            .for_each(|(i, &v)| cpu.write_memory_32(2031638 + i * 4, v));
-        cpu.interpret(&vec![0xf4040000, 0xf8000010, END]);
-        let start_sgpr = 0;
-        data.iter()
-            .enumerate()
-            .for_each(|(i, &v)| assert_eq!(cpu.scalar_reg[i + start_sgpr], v));
+        helper_test_s_load(cpu, 0xf4040000, 0xf8000010, (0..=2).collect(), 2031638, 0);
     }
 
     #[test]
     fn test_s_load_b128() {
-        let mut cpu = CPU::new();
-        let data = vec![42, 43, 44, 45];
-        data.iter()
-            .enumerate()
-            .for_each(|(i, &v)| cpu.write_memory_32(2031616 + i * 4, v));
-        cpu.interpret(&vec![0xf4080100, 0xf8000000, END]);
-        let start_sgpr = 4;
-        data.iter()
-            .enumerate()
-            .for_each(|(i, &v)| assert_eq!(cpu.scalar_reg[i + start_sgpr], v));
+        helper_test_s_load(
+            CPU::new(),
+            0xf4080100,
+            0xf8000000,
+            (0..=4).collect(),
+            2031616,
+            4,
+        )
+    }
+
+    #[test]
+    fn test_s_load_b256() {
+        helper_test_s_load(
+            CPU::new(),
+            0xf40c040d,
+            0xf8000000,
+            (0..=8).collect(),
+            2031616,
+            16,
+        )
+    }
+
+    #[test]
+    fn test_s_load_b512() {
+        helper_test_s_load(
+            CPU::new(),
+            0xf410000c,
+            0xf8000000,
+            (0..=16).collect(),
+            2031616,
+            0,
+        )
     }
 }
 
