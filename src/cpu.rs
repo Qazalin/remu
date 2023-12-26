@@ -32,6 +32,15 @@ impl CPU {
             | ((self.memory[addr + 2] as u32) << 16)
             | ((self.memory[addr + 3] as u32) << 24)
     }
+    pub fn write_memory_32(&mut self, addr: usize, val: u32) {
+        if addr + 4 > self.memory.len() {
+            panic!("Memory write out of bounds");
+        }
+        self.memory[addr] = (val & 0xFF) as u8;
+        self.memory[addr + 1] = ((val >> 8) & 0xFF) as u8;
+        self.memory[addr + 2] = ((val >> 16) & 0xFF) as u8;
+        self.memory[addr + 3] = ((val >> 24) & 0xFF) as u8;
+    }
 
     pub fn interpret(&mut self, prg: &Vec<usize>) {
         self.prg_counter = 0;
@@ -210,7 +219,15 @@ mod test_smem {
     #[test]
     fn test_s_load_b128() {
         let mut cpu = CPU::new();
+        let data = vec![42, 43, 44, 45];
+        data.iter()
+            .enumerate()
+            .for_each(|(i, &v)| cpu.write_memory_32(i * 4, v));
         cpu.interpret(&vec![0xf4080100, 0xf8000000, END]);
+        let start_sgpr = 4;
+        data.iter()
+            .enumerate()
+            .for_each(|(i, &v)| assert_eq!(cpu.scalar_reg[i + start_sgpr], v));
     }
 }
 
