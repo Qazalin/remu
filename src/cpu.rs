@@ -110,7 +110,16 @@ impl CPU {
                     let sdst = (instruction >> 16) & 0x7F;
                     let op = (instruction >> 23) & 0xFF;
 
+                    if *DEBUG {
+                        println!("srcs {} {}", instruction & 0xFF, (instruction >> 8) & 0xFF);
+                        println!("ssrc0={} ssrc1={} sdst={} op={}", ssrc0, ssrc1, sdst, op);
+                    }
+
                     match op {
+                        9 => {
+                            self.scalar_reg[sdst] = (ssrc0 << (ssrc1 & 0x1F)) as u32;
+                            self.scc = (self.scalar_reg[sdst] != 0) as u32;
+                        }
                         12 => {
                             self.scalar_reg[sdst] = (ssrc0 >> (ssrc1 & 0x1F)) as u32;
                             self.scc = (self.scalar_reg[sdst] != 0) as u32;
@@ -199,6 +208,15 @@ mod test_sop2 {
         cpu.interpret(&vec![0x86039f0f, END]);
         assert_eq!(cpu.scalar_reg[3], 0);
         assert_eq!(cpu.scc, 0);
+    }
+
+    #[test]
+    fn test_s_lshl_b64() {
+        let mut cpu = CPU::new();
+        cpu.scalar_reg[2] = 42;
+        cpu.interpret(&vec![0x84828202, END]);
+        assert_eq!(cpu.scalar_reg[2], 42 << 2);
+        assert_eq!(cpu.scc, 1);
     }
 }
 
