@@ -23,6 +23,16 @@ impl CPU {
         };
     }
 
+    pub fn read_memory_32(&self, addr: usize) -> u32 {
+        if addr + 4 > self.memory.len() {
+            panic!("Memory read out of bounds");
+        }
+        (self.memory[addr] as u32)
+            | ((self.memory[addr + 1] as u32) << 8)
+            | ((self.memory[addr + 2] as u32) << 16)
+            | ((self.memory[addr + 3] as u32) << 24)
+    }
+
     pub fn interpret(&mut self, prg: &Vec<usize>) {
         self.prg_counter = 0;
 
@@ -60,19 +70,13 @@ impl CPU {
                     }
 
                     let addr = self.scalar_reg[sbase] + offset + soffset;
-                    // load 1-16 DWORDs from memory. The data in SGPRs is specified in SDATA, and the address is composed of the SBASE, OFFSET, and SOFFSET fields
-                    // ADDR = SGPR[base] + inst_offset + { M0 or SGPR[offset] or zero }
-                    // All components of the address (base, offset, inst_offset, M0) are in bytes, but the two LSBs are ignored and treated as if they were zero.
                     match op {
                         2 => {
-                            // s_load_b128
                             let addr = addr as usize;
-                            /*
-                                                         * SDATA[31 : 0] = MEM[ADDR + 0U].b;
-                            SDATA[63 : 32] = MEM[ADDR + 4U].b;
-                            SDATA[95 : 64] = MEM[ADDR + 8U].b;
-                            SDATA[127 : 96] = MEM[ADDR + 12U].b
-                            */
+                            self.scalar_reg[sdata] = self.read_memory_32(addr);
+                            self.scalar_reg[sdata + 1] = self.read_memory_32(addr + 4);
+                            self.scalar_reg[sdata + 2] = self.read_memory_32(addr + 8);
+                            self.scalar_reg[sdata + 3] = self.read_memory_32(addr + 12);
                         }
 
                         _ => todo!("smem op {}", op),
