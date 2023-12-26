@@ -6,11 +6,12 @@ import plotly.express as px
 def code_freq(df):
   df = df.groupby("code").count().reset_index().sort_values(by="test", ascending=False)
   px.bar(df, x="code", y="test", title="frequency of each code based on number of tests").show()
+  #px.pie(df, values="test", names="code", title="frequency of each code based on number of tests").show()
 
 def unique_binaries(df):
   df = df.loc[df["code"] == "s_mov_b32"]
-  df = df.groupby("binary").count().reset_index()[["binary", "test"]].sort_values(by="test", ascending=False)
-  px.bar(df, x="binary", y="test").show()
+  df = df.groupby("hex").count().reset_index()[["hex", "test"]].sort_values(by="test", ascending=False)
+  px.bar(df, x="hex", y="test").show()
 data = []
 for base in ["./tests/test_ops", "./tests/test_dtype"]:
   files = os.listdir(base)
@@ -20,22 +21,25 @@ for base in ["./tests/test_ops", "./tests/test_dtype"]:
     for i in asm:
       parts = i.strip().split(" ")
       code = parts[0]
-      binary = ' '.join(s for s in parts[1:] if len(s) == 8 and all(c in string.hexdigits for c in s))
-      data.append({ "test": f.split(".")[0], "code": code, "binary": binary, "line": i.strip() })
+      hex = ' '.join(s for s in parts[1:] if len(s) == 8 and all(c in string.hexdigits for c in s))
+      data.append({ "test": f.split(".")[0], "code": code, "hex": hex, "line": i.strip() })
 
 df = pd.DataFrame(data)
+df["instruction"] = df.apply(lambda x: int("0x" + x["hex"].split(" ")[0], 16), axis=1)
 
 def get_binary_at_idx(df):
   v = "v_mov_b32_e32"
-  df = df.loc[df["code"] == v][["line", "binary"]]
+  df = df.loc[df["code"] == v][["line", "hex"]]
   df.drop_duplicates(inplace=True)
   while True:
     try:
       i = input("idx: ")
       data = df[df.apply(lambda x: x["line"].startswith(f"{v} {i}"), axis=1)]
-      print(data["binary"].unique())
+      print(data["hex"].unique())
       print(data["line"].unique())
     except:
       return
 
-get_binary_at_idx(df)
+# sop2: last two bits are 0b10 and the opcode bits ((instruction >> 23) & 0xFF) are between 0-53
+df = df[df.apply(lambda x: ((x["instruction"] >> 30) == 0b10) and ((x["instruction"] >> 23) & 0xFF) <= 53, axis=1)]
+code_freq(df)

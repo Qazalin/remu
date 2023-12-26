@@ -1,10 +1,13 @@
 use crate::utils::DEBUG;
 
 const BASE_ADDRESS: u32 = 0xf8000000;
+
+const SGPR_COUNT: usize = 105;
+
 pub struct CPU {
     prg_counter: usize,
     pub memory: Vec<u8>,
-    pub scalar_reg: [u32; 10000],
+    pub scalar_reg: [u32; SGPR_COUNT],
     pub vec_reg: [u32; 10000],
     scc: u32,
 }
@@ -15,7 +18,7 @@ impl CPU {
             prg_counter: 0,
             scc: 0,
             memory: vec![0; 1_000_000],
-            scalar_reg: [0; 10000],
+            scalar_reg: [0; SGPR_COUNT],
             vec_reg: [0; 10000],
         };
     }
@@ -96,14 +99,43 @@ impl CPU {
                     self.scalar_reg[sdst] = self.scalar_reg[ssrc0];
                 }
                 // sop2
-                _ if (0x86008100..=0x86ffffff).contains(instruction) => {
+                _ if instruction >> 30 == 0b10 => {
+                    let resolve_ssrc = |ssrc_bf| match ssrc_bf {
+                        0..=SGPR_COUNT => self.scalar_reg[ssrc_bf] as i32,
+                        129..=192 => (ssrc_bf - 128) as i32,
+                        _ => todo!("sop2 ssrc {}", ssrc_bf),
+                    };
+                    let ssrc0 = resolve_ssrc(instruction & 0xFF);
+                    let ssrc1 = resolve_ssrc((instruction >> 8) & 0xFF);
                     let sdst = (instruction >> 16) & 0x7F;
-                    let ssrc1 = (instruction >> 8) & 0xFF;
-                    let ssrc0 = instruction & 0xFF;
+                    let op = (instruction >> 23) & 0xFF;
 
-                    let result = self.scalar_reg[ssrc0] >> (self.scalar_reg[ssrc1] & 0b11111);
-                    self.scc = (result != 0) as u32;
-                    self.scalar_reg[sdst] = result;
+                    if *DEBUG {
+                        println!("srcs {} {}", instruction & 0xFF, (instruction >> 8) & 0xFF);
+                        println!("ssrc0={} ssrc1={} sdst={} op={}", ssrc0, ssrc1, sdst, op);
+                    }
+
+                    match op {
+                        0 => {
+                            let tmp = (ssrc0 as u64) + (ssrc1 as u64);
+                            self.scalar_reg[sdst] = tmp as u32;
+                            self.scc = (tmp >= 0x100000000) as u32;
+                        }
+                        4 => {
+                            let tmp = (ssrc0 as u64) + (ssrc1 as u64) + (self.scc as u64);
+                            self.scalar_reg[sdst] = tmp as u32;
+                            self.scc = (tmp >= 0x100000000) as u32;
+                        }
+                        9 => {
+                            self.scalar_reg[sdst] = (ssrc0 << (ssrc1 & 0x1F)) as u32;
+                            self.scc = (self.scalar_reg[sdst] != 0) as u32;
+                        }
+                        12 => {
+                            self.scalar_reg[sdst] = (ssrc0 >> (ssrc1 & 0x1F)) as u32;
+                            self.scc = (self.scalar_reg[sdst] != 0) as u32;
+                        }
+                        _ => todo!("sop2 opcode {}", op),
+                    }
                 }
                 // vop1
                 _ if (0x7e000000..=0x7effffff).contains(instruction) => {
@@ -116,6 +148,8 @@ impl CPU {
         }
     }
 }
+
+const END: usize = 0xbfb00000;
 
 #[cfg(test)]
 mod test_ops {
@@ -170,6 +204,50 @@ mod test_ops {
                 cpu.interpret(&vec![*op, 0xbfb00000]);
                 assert_eq!(cpu.vec_reg[*dest], 42);
             });
+    }
+}
+
+#[cfg(test)]
+mod test_sop2 {
+    use super::*;
+
+    #[test]
+    fn test_s_add_u32() {
+        let mut cpu = CPU::new();
+        cpu.scalar_reg[2] = 42;
+        cpu.scalar_reg[6] = 13;
+        cpu.interpret(&vec![0x80060206, END]);
+        assert_eq!(cpu.scalar_reg[6], 55);
+        assert_eq!(cpu.scc, 0);
+    }
+
+    #[test]
+    fn test_s_addc_u32() {
+        let mut cpu = CPU::new();
+        cpu.scalar_reg[7] = 42;
+        cpu.scalar_reg[3] = 13;
+        cpu.scc = 1;
+        cpu.interpret(&vec![0x82070307, END]);
+        assert_eq!(cpu.scalar_reg[7], 56);
+        assert_eq!(cpu.scc, 0);
+    }
+
+    #[test]
+    fn test_s_ashr_i32() {
+        let mut cpu = CPU::new();
+        cpu.scalar_reg[15] = 42;
+        cpu.interpret(&vec![0x86039f0f, END]);
+        assert_eq!(cpu.scalar_reg[3], 0);
+        assert_eq!(cpu.scc, 0);
+    }
+
+    #[test]
+    fn test_s_lshl_b64() {
+        let mut cpu = CPU::new();
+        cpu.scalar_reg[2] = 42;
+        cpu.interpret(&vec![0x84828202, END]);
+        assert_eq!(cpu.scalar_reg[2], 42 << 2);
+        assert_eq!(cpu.scc, 1);
     }
 }
 
