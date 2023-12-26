@@ -1,6 +1,7 @@
 use crate::utils::DEBUG;
 
 const SGPR_COUNT: usize = 105;
+pub const END_PRG: usize = 0xbfb00000;
 
 pub struct CPU {
     prg_counter: usize,
@@ -52,8 +53,8 @@ impl CPU {
             }
 
             match instruction {
-                0xbfb00000 => return,
-                0xbf850001 => {}
+                // control flow
+                &END_PRG => return,
                 // smem
                 _ if instruction >> 26 == 0b111101 => {
                     let sbase = instruction & 0x3F;
@@ -102,9 +103,6 @@ impl CPU {
                     self.vec_reg[0] = 0;
                     self.vec_reg[1] = val as u32;
                 }
-                0xbf89fc07 => {}
-                0xbf800000 => {}
-                0xbfb60003 => self.vec_reg = [0; 10000],
                 // sop1
                 _ if instruction >> 23 == 0b10_1111101 => {
                     let ssrc0 = self.resolve_ssrc(instruction & 0xFF);
@@ -185,7 +183,6 @@ impl CPU {
     }
 }
 
-pub const END: usize = 0xbfb00000;
 #[cfg(test)]
 mod test_sop1 {
     use super::*;
@@ -194,14 +191,14 @@ mod test_sop1 {
     fn test_s_mov_b32() {
         let mut cpu = CPU::new();
         cpu.scalar_reg[15] = 42;
-        cpu.interpret(&vec![0xbe82000f, END]);
+        cpu.interpret(&vec![0xbe82000f, END_PRG]);
         assert_eq!(cpu.scalar_reg[2], 42);
     }
 
     #[test]
     fn test_s_mov_b64() {
         let mut cpu = CPU::new();
-        cpu.interpret(&vec![0xbe920180, END]);
+        cpu.interpret(&vec![0xbe920180, END_PRG]);
         assert_eq!(cpu.scalar_reg[18], 0);
         assert_eq!(cpu.scalar_reg[19], 0);
     }
@@ -216,7 +213,7 @@ mod test_sop2 {
         let mut cpu = CPU::new();
         cpu.scalar_reg[2] = 42;
         cpu.scalar_reg[6] = 13;
-        cpu.interpret(&vec![0x80060206, END]);
+        cpu.interpret(&vec![0x80060206, END_PRG]);
         assert_eq!(cpu.scalar_reg[6], 55);
         assert_eq!(cpu.scc, 0);
     }
@@ -227,7 +224,7 @@ mod test_sop2 {
         cpu.scalar_reg[7] = 42;
         cpu.scalar_reg[3] = 13;
         cpu.scc = 1;
-        cpu.interpret(&vec![0x82070307, END]);
+        cpu.interpret(&vec![0x82070307, END_PRG]);
         assert_eq!(cpu.scalar_reg[7], 56);
         assert_eq!(cpu.scc, 0);
     }
@@ -236,7 +233,7 @@ mod test_sop2 {
     fn test_s_ashr_i32() {
         let mut cpu = CPU::new();
         cpu.scalar_reg[15] = 42;
-        cpu.interpret(&vec![0x86039f0f, END]);
+        cpu.interpret(&vec![0x86039f0f, END_PRG]);
         assert_eq!(cpu.scalar_reg[3], 0);
         assert_eq!(cpu.scc, 0);
     }
@@ -245,7 +242,7 @@ mod test_sop2 {
     fn test_s_lshl_b64() {
         let mut cpu = CPU::new();
         cpu.scalar_reg[2] = 42;
-        cpu.interpret(&vec![0x84828202, END]);
+        cpu.interpret(&vec![0x84828202, END_PRG]);
         assert_eq!(cpu.scalar_reg[2], 42 << 2);
         assert_eq!(cpu.scc, 1);
     }
@@ -266,7 +263,7 @@ mod test_smem {
         data.iter()
             .enumerate()
             .for_each(|(i, &v)| cpu.write_memory_32(base_mem_addr + i * 4, v));
-        cpu.interpret(&vec![op, offset, END]);
+        cpu.interpret(&vec![op, offset, END_PRG]);
         data.iter()
             .enumerate()
             .for_each(|(i, &v)| assert_eq!(cpu.scalar_reg[i + base_sgpr], v));
