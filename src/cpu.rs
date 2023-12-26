@@ -1,10 +1,13 @@
 use crate::utils::DEBUG;
 
 const BASE_ADDRESS: u32 = 0xf8000000;
+
+const SGPR_COUNT: usize = 105;
+
 pub struct CPU {
     prg_counter: usize,
     pub memory: Vec<u8>,
-    pub scalar_reg: [u32; 10000],
+    pub scalar_reg: [u32; SGPR_COUNT],
     pub vec_reg: [u32; 10000],
     scc: u32,
 }
@@ -15,7 +18,7 @@ impl CPU {
             prg_counter: 0,
             scc: 0,
             memory: vec![0; 1_000_000],
-            scalar_reg: [0; 10000],
+            scalar_reg: [0; SGPR_COUNT],
             vec_reg: [0; 10000],
         };
     }
@@ -95,16 +98,29 @@ impl CPU {
                     let ssrc0 = instruction & 0xFF;
                     self.scalar_reg[sdst] = self.scalar_reg[ssrc0];
                 }
-                // sop2
+                // sop2 (NOTE: only for register srcs)
                 _ if instruction >> 30 == 0b10 => {
-                    let sdst = (instruction >> 16) & 0x7F;
-                    let op = (instruction >> 8) & 0xFF;
-                    let ssrc1 = (instruction >> 8) & 0xFF;
-                    let ssrc0 = instruction & 0xFF;
+                    let ssrc0_bf = instruction & 0xFF;
+                    let ssrc1_bf = (instruction >> 8) & 0xFF;
+                    let sdst_bf = (instruction >> 16) & 0x7F;
+                    let op_bf = (instruction >> 23) & 0xFF;
 
-                    let result = self.scalar_reg[ssrc0] >> (self.scalar_reg[ssrc1] & 0b11111);
-                    self.scc = (result != 0) as u32;
-                    self.scalar_reg[sdst] = result;
+                    let ssrc0 = match ssrc0_bf {
+                        0..=SGPR_COUNT => self.scalar_reg[ssrc0_bf],
+                        _ => todo!("sop2 ssrc0 {}", ssrc0_bf),
+                    };
+                    let ssrc1 = match ssrc1_bf {
+                        0..=SGPR_COUNT => self.scalar_reg[ssrc1_bf],
+                        _ => todo!("sop2 ssrc1 {}", ssrc1_bf),
+                    };
+
+                    match op_bf {
+                        12 => {
+                            self.scalar_reg[sdst_bf] = ((ssrc0 as i32) >> (ssrc1 & 0x1F)) as u32;
+                            self.scc = (self.scalar_reg[sdst_bf] != 0) as u32;
+                        }
+                        _ => todo!("sop2 opcode {}", op_bf),
+                    }
                 }
                 // vop1
                 _ if (0x7e000000..=0x7effffff).contains(instruction) => {
@@ -171,6 +187,13 @@ mod test_ops {
                 cpu.interpret(&vec![*op, 0xbfb00000]);
                 assert_eq!(cpu.vec_reg[*dest], 42);
             });
+    }
+
+    #[test]
+    fn test_sop2() {
+        let mut cpu = CPU::new();
+        cpu.interpret(&vec![0x86039f0f, 0xbfb00000]);
+        panic!();
     }
 }
 
