@@ -1,7 +1,5 @@
 use crate::utils::DEBUG;
 
-const BASE_ADDRESS: u32 = 0xf8000000;
-
 const SGPR_COUNT: usize = 105;
 
 pub struct CPU {
@@ -17,7 +15,7 @@ impl CPU {
         return CPU {
             prg_counter: 0,
             scc: 0,
-            memory: vec![0; 1_000_000],
+            memory: vec![0; 24 * 1_073_741_824],
             scalar_reg: [0; SGPR_COUNT],
             vec_reg: [0; 10000],
         };
@@ -63,12 +61,12 @@ impl CPU {
                     let dlc = (instruction >> 13) & 0x1;
                     let glc = (instruction >> 14) & 0x1;
                     let op = (instruction >> 18) & 0xFF;
-                    let instruction1 = prg[self.prg_counter];
-                    let offset = (instruction1 & 0x1FFFFF) as u32;
-                    let soffset = match instruction1 >> 25 {
+                    let offset_info = prg[self.prg_counter];
+                    let offset = offset_info >> 11;
+                    let soffset = match offset_info & 0x7F {
                         _ if offset == 0 => 0, // NULL
-                        0..=SGPR_COUNT => self.scalar_reg[instruction1 >> 25],
-                        _ => todo!("smem soffset {}", instruction1 >> 25),
+                        0..=SGPR_COUNT => self.scalar_reg[offset_info & 0x7F],
+                        _ => todo!("smem soffset {}", offset_info & 0x7F),
                     };
 
                     if *DEBUG {
@@ -78,20 +76,14 @@ impl CPU {
                         );
                     }
 
-                    let addr = self.scalar_reg[sbase] + offset + soffset;
+                    let addr = self.scalar_reg[sbase] + (offset as u32) + soffset;
                     match op {
-                        0 => {
-                            let addr = addr as usize;
-                            self.scalar_reg[sdata] = self.read_memory_32(addr);
+                        0..=2 => {
+                            for i in 0..=op << 1 {
+                                self.scalar_reg[sdata + i] =
+                                    self.read_memory_32((addr as usize) + i * 4);
+                            }
                         }
-                        2 => {
-                            let addr = addr as usize;
-                            self.scalar_reg[sdata] = self.read_memory_32(addr);
-                            self.scalar_reg[sdata + 1] = self.read_memory_32(addr + 4);
-                            self.scalar_reg[sdata + 2] = self.read_memory_32(addr + 8);
-                            self.scalar_reg[sdata + 3] = self.read_memory_32(addr + 12);
-                        }
-
                         _ => todo!("smem op {}", op),
                     }
 
@@ -223,9 +215,24 @@ mod test_smem {
     #[test]
     fn test_s_load_b32() {
         let mut cpu = CPU::new();
-        cpu.write_memory_32(0, 42);
+        cpu.write_memory_32(2031616, 42);
         cpu.interpret(&vec![0xf4000183, 0xf8000000, END]);
         assert_eq!(cpu.scalar_reg[6], 42);
+    }
+
+    #[test]
+    fn test_s_load_b64_soffset() {
+        let mut cpu = CPU::new();
+        cpu.scalar_reg[16] = 22;
+        let data = vec![42, 43];
+        data.iter()
+            .enumerate()
+            .for_each(|(i, &v)| cpu.write_memory_32(2031638 + i * 4, v));
+        cpu.interpret(&vec![0xf4040000, 0xf8000010, END]);
+        let start_sgpr = 0;
+        data.iter()
+            .enumerate()
+            .for_each(|(i, &v)| assert_eq!(cpu.scalar_reg[i + start_sgpr], v));
     }
 
     #[test]
@@ -234,7 +241,7 @@ mod test_smem {
         let data = vec![42, 43, 44, 45];
         data.iter()
             .enumerate()
-            .for_each(|(i, &v)| cpu.write_memory_32(i * 4, v));
+            .for_each(|(i, &v)| cpu.write_memory_32(2031616 + i * 4, v));
         cpu.interpret(&vec![0xf4080100, 0xf8000000, END]);
         let start_sgpr = 4;
         data.iter()

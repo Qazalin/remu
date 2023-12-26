@@ -33,9 +33,11 @@ fn main() {
 
     let instruction1: usize = 0b11111000000000000000000000000000;
 
+    // first 21 bits
     let offset = instruction1 & 0x1FFFFF;
     assert_eq!(offset, 0);
 
-    let soffset = instruction1 >> 25;
+    // last 7 bits
+    let soffset = instruction1 & 0x7F;
     assert_eq!(soffset, 0b1111100);
 }
