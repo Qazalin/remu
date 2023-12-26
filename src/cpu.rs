@@ -5,7 +5,7 @@ pub struct CPU {
     prg_counter: usize,
     pub memory: Vec<u8>,
     pub scalar_reg: [u32; 10000],
-    pub vec_reg: [u32; 32],
+    pub vec_reg: [u32; 10000],
     scc: u32,
 }
 
@@ -16,7 +16,7 @@ impl CPU {
             scc: 0,
             memory: vec![0; 1_000_000],
             scalar_reg: [0; 10000],
-            vec_reg: [0; 32],
+            vec_reg: [0; 10000],
         };
     }
 
@@ -87,13 +87,15 @@ impl CPU {
                     self.prg_counter += 2;
                 }
                 0xbf800000 => {}
-                0xbfb60003 => self.vec_reg = [0; 32],
+                0xbfb60003 => self.vec_reg = [0; 10000],
+                // sop1
                 _ if (0xbe800080..=0xbeffffff).contains(instruction) => {
                     let sdst = (instruction >> 16) & 0x7F;
                     let _op = (instruction >> 8) & 0xFF;
                     let ssrc0 = instruction & 0xFF;
                     self.scalar_reg[sdst] = self.scalar_reg[ssrc0];
                 }
+                // sop2
                 _ if (0x86008100..=0x86ffffff).contains(instruction) => {
                     let sdst = (instruction >> 16) & 0x7F;
                     let ssrc1 = (instruction >> 8) & 0xFF;
@@ -102,6 +104,12 @@ impl CPU {
                     let result = self.scalar_reg[ssrc0] >> (self.scalar_reg[ssrc1] & 0b11111);
                     self.scc = (result != 0) as u32;
                     self.scalar_reg[sdst] = result;
+                }
+                // vop1
+                _ if (0x7e000000..=0x7effffff).contains(instruction) => {
+                    let vdst = (instruction >> 17) & 0xFF;
+                    let vsrc = instruction & 0x1FF;
+                    self.vec_reg[vdst] = self.vec_reg[vsrc];
                 }
                 _ => todo!(),
             }
@@ -150,6 +158,18 @@ mod test_ops {
     fn test_sop1() {
         helper_test_sop1(0xbe82000f, 15, 2);
         helper_test_sop1(0xbe94000f, 15, 20);
+    }
+
+    #[test]
+    fn test_vop1() {
+        vec![(0x7e000202, 2, 0), (0x7e020206, 6, 1)]
+            .iter()
+            .for_each(|(op, src, dest)| {
+                let mut cpu = CPU::new();
+                cpu.vec_reg[*src] = 42;
+                cpu.interpret(&vec![*op, 0xbfb00000]);
+                assert_eq!(cpu.vec_reg[*dest], 42);
+            });
     }
 }
 

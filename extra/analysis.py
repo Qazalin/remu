@@ -26,7 +26,7 @@ for base in ["./tests/test_ops", "./tests/test_dtype"]:
 df = pd.DataFrame(data)
 
 def get_binary_at_idx(df):
-  v = "s_ashr_i32"
+  v = "v_mov_b32_e32"
   df = df.loc[df["code"] == v][["line", "binary"]]
   df.drop_duplicates(inplace=True)
   while True:
