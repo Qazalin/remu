@@ -55,6 +55,7 @@ impl CPU {
             match instruction {
                 // control flow
                 &END_PRG => return,
+                _ if instruction >> 24 == 0xbf => {}
                 // smem
                 _ if instruction >> 26 == 0b111101 => {
                     let sbase = instruction & 0x3F;
@@ -331,6 +332,6 @@ mod test_real_world {
 
     #[test]
     fn test_add_simple() {
-        // let cpu = helper_test_op("test_add_simple");
+        let cpu = helper_test_op("test_add_simple");
     }
 }
