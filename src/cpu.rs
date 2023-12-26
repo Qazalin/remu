@@ -98,28 +98,24 @@ impl CPU {
                     let ssrc0 = instruction & 0xFF;
                     self.scalar_reg[sdst] = self.scalar_reg[ssrc0];
                 }
-                // sop2 (NOTE: only for register srcs)
+                // sop2
                 _ if instruction >> 30 == 0b10 => {
-                    let ssrc0_bf = instruction & 0xFF;
-                    let ssrc1_bf = (instruction >> 8) & 0xFF;
-                    let sdst_bf = (instruction >> 16) & 0x7F;
-                    let op_bf = (instruction >> 23) & 0xFF;
-
-                    let ssrc0 = match ssrc0_bf {
-                        0..=SGPR_COUNT => self.scalar_reg[ssrc0_bf],
-                        _ => todo!("sop2 ssrc0 {}", ssrc0_bf),
+                    let resolve_ssrc = |ssrc_bf| match ssrc_bf {
+                        0..=SGPR_COUNT => self.scalar_reg[ssrc_bf] as i32,
+                        129..=192 => (ssrc_bf - 128) as i32,
+                        _ => todo!("sop2 ssrc {}", ssrc_bf),
                     };
-                    let ssrc1 = match ssrc1_bf {
-                        0..=SGPR_COUNT => self.scalar_reg[ssrc1_bf],
-                        _ => todo!("sop2 ssrc1 {}", ssrc1_bf),
-                    };
+                    let ssrc0 = resolve_ssrc(instruction & 0xFF);
+                    let ssrc1 = resolve_ssrc((instruction >> 8) & 0xFF);
+                    let sdst = resolve_ssrc((instruction >> 16) & 0x7F) as usize;
+                    let op = (instruction >> 23) & 0xFF;
 
-                    match op_bf {
+                    match op {
                         12 => {
-                            self.scalar_reg[sdst_bf] = ((ssrc0 as i32) >> (ssrc1 & 0x1F)) as u32;
-                            self.scc = (self.scalar_reg[sdst_bf] != 0) as u32;
+                            self.scalar_reg[sdst] = (ssrc0 >> (ssrc1 & 0x1F)) as u32;
+                            self.scc = (self.scalar_reg[sdst] != 0) as u32;
                         }
-                        _ => todo!("sop2 opcode {}", op_bf),
+                        _ => todo!("sop2 opcode {}", op),
                     }
                 }
                 // vop1
