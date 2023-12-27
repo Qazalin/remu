@@ -175,6 +175,9 @@ impl CPU {
                         3 => {
                             self.vec_reg[vdst] = (ssrc0 as f32 + vsrc1 as f32) as u32;
                         }
+                        8 => {
+                            self.vec_reg[vdst] = (ssrc0 as f32 * vsrc1 as f32) as u32;
+                        }
                         _ => todo!("vop2 opcode {}", op),
                     };
                 }
@@ -188,6 +191,7 @@ impl CPU {
     fn resolve_ssrc(&self, ssrc_bf: usize) -> i32 {
         match ssrc_bf {
             0..=SGPR_COUNT => self.scalar_reg[ssrc_bf] as i32,
+            VGPR_COUNT..=511 => self.vec_reg[ssrc_bf - VGPR_COUNT] as i32,
             128 => 0,
             129..=192 => (ssrc_bf - 128) as i32,
             _ => todo!("resolve ssrc {}", ssrc_bf),
@@ -277,6 +281,15 @@ mod test_vop2 {
         cpu.vec_reg[0] = 1;
         cpu.interpret(&vec![0x06000002, END_PRG]);
         assert_eq!(cpu.vec_reg[0], 42);
+    }
+
+    #[test]
+    fn test_v_mul_f32_e32() {
+        let mut cpu = CPU::new();
+        cpu.vec_reg[2] = 21;
+        cpu.vec_reg[4] = 2;
+        cpu.interpret(&vec![0x10060504, END_PRG]);
+        assert_eq!(cpu.vec_reg[3], 42);
     }
 }
 #[cfg(test)]
