@@ -23,7 +23,7 @@ impl CPU {
         };
     }
 
-    pub fn read_memory_32(&self, addr_bf: u32) -> u32 {
+    pub fn read_memory_32(&self, addr_bf: u64) -> u32 {
         let addr = addr_bf as usize;
         if addr + 4 > self.memory.len() {
             panic!("Memory read out of bounds");
@@ -87,7 +87,7 @@ impl CPU {
                         0..=4 => {
                             for i in 0..=2_u32.pow(op as u32) {
                                 self.scalar_reg[(sdata + i) as usize] =
-                                    self.read_memory_32(addr + i * 4);
+                                    self.read_memory_32((addr + i * 4) as u64);
                             }
                         }
                         _ => todo!("smem op {}", op),
@@ -249,14 +249,11 @@ impl CPU {
                     let sve = (addr_info >> 23) & 0x1;
                     let vdst = (addr_info >> 24) & 0xff;
 
-                    println!("{}", data);
-
                     assert_eq!(seg, 2, "flat and scratch arent supported");
                     match op {
                         26 => {
                             let effective_addr = match saddr {
                                 0 => {
-                                    // GV mode: VGPRU64 + INST_OFFSETI13
                                     let addr_lsb = self.vec_reg[addr as usize] as u64;
                                     let addr_msb = self.vec_reg[(addr + 1) as usize] as u64;
                                     let full_addr = ((addr_msb << 32) | addr_lsb) as u64;
@@ -514,8 +511,11 @@ mod test_flat_scratch_global {
     #[test]
     fn test_global_store_b32() {
         let mut cpu = CPU::new();
+        cpu.vec_reg[1] = 0xaa;
+        cpu.vec_reg[2] = 0x1;
+        cpu.vec_reg[0] = 0xf2;
         cpu.interpret(&vec![0xdc6a0000, 0x00000001, END_PRG]);
-        assert_eq!(0, 1);
+        assert_eq!(cpu.read_memory_32(4294967466), 0xf2);
     }
 }
 #[cfg(test)]
