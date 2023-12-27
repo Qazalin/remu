@@ -158,7 +158,7 @@ impl CPU {
                     self.write_to_sdst(sdst, tmp);
                 }
                 // vop1
-                _ if (0x7e000000..=0x7effffff).contains(instruction) => {
+                _ if instruction >> 25 == 0b0111111 => {
                     let vdst = (instruction >> 17) & 0xFF;
                     let vsrc = instruction & 0x1FF;
                     self.vec_reg[vdst] = self.vec_reg[vsrc];

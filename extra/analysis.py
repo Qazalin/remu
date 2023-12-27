@@ -30,7 +30,7 @@ df["instruction0"] = df.apply(lambda x: int("0x" + x["hex"].split(" ")[0], 16), 
 df["instruction1"] = df.apply(lambda x: int("0x" + x["hex"].split(" ")[1], 16) if len(x["hex"].split(" ")) > 1 else np.nan, axis=1)
 
 def get_binary_at_idx(df):
-  v = "v_mov_b32_e32"
+  v = "v_mov_b64"
   df = df.loc[df["code"] == v][["line", "hex"]]
   df.drop_duplicates(inplace=True)
   while True:
@@ -51,3 +51,8 @@ smem = df[df.apply(lambda x: x["instruction0"] >> 26 == 0b111101 and x["instruct
 sop1 = df[df.apply(lambda x: x["instruction0"] >> 23 == 0b10_1111101, axis=1)]
 #code_freq(sop1)
 print(sop1.loc[sop1["line"].str.startswith("s_mov_b64")].head()["line"].unique())
+
+
+vop2 = df[df.apply(lambda x: x["instruction0"] >> 31 == 0b0 and not (x["instruction0"] >> 25 == 0b0111111), axis=1)]
+print(vop2.head())
+#code_freq(vop1)
