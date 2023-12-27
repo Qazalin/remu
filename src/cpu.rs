@@ -23,7 +23,7 @@ impl CPU {
         };
     }
 
-    pub fn read_memory_32(&self, addr_bf: u32) -> u32 {
+    pub fn read_memory_32(&self, addr_bf: u64) -> u32 {
         let addr = addr_bf as usize;
         if addr + 4 > self.memory.len() {
             panic!("Memory read out of bounds");
@@ -33,7 +33,7 @@ impl CPU {
             | ((self.memory[addr + 2] as u32) << 16)
             | ((self.memory[addr + 3] as u32) << 24)
     }
-    pub fn write_memory_32(&mut self, addr_bf: u32, val: u32) {
+    pub fn write_memory_32(&mut self, addr_bf: u64, val: u32) {
         let addr = addr_bf as usize;
         if addr + 4 > self.memory.len() {
             panic!("Memory write out of bounds");
@@ -87,7 +87,7 @@ impl CPU {
                         0..=4 => {
                             for i in 0..=2_u32.pow(op as u32) {
                                 self.scalar_reg[(sdata + i) as usize] =
-                                    self.read_memory_32(addr + i * 4);
+                                    self.read_memory_32((addr + i * 4) as u64);
                             }
                         }
                         _ => todo!("smem op {}", op),
@@ -228,6 +228,45 @@ impl CPU {
                             self.vec_reg[vdst as usize] = (s0 * s1 + d0).to_bits();
                         }
                         _ => todo!("vop3 op {op}"),
+                    }
+
+                    self.pc += 1;
+                }
+                // flat_scratch_global
+                _ if instruction >> 26 == 0b110111 => {
+                    let offset = instruction & 0x1fff;
+                    let dls = (instruction >> 13) & 0x1;
+                    let glc = (instruction >> 14) & 0x1;
+                    let slc = (instruction >> 15) & 0x1;
+                    let seg = (instruction >> 16) & 0x3;
+                    let op = (instruction >> 18) & 0x7f;
+
+                    let addr_info = prg[self.pc as usize];
+
+                    let addr = addr_info & 0xff;
+                    let data = (addr_info >> 8) & 0xff;
+                    let saddr = (addr_info >> 16) & 0x7f;
+                    let sve = (addr_info >> 23) & 0x1;
+                    let vdst = (addr_info >> 24) & 0xff;
+
+                    assert_eq!(seg, 2, "flat and scratch arent supported");
+                    match op {
+                        26 => {
+                            let effective_addr = match saddr {
+                                0 => {
+                                    let addr_lsb = self.vec_reg[addr as usize] as u64;
+                                    let addr_msb = self.vec_reg[(addr + 1) as usize] as u64;
+                                    let full_addr = ((addr_msb << 32) | addr_lsb) as u64;
+                                    full_addr.wrapping_add(offset as u64) // Add the offset
+                                }
+                                _ => todo!("address via registers not supported"),
+                            };
+
+                            let vdata = self.vec_reg[data as usize];
+                            println!("{} {} {}", effective_addr, vdata, data);
+                            self.write_memory_32(effective_addr, vdata);
+                        }
+                        _ => todo!("flat_scratch_global {}", op),
                     }
 
                     self.pc += 1;
@@ -409,7 +448,7 @@ mod test_smem {
     ) {
         data.iter()
             .enumerate()
-            .for_each(|(i, &v)| cpu.write_memory_32(base_mem_addr + (i as u32) * 4, v));
+            .for_each(|(i, &v)| cpu.write_memory_32((base_mem_addr + (i as u32) * 4) as u64, v));
         cpu.interpret(&vec![op, offset, END_PRG]);
         data.iter()
             .enumerate()
@@ -465,6 +504,20 @@ mod test_smem {
     }
 }
 
+#[cfg(test)]
+mod test_flat_scratch_global {
+    use super::*;
+
+    #[test]
+    fn test_global_store_b32() {
+        let mut cpu = CPU::new();
+        cpu.vec_reg[1] = 0xaa;
+        cpu.vec_reg[2] = 0x1;
+        cpu.vec_reg[0] = 0xf2;
+        cpu.interpret(&vec![0xdc6a0000, 0x00000001, END_PRG]);
+        assert_eq!(cpu.read_memory_32(4294967466), 0xf2);
+    }
+}
 #[cfg(test)]
 mod test_real_world {
     use super::*;
