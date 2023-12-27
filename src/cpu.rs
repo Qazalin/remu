@@ -185,6 +185,14 @@ impl CPU {
                             self.vec_reg[vdst] =
                                 ((ssrc0 as f32 * vsrc1 as f32) + self.vec_reg[vdst] as f32) as u32;
                         }
+                        45 => {
+                            let simm32 =
+                                f32::from_bits((prg[self.prg_counter] as i32).try_into().unwrap());
+                            let s0 = f32::from_bits(ssrc0 as u32);
+                            let s1 = f32::from_bits(vsrc1 as u32);
+                            self.vec_reg[vdst] = (s0 * s1 + simm32).to_bits();
+                            self.prg_counter += 1;
+                        }
                         _ => todo!("vop2 opcode {}", op),
                     };
                 }
@@ -315,6 +323,15 @@ mod test_vop2 {
         cpu.scalar_reg[8] = 24;
         cpu.interpret(&vec![0x3a0a0a08, END_PRG]);
         assert_eq!(cpu.vec_reg[5], 50);
+    }
+
+    #[test]
+    fn test_v_fmaak_f32() {
+        let mut cpu = CPU::new();
+        cpu.vec_reg[5] = f32::to_bits(0.42);
+        cpu.scalar_reg[7] = f32::to_bits(0.24);
+        cpu.interpret(&vec![0x5a100a07, f32::to_bits(0.93) as usize, END_PRG]);
+        assert_eq!(f32::from_bits(cpu.vec_reg[8]), 1.0308);
     }
 }
 #[cfg(test)]
