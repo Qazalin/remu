@@ -59,7 +59,6 @@ impl CPU {
                 // control flow
                 &END_PRG => return,
                 _ if instruction >> 24 == 0xbf => {}
-                0xd5030000 => {}
                 // smem
                 _ if instruction >> 26 == 0b111101 => {
                     let sbase = instruction & 0x3F;
@@ -199,6 +198,27 @@ impl CPU {
                         _ => todo!("vop2 opcode {}", op),
                     };
                 }
+                // vop3
+                _ if instruction >> 26 == 0b110101 => {
+                    let vdst = instruction & 0xFF;
+                    let abs = (instruction >> 8) & 0x7;
+                    let opsel = (instruction >> 11) & 0xf;
+                    let cm = (instruction >> 15) & 0x1;
+                    let op = (instruction >> 16) & 0x1ff;
+
+                    let src_info = prg[self.pc as usize];
+                    let ssrc0 = src_info & 0x1ff;
+                    let ssrc1 = (src_info >> 9) & 0x1ff;
+                    let ssrc2 = (src_info >> 18) & 0x1ff;
+                    let omod = (src_info >> 27) & 0x3;
+                    let neg = (src_info >> 29) & 0x7;
+
+                    match op {
+                        _ => todo!("vop3 op {op}"),
+                    }
+
+                    self.pc += 1;
+                }
 
                 _ => todo!(),
             }
@@ -337,6 +357,19 @@ mod test_vop2 {
         assert_eq!(f32::from_bits(cpu.vec_reg[8]), 1.0308);
     }
 }
+
+#[cfg(test)]
+mod test_vop3 {
+    use super::*;
+
+    #[test]
+    fn test_v_add_f32() {
+        let mut cpu = CPU::new();
+        cpu.interpret(&vec![0xd5030000, 0x00000006, END_PRG]);
+        assert_eq!(0, 1);
+    }
+}
+
 #[cfg(test)]
 mod test_smem {
     use super::*;
