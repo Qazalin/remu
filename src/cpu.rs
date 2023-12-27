@@ -1,13 +1,14 @@
 use crate::utils::DEBUG;
 
 const SGPR_COUNT: usize = 105;
+const VGPR_COUNT: usize = 256;
 pub const END_PRG: usize = 0xbfb00000;
 
 pub struct CPU {
     prg_counter: usize,
     pub memory: Vec<u8>,
     pub scalar_reg: [u32; SGPR_COUNT],
-    pub vec_reg: [u32; 10000],
+    pub vec_reg: [u32; VGPR_COUNT],
     scc: u32,
 }
 
@@ -18,7 +19,7 @@ impl CPU {
             scc: 0,
             memory: vec![0; 24 * 1_073_741_824],
             scalar_reg: [0; SGPR_COUNT],
-            vec_reg: [0; 10000],
+            vec_reg: [0; VGPR_COUNT],
         };
     }
 
@@ -56,6 +57,7 @@ impl CPU {
                 // control flow
                 &END_PRG => return,
                 _ if instruction >> 24 == 0xbf => {}
+                0xd5030000 => {}
                 // smem
                 _ if instruction >> 26 == 0b111101 => {
                     let sbase = instruction & 0x3F;
@@ -157,11 +159,44 @@ impl CPU {
                     self.write_to_sdst(sdst, tmp);
                 }
                 // vop1
-                _ if (0x7e000000..=0x7effffff).contains(instruction) => {
+                _ if instruction >> 25 == 0b0111111 => {
                     let vdst = (instruction >> 17) & 0xFF;
                     let vsrc = instruction & 0x1FF;
                     self.vec_reg[vdst] = self.vec_reg[vsrc];
                 }
+                // vop2
+                _ if instruction >> 31 == 0b0 => {
+                    let ssrc0 = self.resolve_ssrc(instruction & 0x1FF);
+                    let vsrc1 = self.vec_reg[((instruction >> 9) & 0xFF) as usize];
+                    let vdst = (instruction >> 17) & 0xFF;
+                    let op = (instruction >> 25) & 0x3F;
+
+                    match op {
+                        3 => {
+                            self.vec_reg[vdst] = (ssrc0 as f32 + vsrc1 as f32) as u32;
+                        }
+                        8 => {
+                            self.vec_reg[vdst] = (ssrc0 as f32 * vsrc1 as f32) as u32;
+                        }
+                        29 => {
+                            self.vec_reg[vdst] = (ssrc0 as u32) ^ vsrc1;
+                        }
+                        43 => {
+                            self.vec_reg[vdst] =
+                                ((ssrc0 as f32 * vsrc1 as f32) + self.vec_reg[vdst] as f32) as u32;
+                        }
+                        45 => {
+                            let simm32 =
+                                f32::from_bits((prg[self.prg_counter] as i32).try_into().unwrap());
+                            let s0 = f32::from_bits(ssrc0 as u32);
+                            let s1 = f32::from_bits(vsrc1 as u32);
+                            self.vec_reg[vdst] = (s0 * s1 + simm32).to_bits();
+                            self.prg_counter += 1;
+                        }
+                        _ => todo!("vop2 opcode {}", op),
+                    };
+                }
+
                 _ => todo!(),
             }
         }
@@ -171,6 +206,7 @@ impl CPU {
     fn resolve_ssrc(&self, ssrc_bf: usize) -> i32 {
         match ssrc_bf {
             0..=SGPR_COUNT => self.scalar_reg[ssrc_bf] as i32,
+            VGPR_COUNT..=511 => self.vec_reg[ssrc_bf - VGPR_COUNT] as i32,
             128 => 0,
             129..=192 => (ssrc_bf - 128) as i32,
             _ => todo!("resolve ssrc {}", ssrc_bf),
@@ -249,6 +285,55 @@ mod test_sop2 {
     }
 }
 
+#[cfg(test)]
+mod test_vop2 {
+    use super::*;
+
+    #[test]
+    fn test_v_add_f32_e32() {
+        let mut cpu = CPU::new();
+        cpu.scalar_reg[2] = 41;
+        cpu.vec_reg[0] = 1;
+        cpu.interpret(&vec![0x06000002, END_PRG]);
+        assert_eq!(cpu.vec_reg[0], 42);
+    }
+
+    #[test]
+    fn test_v_mul_f32_e32() {
+        let mut cpu = CPU::new();
+        cpu.vec_reg[2] = 21;
+        cpu.vec_reg[4] = 2;
+        cpu.interpret(&vec![0x10060504, END_PRG]);
+        assert_eq!(cpu.vec_reg[3], 42);
+    }
+
+    #[test]
+    fn test_v_fmac_f32_e32() {
+        let mut cpu = CPU::new();
+        cpu.vec_reg[1] = 2;
+        cpu.vec_reg[2] = 4;
+        cpu.interpret(&vec![0x56020302, END_PRG]);
+        assert_eq!(cpu.vec_reg[1], 10);
+    }
+
+    #[test]
+    fn test_v_xor_b32_e32() {
+        let mut cpu = CPU::new();
+        cpu.vec_reg[5] = 42;
+        cpu.scalar_reg[8] = 24;
+        cpu.interpret(&vec![0x3a0a0a08, END_PRG]);
+        assert_eq!(cpu.vec_reg[5], 50);
+    }
+
+    #[test]
+    fn test_v_fmaak_f32() {
+        let mut cpu = CPU::new();
+        cpu.vec_reg[5] = f32::to_bits(0.42);
+        cpu.scalar_reg[7] = f32::to_bits(0.24);
+        cpu.interpret(&vec![0x5a100a07, f32::to_bits(0.93) as usize, END_PRG]);
+        assert_eq!(f32::from_bits(cpu.vec_reg[8]), 1.0308);
+    }
+}
 #[cfg(test)]
 mod test_smem {
     use super::*;
