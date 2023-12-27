@@ -178,6 +178,10 @@ impl CPU {
                         8 => {
                             self.vec_reg[vdst] = (ssrc0 as f32 * vsrc1 as f32) as u32;
                         }
+                        43 => {
+                            self.vec_reg[vdst] =
+                                ((ssrc0 as f32 * vsrc1 as f32) + self.vec_reg[vdst] as f32) as u32;
+                        }
                         _ => todo!("vop2 opcode {}", op),
                     };
                 }
@@ -290,6 +294,15 @@ mod test_vop2 {
         cpu.vec_reg[4] = 2;
         cpu.interpret(&vec![0x10060504, END_PRG]);
         assert_eq!(cpu.vec_reg[3], 42);
+    }
+
+    #[test]
+    fn test_v_fmac_f32_e32() {
+        let mut cpu = CPU::new();
+        cpu.vec_reg[1] = 2;
+        cpu.vec_reg[2] = 4;
+        cpu.interpret(&vec![0x56020302, END_PRG]);
+        assert_eq!(cpu.vec_reg[1], 10);
     }
 }
 #[cfg(test)]
