@@ -33,7 +33,7 @@ impl CPU {
             | ((self.memory[addr + 2] as u32) << 16)
             | ((self.memory[addr + 3] as u32) << 24)
     }
-    pub fn write_memory_32(&mut self, addr_bf: u32, val: u32) {
+    pub fn write_memory_32(&mut self, addr_bf: u64, val: u32) {
         let addr = addr_bf as usize;
         if addr + 4 > self.memory.len() {
             panic!("Memory write out of bounds");
@@ -235,25 +235,44 @@ impl CPU {
                 // flat_scratch_global
                 _ if instruction >> 26 == 0b110111 => {
                     let offset = instruction & 0x1fff;
-                    let dls = (instruction >> 14) & 0x1;
-                    let glc = (instruction >> 15) & 0x1;
-                    let slc = (instruction >> 16) & 0x1;
-                    let seg = (instruction >> 17) & 0x3;
+                    let dls = (instruction >> 13) & 0x1;
+                    let glc = (instruction >> 14) & 0x1;
+                    let slc = (instruction >> 15) & 0x1;
+                    let seg = (instruction >> 16) & 0x3;
                     let op = (instruction >> 18) & 0x7f;
-                    println!("code = {:013b}", offset);
-                    println!("{}", op);
 
-                    let addr_info: u32 = 0b1;
+                    let addr_info = prg[self.pc as usize];
 
-                    let addr = instruction & 0xff;
-                    let data = (instruction >> 8) & 0xff;
-                    let saddr = (instruction >> 16) & 0x7f;
-                    let sve = (instruction >> 24) & 0x1;
-                    let sve = (instruction >> 25) & 0xff;
+                    let addr = addr_info & 0xff;
+                    let data = (addr_info >> 8) & 0xff;
+                    let saddr = (addr_info >> 16) & 0x7f;
+                    let sve = (addr_info >> 23) & 0x1;
+                    let vdst = (addr_info >> 24) & 0xff;
 
+                    println!("{}", data);
+
+                    assert_eq!(seg, 2, "flat and scratch arent supported");
                     match op {
+                        26 => {
+                            let effective_addr = match saddr {
+                                0 => {
+                                    // GV mode: VGPRU64 + INST_OFFSETI13
+                                    let addr_lsb = self.vec_reg[addr as usize] as u64;
+                                    let addr_msb = self.vec_reg[(addr + 1) as usize] as u64;
+                                    let full_addr = ((addr_msb << 32) | addr_lsb) as u64;
+                                    full_addr.wrapping_add(offset as u64) // Add the offset
+                                }
+                                _ => todo!("address via registers not supported"),
+                            };
+
+                            let vdata = self.vec_reg[data as usize];
+                            println!("{} {} {}", effective_addr, vdata, data);
+                            self.write_memory_32(effective_addr, vdata);
+                        }
                         _ => todo!("flat_scratch_global {}", op),
                     }
+
+                    self.pc += 1;
                 }
 
                 _ => todo!(),
@@ -432,7 +451,7 @@ mod test_smem {
     ) {
         data.iter()
             .enumerate()
-            .for_each(|(i, &v)| cpu.write_memory_32(base_mem_addr + (i as u32) * 4, v));
+            .for_each(|(i, &v)| cpu.write_memory_32((base_mem_addr + (i as u32) * 4) as u64, v));
         cpu.interpret(&vec![op, offset, END_PRG]);
         data.iter()
             .enumerate()
