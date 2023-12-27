@@ -232,6 +232,29 @@ impl CPU {
 
                     self.pc += 1;
                 }
+                // flat_scratch_global
+                _ if instruction >> 26 == 0b110111 => {
+                    let offset = instruction & 0x1fff;
+                    let dls = (instruction >> 14) & 0x1;
+                    let glc = (instruction >> 15) & 0x1;
+                    let slc = (instruction >> 16) & 0x1;
+                    let seg = (instruction >> 17) & 0x3;
+                    let op = (instruction >> 18) & 0x7f;
+                    println!("code = {:013b}", offset);
+                    println!("{}", op);
+
+                    let addr_info: u32 = 0b1;
+
+                    let addr = instruction & 0xff;
+                    let data = (instruction >> 8) & 0xff;
+                    let saddr = (instruction >> 16) & 0x7f;
+                    let sve = (instruction >> 24) & 0x1;
+                    let sve = (instruction >> 25) & 0xff;
+
+                    match op {
+                        _ => todo!("flat_scratch_global {}", op),
+                    }
+                }
 
                 _ => todo!(),
             }
@@ -465,6 +488,17 @@ mod test_smem {
     }
 }
 
+#[cfg(test)]
+mod test_flat_scratch_global {
+    use super::*;
+
+    #[test]
+    fn test_global_store_b32() {
+        let mut cpu = CPU::new();
+        cpu.interpret(&vec![0xdc6a0000, 0x00000001, END_PRG]);
+        assert_eq!(0, 1);
+    }
+}
 #[cfg(test)]
 mod test_real_world {
     use super::*;
