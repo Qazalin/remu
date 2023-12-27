@@ -178,6 +178,9 @@ impl CPU {
                         8 => {
                             self.vec_reg[vdst] = (ssrc0 as f32 * vsrc1 as f32) as u32;
                         }
+                        29 => {
+                            self.vec_reg[vdst] = (ssrc0 as u32) ^ vsrc1;
+                        }
                         43 => {
                             self.vec_reg[vdst] =
                                 ((ssrc0 as f32 * vsrc1 as f32) + self.vec_reg[vdst] as f32) as u32;
@@ -303,6 +306,15 @@ mod test_vop2 {
         cpu.vec_reg[2] = 4;
         cpu.interpret(&vec![0x56020302, END_PRG]);
         assert_eq!(cpu.vec_reg[1], 10);
+    }
+
+    #[test]
+    fn test_v_xor_b32_e32() {
+        let mut cpu = CPU::new();
+        cpu.vec_reg[5] = 42;
+        cpu.scalar_reg[8] = 24;
+        cpu.interpret(&vec![0x3a0a0a08, END_PRG]);
+        assert_eq!(cpu.vec_reg[5], 50);
     }
 }
 #[cfg(test)]
