@@ -219,6 +219,14 @@ impl CPU {
                             let s1 = f32::from_bits(ssrc1 as u32);
                             self.vec_reg[vdst as usize] = (s0 + s1).to_bits();
                         }
+                        299 => {
+                            let s0 = f32::from_bits(ssrc0.try_into().unwrap());
+                            let s1 = f32::from_bits(ssrc1.try_into().unwrap());
+                            let d0 = f32::from_bits(
+                                (self.vec_reg[vdst as usize] as i32).try_into().unwrap(),
+                            );
+                            self.vec_reg[vdst as usize] = (s0 * s1 + d0).to_bits();
+                        }
                         _ => todo!("vop3 op {op}"),
                     }
 
@@ -374,6 +382,16 @@ mod test_vop3 {
         cpu.scalar_reg[6] = f32::to_bits(0.2);
         cpu.interpret(&vec![0xd5030000, 0x00000006, END_PRG]);
         assert_eq!(f32::from_bits(cpu.vec_reg[0]), 0.6);
+    }
+
+    #[test]
+    fn test_v_fmac_f32() {
+        let mut cpu = CPU::new();
+        cpu.scalar_reg[29] = f32::to_bits(0.42);
+        cpu.scalar_reg[13] = f32::to_bits(0.24);
+        cpu.vec_reg[0] = f32::to_bits(0.15);
+        cpu.interpret(&vec![0xd52b0000, 0x00003a0d, END_PRG]);
+        assert_eq!(f32::from_bits(cpu.vec_reg[0]), 0.42 * 0.24 + 0.15);
     }
 }
 
