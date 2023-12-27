@@ -1,13 +1,14 @@
 use crate::utils::DEBUG;
 
 const SGPR_COUNT: usize = 105;
+const VGPR_COUNT: usize = 256;
 pub const END_PRG: usize = 0xbfb00000;
 
 pub struct CPU {
     prg_counter: usize,
     pub memory: Vec<u8>,
     pub scalar_reg: [u32; SGPR_COUNT],
-    pub vec_reg: [u32; 10000],
+    pub vec_reg: [u32; VGPR_COUNT],
     scc: u32,
 }
 
@@ -18,7 +19,7 @@ impl CPU {
             scc: 0,
             memory: vec![0; 24 * 1_073_741_824],
             scalar_reg: [0; SGPR_COUNT],
-            vec_reg: [0; 10000],
+            vec_reg: [0; VGPR_COUNT],
         };
     }
 
@@ -165,14 +166,15 @@ impl CPU {
                 }
                 // vop2
                 _ if instruction >> 31 == 0b0 => {
-                    let ssrc0 = instruction & 0x1FF;
-                    let vsrc1 = (instruction >> 9) & 0xFF;
+                    let ssrc0 = self.resolve_ssrc(instruction & 0x1FF);
+                    let vsrc1 = self.vec_reg[((instruction >> 9) & 0xFF) as usize];
                     let vdst = (instruction >> 17) & 0xFF;
                     let op = (instruction >> 25) & 0x3F;
 
-                    println!("srsc0={} vsc1={} vdst={} op={}", ssrc0, vsrc1, vdst, op);
-
                     match op {
+                        3 => {
+                            self.vec_reg[vdst] = (ssrc0 as f32 + vsrc1 as f32) as u32;
+                        }
                         _ => todo!("vop2 opcode {}", op),
                     };
                 }
@@ -271,7 +273,10 @@ mod test_vop2 {
     #[test]
     fn test_v_add_f32_e32() {
         let mut cpu = CPU::new();
-        cpu.interpret(&vec![06000002, END_PRG]);
+        cpu.scalar_reg[2] = 41;
+        cpu.vec_reg[0] = 1;
+        cpu.interpret(&vec![0x06000002, END_PRG]);
+        assert_eq!(cpu.vec_reg[0], 42);
     }
 }
 #[cfg(test)]
