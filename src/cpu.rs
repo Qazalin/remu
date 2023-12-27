@@ -165,12 +165,12 @@ impl CPU {
                 }
                 // vop2
                 _ if instruction >> 31 == 0b0 => {
-                    let src0 = instruction & 0xFF;
-                    let vsc1 = (instruction >> 8) & 0xFF;
-                    let vdst = (instruction >> 16) & 0xFF;
-                    let op = (instruction >> 24) & 0x7F;
+                    let ssrc0 = instruction & 0x1FF;
+                    let vsrc1 = (instruction >> 9) & 0xFF;
+                    let vdst = (instruction >> 17) & 0xFF;
+                    let op = (instruction >> 25) & 0x3F;
 
-                    println!("srsc0={} vsc1={} vdst={} op={}", src0, vsc1, vdst, op);
+                    println!("srsc0={} vsc1={} vdst={} op={}", ssrc0, vsrc1, vdst, op);
 
                     match op {
                         _ => todo!("vop2 opcode {}", op),
@@ -264,6 +264,16 @@ mod test_sop2 {
     }
 }
 
+#[cfg(test)]
+mod test_vop2 {
+    use super::*;
+
+    #[test]
+    fn test_v_add_f32_e32() {
+        let mut cpu = CPU::new();
+        cpu.interpret(&vec![06000002, END_PRG]);
+    }
+}
 #[cfg(test)]
 mod test_smem {
     use super::*;
