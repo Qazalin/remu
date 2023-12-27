@@ -3,26 +3,26 @@ use std::{env, fs};
 
 pub static DEBUG: Lazy<bool> = Lazy::new(|| env::var("DEBUG").unwrap_or_default() == "1");
 
-pub fn parse_rdna3_file(file_path: &str) -> Vec<usize> {
+pub fn parse_rdna3_file(file_path: &str) -> Vec<u32> {
     let content = fs::read_to_string(file_path).unwrap();
     parse_rdna3(&content)
 }
-pub fn print_hex(i: &usize) {
+pub fn print_hex(i: &u32) {
     println!("0x{:08x}", i);
 }
 
-fn parse_rdna3(content: &str) -> Vec<usize> {
+fn parse_rdna3(content: &str) -> Vec<u32> {
     let mut kernel = content.lines().skip(5);
     let name = kernel.nth(0).unwrap();
     let instructions = kernel
         .map(|line| {
             line.split_whitespace()
-                .filter(|p| usize::from_str_radix(p, 16).is_ok() && p.len() == 8)
+                .filter(|p| u32::from_str_radix(p, 16).is_ok() && p.len() == 8)
                 .collect::<Vec<&str>>()
         })
         .flatten()
-        .map(|x| usize::from_str_radix(x, 16).unwrap())
-        .collect::<Vec<usize>>();
+        .map(|x| u32::from_str_radix(x, 16).unwrap())
+        .collect::<Vec<u32>>();
 
     if *DEBUG {
         println!("{}", name);

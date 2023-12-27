@@ -1,29 +1,30 @@
 use crate::utils::DEBUG;
 
-const SGPR_COUNT: usize = 105;
-const VGPR_COUNT: usize = 256;
-pub const END_PRG: usize = 0xbfb00000;
+const SGPR_COUNT: u32 = 105;
+const VGPR_COUNT: u32 = 256;
+pub const END_PRG: u32 = 0xbfb00000;
 
 pub struct CPU {
-    prg_counter: usize,
+    pc: u64,
     pub memory: Vec<u8>,
-    pub scalar_reg: [u32; SGPR_COUNT],
-    pub vec_reg: [u32; VGPR_COUNT],
+    pub scalar_reg: [u32; SGPR_COUNT as usize],
+    pub vec_reg: [u32; VGPR_COUNT as usize],
     scc: u32,
 }
 
 impl CPU {
     pub fn new() -> Self {
         return CPU {
-            prg_counter: 0,
+            pc: 0,
             scc: 0,
             memory: vec![0; 24 * 1_073_741_824],
-            scalar_reg: [0; SGPR_COUNT],
-            vec_reg: [0; VGPR_COUNT],
+            scalar_reg: [0; SGPR_COUNT as usize],
+            vec_reg: [0; VGPR_COUNT as usize],
         };
     }
 
-    pub fn read_memory_32(&self, addr: usize) -> u32 {
+    pub fn read_memory_32(&self, addr_bf: u32) -> u32 {
+        let addr = addr_bf as usize;
         if addr + 4 > self.memory.len() {
             panic!("Memory read out of bounds");
         }
@@ -32,7 +33,8 @@ impl CPU {
             | ((self.memory[addr + 2] as u32) << 16)
             | ((self.memory[addr + 3] as u32) << 24)
     }
-    pub fn write_memory_32(&mut self, addr: usize, val: u32) {
+    pub fn write_memory_32(&mut self, addr_bf: u32, val: u32) {
+        let addr = addr_bf as usize;
         if addr + 4 > self.memory.len() {
             panic!("Memory write out of bounds");
         }
@@ -42,15 +44,15 @@ impl CPU {
         self.memory[addr + 3] = ((val >> 24) & 0xFF) as u8;
     }
 
-    pub fn interpret(&mut self, prg: &Vec<usize>) {
-        self.prg_counter = 0;
+    pub fn interpret(&mut self, prg: &Vec<u32>) {
+        self.pc = 0;
 
         loop {
-            let instruction = &prg[self.prg_counter];
-            self.prg_counter += 1;
+            let instruction = &prg[self.pc as usize];
+            self.pc += 1;
 
             if *DEBUG {
-                println!("{} 0x{:08x}", self.prg_counter, instruction);
+                println!("{} 0x{:08x}", self.pc, instruction);
             }
 
             match instruction {
@@ -65,11 +67,11 @@ impl CPU {
                     let dlc = (instruction >> 13) & 0x1;
                     let glc = (instruction >> 14) & 0x1;
                     let op = (instruction >> 18) & 0xFF;
-                    let offset_info = prg[self.prg_counter];
+                    let offset_info = prg[self.pc as usize];
                     let offset = offset_info >> 11;
                     let soffset = match offset_info & 0x7F {
                         _ if offset == 0 => 0, // NULL
-                        0..=SGPR_COUNT => self.scalar_reg[offset_info & 0x7F],
+                        0..=SGPR_COUNT => self.scalar_reg[(offset_info & 0x7F) as usize],
                         _ => todo!("smem soffset {}", offset_info & 0x7F),
                     };
 
@@ -80,28 +82,28 @@ impl CPU {
                         );
                     }
 
-                    let addr = self.scalar_reg[sbase] + (offset as u32) + soffset;
+                    let addr = self.scalar_reg[sbase as usize] + (offset as u32) + soffset;
 
                     match op {
                         0..=4 => {
-                            for i in 0..=2_usize.pow(op as u32) {
-                                self.scalar_reg[sdata + i] =
-                                    self.read_memory_32((addr as usize) + i * 4);
+                            for i in 0..=2_u32.pow(op as u32) {
+                                self.scalar_reg[(sdata + i) as usize] =
+                                    self.read_memory_32(addr + i * 4);
                             }
                         }
                         _ => todo!("smem op {}", op),
                     }
 
-                    self.prg_counter += 1;
+                    self.pc += 1;
                 }
                 0xca100080 => {
-                    let mut val = prg[self.prg_counter];
+                    let mut val = prg[self.pc as usize];
                     if val < 255 {
                         val -= 128;
-                        self.prg_counter += 1;
+                        self.pc += 1;
                     } else {
-                        val = prg[self.prg_counter + 1];
-                        self.prg_counter += 2;
+                        val = prg[(self.pc + 1) as usize];
+                        self.pc += 2;
                     }
                     self.vec_reg[0] = 0;
                     self.vec_reg[1] = val as u32;
@@ -162,7 +164,7 @@ impl CPU {
                 _ if instruction >> 25 == 0b0111111 => {
                     let vdst = (instruction >> 17) & 0xFF;
                     let vsrc = instruction & 0x1FF;
-                    self.vec_reg[vdst] = self.vec_reg[vsrc];
+                    self.vec_reg[vdst as usize] = self.vec_reg[vsrc as usize];
                 }
                 // vop2
                 _ if instruction >> 31 == 0b0 => {
@@ -173,25 +175,26 @@ impl CPU {
 
                     match op {
                         3 => {
-                            self.vec_reg[vdst] = (ssrc0 as f32 + vsrc1 as f32) as u32;
+                            self.vec_reg[vdst as usize] = (ssrc0 as f32 + vsrc1 as f32) as u32;
                         }
                         8 => {
-                            self.vec_reg[vdst] = (ssrc0 as f32 * vsrc1 as f32) as u32;
+                            self.vec_reg[vdst as usize] = (ssrc0 as f32 * vsrc1 as f32) as u32;
                         }
                         29 => {
-                            self.vec_reg[vdst] = (ssrc0 as u32) ^ vsrc1;
+                            self.vec_reg[vdst as usize] = (ssrc0 as u32) ^ vsrc1;
                         }
                         43 => {
-                            self.vec_reg[vdst] =
-                                ((ssrc0 as f32 * vsrc1 as f32) + self.vec_reg[vdst] as f32) as u32;
+                            self.vec_reg[vdst as usize] = ((ssrc0 as f32 * vsrc1 as f32)
+                                + self.vec_reg[vdst as usize] as f32)
+                                as u32;
                         }
                         45 => {
                             let simm32 =
-                                f32::from_bits((prg[self.prg_counter] as i32).try_into().unwrap());
+                                f32::from_bits((prg[self.pc as usize] as i32).try_into().unwrap());
                             let s0 = f32::from_bits(ssrc0 as u32);
                             let s1 = f32::from_bits(vsrc1 as u32);
-                            self.vec_reg[vdst] = (s0 * s1 + simm32).to_bits();
-                            self.prg_counter += 1;
+                            self.vec_reg[vdst as usize] = (s0 * s1 + simm32).to_bits();
+                            self.pc += 1;
                         }
                         _ => todo!("vop2 opcode {}", op),
                     };
@@ -203,18 +206,18 @@ impl CPU {
     }
 
     /* Scalar ALU utils */
-    fn resolve_ssrc(&self, ssrc_bf: usize) -> i32 {
+    fn resolve_ssrc(&self, ssrc_bf: u32) -> i32 {
         match ssrc_bf {
-            0..=SGPR_COUNT => self.scalar_reg[ssrc_bf] as i32,
-            VGPR_COUNT..=511 => self.vec_reg[ssrc_bf - VGPR_COUNT] as i32,
+            0..=SGPR_COUNT => self.scalar_reg[ssrc_bf as usize] as i32,
+            VGPR_COUNT..=511 => self.vec_reg[(ssrc_bf - VGPR_COUNT) as usize] as i32,
             128 => 0,
             129..=192 => (ssrc_bf - 128) as i32,
             _ => todo!("resolve ssrc {}", ssrc_bf),
         }
     }
-    fn write_to_sdst(&mut self, sdst_bf: usize, val: u32) {
+    fn write_to_sdst(&mut self, sdst_bf: u32, val: u32) {
         match sdst_bf {
-            0..=SGPR_COUNT => self.scalar_reg[sdst_bf] = val,
+            0..=SGPR_COUNT => self.scalar_reg[sdst_bf as usize] = val,
             _ => todo!("write to sdst {}", sdst_bf),
         }
     }
@@ -330,7 +333,7 @@ mod test_vop2 {
         let mut cpu = CPU::new();
         cpu.vec_reg[5] = f32::to_bits(0.42);
         cpu.scalar_reg[7] = f32::to_bits(0.24);
-        cpu.interpret(&vec![0x5a100a07, f32::to_bits(0.93) as usize, END_PRG]);
+        cpu.interpret(&vec![0x5a100a07, f32::to_bits(0.93), END_PRG]);
         assert_eq!(f32::from_bits(cpu.vec_reg[8]), 1.0308);
     }
 }
@@ -340,19 +343,19 @@ mod test_smem {
 
     fn helper_test_s_load(
         mut cpu: CPU,
-        op: usize,
-        offset: usize,
+        op: u32,
+        offset: u32,
         data: Vec<u32>,
-        base_mem_addr: usize,
-        base_sgpr: usize,
+        base_mem_addr: u32,
+        base_sgpr: u32,
     ) {
         data.iter()
             .enumerate()
-            .for_each(|(i, &v)| cpu.write_memory_32(base_mem_addr + i * 4, v));
+            .for_each(|(i, &v)| cpu.write_memory_32(base_mem_addr + (i as u32) * 4, v));
         cpu.interpret(&vec![op, offset, END_PRG]);
         data.iter()
             .enumerate()
-            .for_each(|(i, &v)| assert_eq!(cpu.scalar_reg[i + base_sgpr], v));
+            .for_each(|(i, &v)| assert_eq!(cpu.scalar_reg[i + (base_sgpr as usize)], v));
     }
 
     #[test]
