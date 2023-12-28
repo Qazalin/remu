@@ -68,6 +68,7 @@ impl CPU {
                     let op = (instruction >> 18) & 0xFF;
                     let offset_info = prg[self.pc as usize];
                     let offset = offset_info >> 11;
+                    println!("{}, {}", offset as i32 as i64, offset);
                     let soffset = match offset_info & 0x7F {
                         _ if offset == 0 => 0, // NULL
                         0..=SGPR_COUNT => self.scalar_reg[(offset_info & 0x7F) as usize],
@@ -532,5 +533,6 @@ mod test_real_world {
     #[test]
     fn test_add_simple() {
         let cpu = helper_test_op("test_add_simple");
+        panic!();
     }
 }
