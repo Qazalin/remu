@@ -91,7 +91,6 @@ impl CPU {
                     let addr = ((self.scalar_reg[sbase as usize] as i64)
                         + offset
                         + (soffset as i64)) as u64;
-                    println!("{} {}", offset, addr);
 
                     match op {
                         0..=4 => {
@@ -452,9 +451,9 @@ mod test_smem {
         mut cpu: CPU,
         op: u32,
         offset: u32,
-        data: Vec<u32>,
+        data: &Vec<u32>,
         base_mem_addr: u64,
-        base_sgpr: u32,
+        starting_dest_sgpr: u32,
     ) {
         data.iter()
             .enumerate()
@@ -462,66 +461,74 @@ mod test_smem {
         cpu.interpret(&vec![op, offset, END_PRG]);
         data.iter()
             .enumerate()
-            .for_each(|(i, &v)| assert_eq!(cpu.scalar_reg[i + (base_sgpr as usize)], v));
+            .for_each(|(i, &v)| assert_eq!(cpu.scalar_reg[i + (starting_dest_sgpr as usize)], v));
     }
 
     #[test]
     fn test_s_load_b32() {
         // no offset
-        helper_test_s_load(CPU::new(), 0xf4000000, 0xf8000000, vec![42], 0, 0);
+        helper_test_s_load(CPU::new(), 0xf4000000, 0xf8000000, &vec![42], 0, 0);
 
         // positive offset
-        helper_test_s_load(CPU::new(), 0xf4000000, 0xf8000004, vec![42], 0x4, 0);
-        helper_test_s_load(CPU::new(), 0xf4000000, 0xf800000c, vec![42], 0xc, 0);
+        helper_test_s_load(CPU::new(), 0xf4000000, 0xf8000004, &vec![42], 0x4, 0);
+        helper_test_s_load(CPU::new(), 0xf4000000, 0xf800000c, &vec![42], 0xc, 0);
 
         // negative offset
         let offset_value: i64 = -0x4;
         let mut cpu = CPU::new();
         cpu.scalar_reg[0] = 10000;
-        helper_test_s_load(cpu, 0xf4000000, 0xf81fffd8, vec![42], 19960, 0);
+        helper_test_s_load(cpu, 0xf4000000, 0xf81fffd8, &vec![42], 19960, 0);
     }
 
     #[test]
-    fn test_s_load_b64_soffset() {
+    fn test_s_load_b64() {
+        let data = (0..=2).collect();
+
+        // positive offset
+        helper_test_s_load(CPU::new(), 0xf4040000, 0xf8000010, &data, 0x10, 0);
+        helper_test_s_load(CPU::new(), 0xf4040204, 0xf8000268, &data, 0x268, 8);
+
+        // negative offset
         let mut cpu = CPU::new();
-        cpu.scalar_reg[16] = 22;
-        helper_test_s_load(cpu, 0xf4040000, 0xf8000010, (0..=2).collect(), 2031638, 0);
+        cpu.scalar_reg[2] = 612;
+        helper_test_s_load(cpu, 0xf4040301, 0xf81ffd9c, &data, 0, 12);
     }
 
     #[test]
     fn test_s_load_b128() {
-        helper_test_s_load(
-            CPU::new(),
-            0xf4080100,
-            0xf8000000,
-            (0..=4).collect(),
-            2031616,
-            4,
-        )
+        let data = (0..=4).collect();
+
+        // positive offset
+        helper_test_s_load(CPU::new(), 0xf4080000, 0xf8000000, &data, 0, 0);
+
+        let mut cpu = CPU::new();
+        let base_mem_addr: u64 = 0x10;
+        cpu.scalar_reg[6] = base_mem_addr as u32;
+        helper_test_s_load(cpu, 0xf4080203, 0xf8000000, &data, base_mem_addr, 8);
+
+        // negative offset
+        let mut cpu = CPU::new();
+        cpu.scalar_reg[2] = 0x10;
+        helper_test_s_load(cpu, 0xf4080401, 0xf81ffff0, &data, 0, 16);
     }
 
     #[test]
     fn test_s_load_b256() {
-        helper_test_s_load(
-            CPU::new(),
-            0xf40c040d,
-            0xf8000000,
-            (0..=8).collect(),
-            2031616,
-            16,
-        )
-    }
+        let data = (0..=8).collect();
 
-    #[test]
-    fn test_s_load_b512() {
-        helper_test_s_load(
-            CPU::new(),
-            0xf410000c,
-            0xf8000000,
-            (0..=16).collect(),
-            2031616,
-            0,
-        )
+        // positive offset
+        helper_test_s_load(CPU::new(), 0xf40c0000, 0xf8000000, &data, 0, 0);
+
+        let mut cpu = CPU::new();
+        let base_mem_addr: u64 = 0x55;
+        cpu.scalar_reg[10] = base_mem_addr as u32;
+        helper_test_s_load(cpu, 0xf40c0005, 0xf8000040, &data, base_mem_addr + 0x40, 0);
+
+        // negative offset
+        let mut cpu = CPU::new();
+        let base_mem_addr: u64 = 0x55;
+        cpu.scalar_reg[2] = base_mem_addr as u32;
+        helper_test_s_load(cpu, 0xf40c0401, 0xf81fffd0, &data, base_mem_addr - 0x30, 16);
     }
 }
 
