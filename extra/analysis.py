@@ -47,23 +47,12 @@ sop2 = df[df.apply(lambda x: ((x["instruction0"] >> 30) == 0b10) and ((x["instru
 
 # smem: startswith 111101 and is 64 bits long (two instructions)
 smem = df[df.apply(lambda x: x["instruction0"] >> 26 == 0b111101 and x["instruction1"] != 0, axis=1)]
-#print(smem["instruction1"].apply(lambda x: hex(x).replace("0x", "").upper()).unique())
-
-smem["line"] = smem["line"].apply(lambda x: x.split("/")[0].strip().split(",")[-2].strip())
-smem = smem.groupby(["instruction0", "line"]).count().reset_index().sort_values(by="test", ascending=False)
-smem["instruction0"] = smem["instruction0"].apply(lambda x: hex(x).replace("0x", "").upper())
-sgpr_pairs = smem[["line", "instruction0", "test"]]
-sgpr_pairs["line"] = sgpr_pairs["line"].apply(lambda x: x.replace("s", "").replace("[", "").replace("]", ""))
-sgpr_pairs["s0"] = sgpr_pairs["line"].apply(lambda x: int(x.split(":")[0]))
-sgpr_pairs["s1"] = sgpr_pairs["line"].apply(lambda x: int(x.split(":")[1]))
-sgpr_pairs["sbase"] = sgpr_pairs["instruction0"].apply(lambda x: bin(int(x, 16) & 0x3f))
-sgpr_pairs["instr"] = sgpr_pairs["instruction0"].apply(lambda x: bin(int(x, 16)))
-sgpr_pairs = sgpr_pairs[["s0", "s1", "instr", "sbase"]]
-
-sgpr_pairs = sgpr_pairs.groupby(["sbase", "s0", "s1"]).count().reset_index().sort_values(by="s0")
-sgpr_pairs["sbase_int"] = sgpr_pairs["sbase"].apply(lambda x: int(x, 2))
-sgpr_pairs = sgpr_pairs[["sbase", "s0", "s1", "sbase_int"]]
-print(sgpr_pairs)
+smem = smem[smem["code"] == "s_load_b32"]
+smem = smem[["line", "instruction0", "instruction1", "hex"]]
+smem = smem.groupby(["line", "instruction0", "instruction1", "hex"]).count().reset_index()
+smem["line"] = smem["line"].apply(lambda x: x.split("/")[0].strip())
+smem["hex"] = smem["hex"].apply(lambda x: "0x"+x.split(" ")[0].lower() + ", " + "0x"+x.split(" ")[1].lower())
+print(smem)
 
 sop1 = df[df.apply(lambda x: x["instruction0"] >> 23 == 0b10_1111101, axis=1)]
 #code_freq(sop1)

@@ -465,7 +465,11 @@ mod test_smem {
 
     #[test]
     fn test_s_load_b32() {
-        helper_test_s_load(CPU::new(), 0xF4040000, 0xF8000010, vec![42], 2031616, 6);
+        helper_test_s_load(CPU::new(), 0xf4000000, 0xf8000000, vec![42], 16, 0);
+        helper_test_s_load(CPU::new(), 0xf4000000, 0xf8000004, vec![42], 16, 0);
+        helper_test_s_load(CPU::new(), 0xf4000000, 0xf81fffd8, vec![42], 16, 0);
+        helper_test_s_load(CPU::new(), 0xf400180e, 0xf81ffffc, vec![42], 16, 0);
+        helper_test_s_load(CPU::new(), 0xf4001871, 0xf80002ac, vec![42], 16, 0);
     }
 
     #[test]
