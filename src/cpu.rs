@@ -59,7 +59,7 @@ impl CPU {
                 // control flow
                 &END_PRG => return,
                 _ if instruction >> 24 == 0xbf => {}
-                // smem
+                // smem_offsets
                 _ if instruction >> 26 == 0b111101 => {
                     let sbase = instruction & 0x3F;
                     let sdata = (instruction >> 6) & 0x7F;
@@ -68,19 +68,16 @@ impl CPU {
                     let op = (instruction >> 18) & 0xFF;
                     let offset_info = prg[self.pc as usize];
                     let offset = offset_info >> 11;
-                    println!("{}, {}", offset as i32 as i64, offset);
                     let soffset = match offset_info & 0x7F {
                         _ if offset == 0 => 0, // NULL
                         0..=SGPR_COUNT => self.scalar_reg[(offset_info & 0x7F) as usize],
                         _ => todo!("smem soffset {}", offset_info & 0x7F),
                     };
 
-                    if *DEBUG {
-                        println!(
-                            "sbase={} sdata={} dlc={} glc={} op={} offset={} soffset={}",
-                            sbase, sdata, dlc, glc, op, offset, soffset
-                        );
-                    }
+                    println!(
+                        "SMEM {:08X} {:08X} sbase={} sdata={} dlc={} glc={} op={} offset={} soffset={}",
+                        instruction, offset_info, sbase, sdata, dlc, glc, op, offset, soffset
+                    );
 
                     let addr = self.scalar_reg[sbase as usize] + (offset as u32) + soffset;
 
@@ -502,6 +499,18 @@ mod test_smem {
             2031616,
             0,
         )
+    }
+
+    #[test]
+    fn test_smem_offsets() {
+        let mut cpu = CPU::new();
+        cpu.interpret(&vec![0xf4080000, 0xf8000000, END_PRG]);
+        cpu.interpret(&vec![0xf4080000, 0xF8000008, END_PRG]);
+        cpu.interpret(&vec![0xf4080000, 0xf8000010, END_PRG]);
+        cpu.interpret(&vec![0xf4080000, 0xf8000020, END_PRG]);
+        cpu.interpret(&vec![0xf4080000, 0xf8000040, END_PRG]);
+        cpu.interpret(&vec![0xf4000641, 0x72000008, END_PRG]);
+        panic!();
     }
 }
 

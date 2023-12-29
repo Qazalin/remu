@@ -47,7 +47,14 @@ sop2 = df[df.apply(lambda x: ((x["instruction0"] >> 30) == 0b10) and ((x["instru
 
 # smem: startswith 111101 and is 64 bits long (two instructions)
 smem = df[df.apply(lambda x: x["instruction0"] >> 26 == 0b111101 and x["instruction1"] != 0, axis=1)]
-print(smem["instruction1"].apply(lambda x: hex(x).replace("0x", "").upper()).unique())
+#print(smem["instruction1"].apply(lambda x: hex(x).replace("0x", "").upper()).unique())
+
+smem["line"] = smem["line"].apply(lambda x: x.split("/")[0].strip().split(",")[-1].strip())
+smem = smem.groupby(["instruction1", "line"]).count().reset_index().sort_values(by="test", ascending=False)
+smem["instruction1"] = smem["instruction1"].apply(lambda x: hex(x).replace("0x", "").upper())
+smem = smem[["line", "instruction1", "test"]]
+
+print(smem)
 
 sop1 = df[df.apply(lambda x: x["instruction0"] >> 23 == 0b10_1111101, axis=1)]
 #code_freq(sop1)
