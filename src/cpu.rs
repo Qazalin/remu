@@ -370,6 +370,18 @@ mod test_sop2 {
 }
 
 #[cfg(test)]
+mod test_vop1 {
+    use super::*;
+
+    #[test]
+    fn test_v_mov_b32() {
+        let mut cpu = CPU::new();
+        cpu.interpret(&vec![0x7e020280, END_PRG]);
+        assert_eq!(cpu.vec_reg[0], 42);
+    }
+}
+
+#[cfg(test)]
 mod test_vop2 {
     use super::*;
 
