@@ -64,15 +64,17 @@ impl CPU {
                 _ if instruction >> 26 == 0b111101 => {
                     let offset_info = prg[self.pc as usize] as u64;
                     let instr = offset_info << 32 | *instruction as u64;
-                    let sbase = instr & 0x3F;
-                    let sdata = (instr >> 6) & 0x7F;
+                    let sbase = instr & 0x3f;
+                    let sdata = (instr >> 6) & 0x7f;
                     let dlc = (instr >> 13) & 0x1;
                     let glc = (instr >> 14) & 0x1;
-                    let op = (instr >> 18) & 0xFF;
-                    let offset = (instr >> 11);
+                    let glc = (instr >> 14) & 0x1;
+                    let op = (instr >> 18) & 0xff;
+                    let encoding = (instr >> 26) & 0x3f;
+                    let offset = (instr >> 32) & 0x1fffff;
                     let soffset = match instr & 0x7F {
                         _ if offset == 0 => 0, // NULL
-                        0..=105 => self.scalar_reg[(instr & 0x7F) as usize],
+                        0..=105 => self.scalar_reg[((instr >> 57) & 0x7f) as usize],
                         _ => todo!("smem soffset {}", instr & 0x7F),
                     };
 
