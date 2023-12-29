@@ -64,8 +64,12 @@ impl CPU {
                 _ if instruction >> 26 == 0b111101 => {
                     let offset_info = prg[self.pc as usize] as u64;
                     let instr = offset_info << 32 | *instruction as u64;
-                    // sbase has an implied LSB of zero
-                    let sbase = (instr & 0x3f);
+                    // NOTE: sbase has an implied LSB of zero
+                    /**
+                     * In smem reads when the address-base comes from an SGPR-pair, it's always
+                     * even-aligned. s[sbase:sbase+1]
+                     */
+                    let sbase = (instr & 0x3f) * 2;
                     let sdata = (instr >> 6) & 0x7f;
                     let dlc = (instr >> 13) & 0x1;
                     let glc = (instr >> 14) & 0x1;
@@ -84,10 +88,9 @@ impl CPU {
                         println!("SMEM {:08X} {:08X} sbase={} sdata={} dlc={} glc={} op={} offset={} soffset={}", instruction, offset_info, sbase, sdata, dlc, glc, op, offset, soffset);
                     }
 
-                    println!("base {:06b}", sbase);
-
                     let addr = (self.scalar_reg[sbase as usize] as u64) + (offset as u64) + soffset;
 
+                    println!("address {}, {} {} {}", addr, sbase, offset, soffset);
                     match op {
                         0..=4 => {
                             for i in 0..=2_u64.pow(op as u32) {
@@ -97,7 +100,6 @@ impl CPU {
                         }
                         _ => todo!("smem op {}", op),
                     }
-                    panic!();
 
                     self.pc += 1;
                 }
