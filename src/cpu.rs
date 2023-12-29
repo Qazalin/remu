@@ -61,31 +61,32 @@ impl CPU {
                 _ if instruction >> 24 == 0xbf => {}
                 // smem_offsets
                 _ if instruction >> 26 == 0b111101 => {
-                    let sbase = instruction & 0x3F;
-                    let sdata = (instruction >> 6) & 0x7F;
-                    let dlc = (instruction >> 13) & 0x1;
-                    let glc = (instruction >> 14) & 0x1;
-                    let op = (instruction >> 18) & 0xFF;
-                    let offset_info = prg[self.pc as usize];
-                    let offset = offset_info >> 11;
-                    let soffset = match offset_info & 0x7F {
+                    let offset_info = prg[self.pc as usize] as u64;
+                    let instr = offset_info << 32 | *instruction as u64;
+                    let sbase = instr & 0x3F;
+                    let sdata = (instr >> 6) & 0x7F;
+                    let dlc = (instr >> 13) & 0x1;
+                    let glc = (instr >> 14) & 0x1;
+                    let op = (instr >> 18) & 0xFF;
+                    let offset = (instr >> 11);
+                    let soffset = match instr & 0x7F {
                         _ if offset == 0 => 0, // NULL
-                        0..=SGPR_COUNT => self.scalar_reg[(offset_info & 0x7F) as usize],
-                        _ => todo!("smem soffset {}", offset_info & 0x7F),
+                        0..=105 => self.scalar_reg[(instr & 0x7F) as usize],
+                        _ => todo!("smem soffset {}", instr & 0x7F),
                     };
 
                     println!(
-                        "SMEM {:08X} {:08X} sbase={} sdata={} dlc={} glc={} op={} offset={} soffset={}",
-                        instruction, offset_info, sbase, sdata, dlc, glc, op, offset, soffset
+                        "SMEM {:08X} {:08X} sbase={} sdata={} dlc={} glc={} op={} offset=0x{:08x} soffset={}",
+                        instruction, prg[self.pc as usize], sbase, sdata, dlc, glc, op, offset, soffset
                     );
 
-                    let addr = self.scalar_reg[sbase as usize] + (offset as u32) + soffset;
+                    let addr = (self.scalar_reg[sbase as usize] + (offset as u32) + soffset) as u64;
 
                     match op {
                         0..=4 => {
-                            for i in 0..=2_u32.pow(op as u32) {
+                            for i in 0..=2_u64.pow(op as u32) {
                                 self.scalar_reg[(sdata + i) as usize] =
-                                    self.read_memory_32((addr + i * 4) as u64);
+                                    self.read_memory_32(addr + i * 4);
                             }
                         }
                         _ => todo!("smem op {}", op),
