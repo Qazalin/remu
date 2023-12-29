@@ -170,9 +170,9 @@ impl CPU {
                 }
                 // vop1
                 _ if instruction >> 25 == 0b0111111 => {
-                    let vdst = (instruction >> 17) & 0xFF;
-                    let vsrc = instruction & 0x1FF;
-                    self.vec_reg[vdst as usize] = self.vec_reg[vsrc as usize];
+                    let src = instruction & 0x1ff;
+                    let op = (instruction >> 9) & 0xff;
+                    let vdst = (instruction >> 17) & 0xff;
                 }
                 // vop2
                 _ if instruction >> 31 == 0b0 => {
