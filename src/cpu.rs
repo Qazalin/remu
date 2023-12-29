@@ -1,3 +1,4 @@
+#![allow(unused)]
 use crate::utils::DEBUG;
 
 const SGPR_COUNT: u32 = 105;
