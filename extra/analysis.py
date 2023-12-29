@@ -61,6 +61,8 @@ sgpr_pairs["instr"] = sgpr_pairs["instruction0"].apply(lambda x: bin(int(x, 16))
 sgpr_pairs = sgpr_pairs[["s0", "s1", "instr", "sbase"]]
 
 sgpr_pairs = sgpr_pairs.groupby(["sbase", "s0", "s1"]).count().reset_index().sort_values(by="s0")
+sgpr_pairs["sbase_int"] = sgpr_pairs["sbase"].apply(lambda x: int(x, 2))
+sgpr_pairs = sgpr_pairs[["sbase", "s0", "s1", "sbase_int"]]
 print(sgpr_pairs)
 
 sop1 = df[df.apply(lambda x: x["instruction0"] >> 23 == 0b10_1111101, axis=1)]
