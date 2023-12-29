@@ -90,7 +90,11 @@ impl CPU {
 
                     let addr = (self.scalar_reg[sbase as usize] as u64) + (offset as u64) + soffset;
 
-                    println!("address {}, {} {} {}", addr, sbase, offset, soffset);
+                    let off = (instr >> 32) & 0x1fffff;
+                    let off_bytes = off.to_le_bytes();
+                    // let signed_val = i32::from_le_bytes(off_bytes);
+                    println!("{:b}", off);
+
                     match op {
                         0..=4 => {
                             for i in 0..=2_u64.pow(op as u32) {
@@ -465,11 +469,23 @@ mod test_smem {
 
     #[test]
     fn test_s_load_b32() {
-        helper_test_s_load(CPU::new(), 0xf4000000, 0xf8000000, vec![42], 16, 0);
-        helper_test_s_load(CPU::new(), 0xf4000000, 0xf8000004, vec![42], 16, 0);
-        helper_test_s_load(CPU::new(), 0xf4000000, 0xf81fffd8, vec![42], 16, 0);
-        helper_test_s_load(CPU::new(), 0xf400180e, 0xf81ffffc, vec![42], 16, 0);
-        helper_test_s_load(CPU::new(), 0xf4001871, 0xf80002ac, vec![42], 16, 0);
+        // no offset
+        helper_test_s_load(CPU::new(), 0xf4000000, 0xf8000000, vec![42], 0, 0);
+
+        // positive offset
+        helper_test_s_load(CPU::new(), 0xf4000000, 0xf8000004, vec![42], 0x4, 0);
+        helper_test_s_load(CPU::new(), 0xf4000000, 0xf800000c, vec![42], 0xc, 0);
+
+        // negative offset
+        let offset_value: i32 = -0x4;
+        helper_test_s_load(
+            CPU::new(),
+            0xf4000000,
+            0xf81ffffc,
+            vec![42],
+            offset_value as u32,
+            0,
+        );
     }
 
     #[test]
