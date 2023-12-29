@@ -35,6 +35,16 @@ fn parse_rdna3(content: &str) -> Vec<u32> {
     return instructions;
 }
 
+/** We use this for the smem immediate 21-bit constant OFFSET */
+pub fn twos_complement_21bit(num: u64) -> i64 {
+    let mut value = num;
+    let is_negative = (value >> 20) & 1 != 0;
+    if is_negative {
+        value |= !0 << 21;
+    }
+    value as i64
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -61,5 +71,15 @@ Disassembly of section .text:
             hexed,
             ["0xf4040000", "0xf8000000", "0xca100080", "0x00000084",]
         );
+    }
+
+    #[test]
+    fn test_twos_complement_21bit() {
+        assert_eq!(twos_complement_21bit(0b000000000000000101000), 40);
+        assert_eq!(twos_complement_21bit(0b111111111111111011000), -40);
+        assert_eq!(twos_complement_21bit(0b000000000000000000000), 0);
+        assert_eq!(twos_complement_21bit(0b111111111111111111111), -1);
+        assert_eq!(twos_complement_21bit(0b111000000000000000000), -262144);
+        assert_eq!(twos_complement_21bit(0b000111111111111111111), 262143);
     }
 }

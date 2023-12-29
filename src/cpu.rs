@@ -1,5 +1,5 @@
 #![allow(unused)]
-use crate::utils::DEBUG;
+use crate::utils::{twos_complement_21bit, DEBUG};
 
 const SGPR_COUNT: u32 = 105;
 const VGPR_COUNT: u32 = 256;
@@ -77,7 +77,7 @@ impl CPU {
                     let op = (instr >> 18) & 0xff;
                     let encoding = (instr >> 26) & 0x3f;
                     // offset is a sign-extend immediate 21-bit constant
-                    let offset = ((instr >> 32) & 0x1fffff) as i64 as u64;
+                    let offset = twos_complement_21bit((instr >> 32) & 0x1fffff);
                     let soffset = match instr & 0x7F {
                         _ if offset == 0 => 0, // NULL
                         // the SGPR contains an unsigned byte offset (the 2 LSBs are ignored).
@@ -88,12 +88,10 @@ impl CPU {
                         println!("SMEM {:08X} {:08X} sbase={} sdata={} dlc={} glc={} op={} offset={} soffset={}", instruction, offset_info, sbase, sdata, dlc, glc, op, offset, soffset);
                     }
 
-                    let addr = (self.scalar_reg[sbase as usize] as u64) + (offset as u64) + soffset;
-
-                    let off = (instr >> 32) & 0x1fffff;
-                    let off_bytes = off.to_le_bytes();
-                    // let signed_val = i32::from_le_bytes(off_bytes);
-                    println!("{:b}", off);
+                    let addr = ((self.scalar_reg[sbase as usize] as i64)
+                        + offset
+                        + (soffset as i64)) as u64;
+                    println!("{} {}", offset, addr);
 
                     match op {
                         0..=4 => {
@@ -455,12 +453,12 @@ mod test_smem {
         op: u32,
         offset: u32,
         data: Vec<u32>,
-        base_mem_addr: u32,
+        base_mem_addr: u64,
         base_sgpr: u32,
     ) {
         data.iter()
             .enumerate()
-            .for_each(|(i, &v)| cpu.write_memory_32((base_mem_addr + (i as u32) * 4) as u64, v));
+            .for_each(|(i, &v)| cpu.write_memory_32((base_mem_addr + (i as u64) * 4) as u64, v));
         cpu.interpret(&vec![op, offset, END_PRG]);
         data.iter()
             .enumerate()
@@ -477,15 +475,10 @@ mod test_smem {
         helper_test_s_load(CPU::new(), 0xf4000000, 0xf800000c, vec![42], 0xc, 0);
 
         // negative offset
-        let offset_value: i32 = -0x4;
-        helper_test_s_load(
-            CPU::new(),
-            0xf4000000,
-            0xf81ffffc,
-            vec![42],
-            offset_value as u32,
-            0,
-        );
+        let offset_value: i64 = -0x4;
+        let mut cpu = CPU::new();
+        cpu.scalar_reg[0] = 10000;
+        helper_test_s_load(cpu, 0xf4000000, 0xf81fffd8, vec![42], 19960, 0);
     }
 
     #[test]
@@ -529,14 +522,6 @@ mod test_smem {
             2031616,
             0,
         )
-    }
-
-    #[test]
-    fn test_smem_offsets() {
-        let mut cpu = CPU::new();
-        cpu.interpret(&vec![0xf4080000, 0xf8000000, END_PRG]);
-        cpu.interpret(&vec![0xf4040000, 0xf8000010, END_PRG]);
-        cpu.interpret(&vec![0xf4000304, 0xf8000008, END_PRG]);
     }
 }
 

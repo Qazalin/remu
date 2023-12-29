@@ -52,6 +52,11 @@ smem = smem[["line", "instruction0", "instruction1", "hex"]]
 smem = smem.groupby(["line", "instruction0", "instruction1", "hex"]).count().reset_index()
 smem["line"] = smem["line"].apply(lambda x: x.split("/")[0].strip())
 smem["hex"] = smem["hex"].apply(lambda x: "0x"+x.split(" ")[0].lower() + ", " + "0x"+x.split(" ")[1].lower())
+# select where smem["line"] has a - char in it
+smem = smem[smem.apply(lambda x: "-" in x["line"], axis=1)]
+smem["offset"] = smem["instruction1"] & 0x1fffff
+smem["offset_signed"] = smem["offset"].apply(lambda x: x - 0x200000 if x > 0x100000 else x)
+smem["instruction1"] = smem["instruction1"].apply(lambda x: bin(x))
 print(smem)
 
 sop1 = df[df.apply(lambda x: x["instruction0"] >> 23 == 0b10_1111101, axis=1)]
