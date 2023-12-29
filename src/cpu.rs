@@ -60,13 +60,12 @@ impl CPU {
                 // control flow
                 &END_PRG => return,
                 _ if instruction >> 24 == 0xbf => {}
-                // smem_offsets
+                // smem
                 _ if instruction >> 26 == 0b111101 => {
                     let offset_info = prg[self.pc as usize] as u64;
-                    println!("SMEM {:08X} {:08X}", instruction, offset_info);
                     let instr = offset_info << 32 | *instruction as u64;
-                    println!("{:b}", instr);
-                    let sbase = instr & 0x3f;
+                    // sbase has an implied LSB of zero
+                    let sbase = (instr & 0x3f);
                     let sdata = (instr >> 6) & 0x7f;
                     let dlc = (instr >> 13) & 0x1;
                     let glc = (instr >> 14) & 0x1;
@@ -81,10 +80,11 @@ impl CPU {
                         val => (self.resolve_ssrc(val as u32) & -4) as u64,
                     };
 
-                    println!(
-                        "sbase={} sdata={} dlc={} glc={} op={} offset={} soffset={}",
-                        sbase, sdata, dlc, glc, op, offset, soffset
-                    );
+                    if *DEBUG {
+                        println!("SMEM {:08X} {:08X} sbase={} sdata={} dlc={} glc={} op={} offset={} soffset={}", instruction, offset_info, sbase, sdata, dlc, glc, op, offset, soffset);
+                    }
+
+                    println!("base {:06b}", sbase);
 
                     let addr = (self.scalar_reg[sbase as usize] as u64) + (offset as u64) + soffset;
 
@@ -97,6 +97,7 @@ impl CPU {
                         }
                         _ => todo!("smem op {}", op),
                     }
+                    panic!();
 
                     self.pc += 1;
                 }
@@ -462,7 +463,7 @@ mod test_smem {
 
     #[test]
     fn test_s_load_b32() {
-        helper_test_s_load(CPU::new(), 0xf4000183, 0xf8000000, vec![42], 2031616, 6);
+        helper_test_s_load(CPU::new(), 0xF4040000, 0xF8000010, vec![42], 2031616, 6);
     }
 
     #[test]
