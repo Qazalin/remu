@@ -170,9 +170,18 @@ impl CPU {
                 }
                 // vop1
                 _ if instruction >> 25 == 0b0111111 => {
-                    let src = instruction & 0x1ff;
+                    let src = self.resolve_ssrc(instruction & 0x1ff);
                     let op = (instruction >> 9) & 0xff;
                     let vdst = (instruction >> 17) & 0xff;
+
+                    if *DEBUG {
+                        println!("VOP1 src={} op={} vdst={}", src, op, vdst);
+                    }
+
+                    match op {
+                        1 => self.vec_reg[vdst as usize] = src as u32,
+                        _ => todo!(),
+                    }
                 }
                 // vop2
                 _ if instruction >> 31 == 0b0 => {
@@ -374,11 +383,34 @@ mod test_vop1 {
     use super::*;
 
     #[test]
-    fn test_v_mov_b32() {
+    fn test_v_mov_b32_srrc_const0() {
         let mut cpu = CPU::new();
+        cpu.interpret(&vec![0x7e000280, END_PRG]);
+        assert_eq!(cpu.vec_reg[0], 0);
         cpu.interpret(&vec![0x7e020280, END_PRG]);
-        assert_eq!(cpu.vec_reg[0], 42);
+        assert_eq!(cpu.vec_reg[1], 0);
+        cpu.interpret(&vec![0x7e040280, END_PRG]);
+        assert_eq!(cpu.vec_reg[2], 0);
     }
+
+    #[test]
+    fn test_v_mov_b32_srrc_register() {
+        let mut cpu = CPU::new();
+        cpu.scalar_reg[6] = 31;
+        cpu.interpret(&vec![0x7e020206, END_PRG]);
+        assert_eq!(cpu.vec_reg[1], 31);
+    }
+
+    // TODO
+    /*
+    #[test]
+    fn test_v_mov_b32_with_const() {
+        let mut cpu = CPU::new();
+        cpu.scalar_reg[6] = 31;
+        cpu.interpret(&vec![0x7e0002ff, 0xff800000, END_PRG]);
+        assert_eq!(cpu.vec_reg[1], 31);
+    }
+    */
 }
 
 #[cfg(test)]
