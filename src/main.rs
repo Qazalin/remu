@@ -4,9 +4,9 @@ pub mod utils;
 
 fn main() {
     let n0: u32 = 0xf4080000;
-    let n1: u32 = 0xf8000000;
+    let n1: u32 = 0xF8000008;
 
-    let instr: u64 = 0b1111100000000000000000000000000011110100000010000000000000000000;
+    let instr: u64 = (n1 as u64) << 32 | n0 as u64;
 
     let sbase = instr & 0x3f;
     let sdata = (instr >> 6) & 0x7f;
@@ -17,8 +17,6 @@ fn main() {
     let encoding = (instr >> 26) & 0x3f;
     let offset = (instr >> 32) & 0x1fffff;
     let soffset = (instr >> 57) & 0x7f;
-
-    // 11111000000000000000000000000000 111101 00000010 000 0 0 0000000 000000
 
     println!("{:b}", instr);
     println!("{:06b}", sbase);
