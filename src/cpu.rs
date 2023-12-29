@@ -511,10 +511,9 @@ mod test_smem {
     #[test]
     fn test_smem_offsets() {
         let mut cpu = CPU::new();
-        // cpu.interpret(&vec![0xf4080000, 0xf8000000, END_PRG]);
+        cpu.interpret(&vec![0xf4080000, 0xf8000000, END_PRG]);
         cpu.interpret(&vec![0xf4040000, 0xf8000010, END_PRG]);
-        // TODO these tests are failing:
-        // cpu.interpret(&vec![0xf4000304, 0xf8000008, END_PRG]);
+        cpu.interpret(&vec![0xf4000304, 0xf8000008, END_PRG]);
     }
 }
 
