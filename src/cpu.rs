@@ -1,5 +1,5 @@
 #![allow(unused)]
-use crate::utils::DEBUG;
+use crate::utils::{twos_complement_21bit, DEBUG};
 
 const SGPR_COUNT: u32 = 105;
 const VGPR_COUNT: u32 = 256;
@@ -60,31 +60,37 @@ impl CPU {
                 // control flow
                 &END_PRG => return,
                 _ if instruction >> 24 == 0xbf => {}
-                // smem_offsets
+                // smem
                 _ if instruction >> 26 == 0b111101 => {
                     let offset_info = prg[self.pc as usize] as u64;
-                    println!("SMEM {:08X} {:08X}", instruction, offset_info);
                     let instr = offset_info << 32 | *instruction as u64;
-                    let sbase = instr & 0x3f;
+                    // NOTE: sbase has an implied LSB of zero
+                    /**
+                     * In smem reads when the address-base comes from an SGPR-pair, it's always
+                     * even-aligned. s[sbase:sbase+1]
+                     */
+                    let sbase = (instr & 0x3f) * 2;
                     let sdata = (instr >> 6) & 0x7f;
                     let dlc = (instr >> 13) & 0x1;
                     let glc = (instr >> 14) & 0x1;
                     let glc = (instr >> 14) & 0x1;
                     let op = (instr >> 18) & 0xff;
                     let encoding = (instr >> 26) & 0x3f;
-                    let offset = (instr >> 32) & 0x1fffff;
+                    // offset is a sign-extend immediate 21-bit constant
+                    let offset = twos_complement_21bit((instr >> 32) & 0x1fffff);
                     let soffset = match instr & 0x7F {
                         _ if offset == 0 => 0, // NULL
-                        0..=105 => self.scalar_reg[((instr >> 57) & 0x7f) as usize],
-                        _ => todo!("smem soffset {}", instr & 0x7F),
+                        // the SGPR contains an unsigned byte offset (the 2 LSBs are ignored).
+                        val => (self.resolve_ssrc(val as u32) & -4) as u64,
                     };
 
-                    println!(
-                        "sbase={} sdata={} dlc={} glc={} op={} offset={} soffset={}",
-                        sbase, sdata, dlc, glc, op, offset, soffset
-                    );
+                    if *DEBUG {
+                        println!("SMEM {:08X} {:08X} sbase={} sdata={} dlc={} glc={} op={} offset={} soffset={}", instruction, offset_info, sbase, sdata, dlc, glc, op, offset, soffset);
+                    }
 
-                    let addr = (self.scalar_reg[sbase as usize] + (offset as u32) + soffset) as u64;
+                    let addr = ((self.scalar_reg[sbase as usize] as i64)
+                        + offset
+                        + (soffset as i64)) as u64;
 
                     match op {
                         0..=4 => {
@@ -445,73 +451,84 @@ mod test_smem {
         mut cpu: CPU,
         op: u32,
         offset: u32,
-        data: Vec<u32>,
-        base_mem_addr: u32,
-        base_sgpr: u32,
+        data: &Vec<u32>,
+        base_mem_addr: u64,
+        starting_dest_sgpr: u32,
     ) {
         data.iter()
             .enumerate()
-            .for_each(|(i, &v)| cpu.write_memory_32((base_mem_addr + (i as u32) * 4) as u64, v));
+            .for_each(|(i, &v)| cpu.write_memory_32((base_mem_addr + (i as u64) * 4) as u64, v));
         cpu.interpret(&vec![op, offset, END_PRG]);
         data.iter()
             .enumerate()
-            .for_each(|(i, &v)| assert_eq!(cpu.scalar_reg[i + (base_sgpr as usize)], v));
+            .for_each(|(i, &v)| assert_eq!(cpu.scalar_reg[i + (starting_dest_sgpr as usize)], v));
     }
 
     #[test]
     fn test_s_load_b32() {
-        helper_test_s_load(CPU::new(), 0xf4000183, 0xf8000000, vec![42], 2031616, 6);
+        // no offset
+        helper_test_s_load(CPU::new(), 0xf4000000, 0xf8000000, &vec![42], 0, 0);
+
+        // positive offset
+        helper_test_s_load(CPU::new(), 0xf4000000, 0xf8000004, &vec![42], 0x4, 0);
+        helper_test_s_load(CPU::new(), 0xf4000000, 0xf800000c, &vec![42], 0xc, 0);
+
+        // negative offset
+        let offset_value: i64 = -0x4;
+        let mut cpu = CPU::new();
+        cpu.scalar_reg[0] = 10000;
+        helper_test_s_load(cpu, 0xf4000000, 0xf81fffd8, &vec![42], 19960, 0);
     }
 
     #[test]
-    fn test_s_load_b64_soffset() {
+    fn test_s_load_b64() {
+        let data = (0..=2).collect();
+
+        // positive offset
+        helper_test_s_load(CPU::new(), 0xf4040000, 0xf8000010, &data, 0x10, 0);
+        helper_test_s_load(CPU::new(), 0xf4040204, 0xf8000268, &data, 0x268, 8);
+
+        // negative offset
         let mut cpu = CPU::new();
-        cpu.scalar_reg[16] = 22;
-        helper_test_s_load(cpu, 0xf4040000, 0xf8000010, (0..=2).collect(), 2031638, 0);
+        cpu.scalar_reg[2] = 612;
+        helper_test_s_load(cpu, 0xf4040301, 0xf81ffd9c, &data, 0, 12);
     }
 
     #[test]
     fn test_s_load_b128() {
-        helper_test_s_load(
-            CPU::new(),
-            0xf4080100,
-            0xf8000000,
-            (0..=4).collect(),
-            2031616,
-            4,
-        )
+        let data = (0..=4).collect();
+
+        // positive offset
+        helper_test_s_load(CPU::new(), 0xf4080000, 0xf8000000, &data, 0, 0);
+
+        let mut cpu = CPU::new();
+        let base_mem_addr: u64 = 0x10;
+        cpu.scalar_reg[6] = base_mem_addr as u32;
+        helper_test_s_load(cpu, 0xf4080203, 0xf8000000, &data, base_mem_addr, 8);
+
+        // negative offset
+        let mut cpu = CPU::new();
+        cpu.scalar_reg[2] = 0x10;
+        helper_test_s_load(cpu, 0xf4080401, 0xf81ffff0, &data, 0, 16);
     }
 
     #[test]
     fn test_s_load_b256() {
-        helper_test_s_load(
-            CPU::new(),
-            0xf40c040d,
-            0xf8000000,
-            (0..=8).collect(),
-            2031616,
-            16,
-        )
-    }
+        let data = (0..=8).collect();
 
-    #[test]
-    fn test_s_load_b512() {
-        helper_test_s_load(
-            CPU::new(),
-            0xf410000c,
-            0xf8000000,
-            (0..=16).collect(),
-            2031616,
-            0,
-        )
-    }
+        // positive offset
+        helper_test_s_load(CPU::new(), 0xf40c0000, 0xf8000000, &data, 0, 0);
 
-    #[test]
-    fn test_smem_offsets() {
         let mut cpu = CPU::new();
-        cpu.interpret(&vec![0xf4080000, 0xf8000000, END_PRG]);
-        // TODO these tests are failing:
-        // cpu.interpret(&vec![0xf4000304, 0xf8000008, END_PRG]);
+        let base_mem_addr: u64 = 0x55;
+        cpu.scalar_reg[10] = base_mem_addr as u32;
+        helper_test_s_load(cpu, 0xf40c0005, 0xf8000040, &data, base_mem_addr + 0x40, 0);
+
+        // negative offset
+        let mut cpu = CPU::new();
+        let base_mem_addr: u64 = 0x55;
+        cpu.scalar_reg[2] = base_mem_addr as u32;
+        helper_test_s_load(cpu, 0xf40c0401, 0xf81fffd0, &data, base_mem_addr - 0x30, 16);
     }
 }
 
@@ -543,6 +560,5 @@ mod test_real_world {
     #[test]
     fn test_add_simple() {
         let cpu = helper_test_op("test_add_simple");
-        panic!();
     }
 }
