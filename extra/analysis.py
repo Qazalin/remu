@@ -22,12 +22,12 @@ for base in ["./tests/test_ops", "./tests/test_dtype"]:
     for i in asm:
       parts = i.strip().split(" ")
       code = parts[0]
-      hex = ' '.join(s for s in parts[1:] if len(s) == 8 and all(c in string.hexdigits for c in s))
-      data.append({ "test": f.split(".")[0], "code": code, "hex": hex, "line": i.strip() })
+      hexval = ' '.join(s for s in parts[1:] if len(s) == 8 and all(c in string.hexdigits for c in s))
+      data.append({ "test": f.split(".")[0], "code": code, "hex": hexval, "line": i.strip() })
 
 df = pd.DataFrame(data)
 df["instruction0"] = df.apply(lambda x: int("0x" + x["hex"].split(" ")[0], 16), axis=1)
-df["instruction1"] = df.apply(lambda x: int("0x" + x["hex"].split(" ")[1], 16) if len(x["hex"].split(" ")) > 1 else np.nan, axis=1)
+df["instruction1"] = df.apply(lambda x: int("0x" + x["hex"].split(" ")[1], 16) if len(x["hex"].split(" ")) > 1 else 0, axis=1)
 
 def get_binary_at_idx(df):
   v = "v_add_f32_e32"
@@ -46,7 +46,15 @@ def get_binary_at_idx(df):
 sop2 = df[df.apply(lambda x: ((x["instruction0"] >> 30) == 0b10) and ((x["instruction0"] >> 23) & 0xFF) <= 53, axis=1)]
 
 # smem: startswith 111101 and is 64 bits long (two instructions)
-smem = df[df.apply(lambda x: x["instruction0"] >> 26 == 0b111101 and x["instruction1"] is not np.nan, axis=1)]
+smem = df[df.apply(lambda x: x["instruction0"] >> 26 == 0b111101 and x["instruction1"] != 0, axis=1)]
+#print(smem["instruction1"].apply(lambda x: hex(x).replace("0x", "").upper()).unique())
+
+smem["line"] = smem["line"].apply(lambda x: x.split("/")[0].strip().split(",")[-1].strip())
+smem = smem.groupby(["instruction1", "line"]).count().reset_index().sort_values(by="test", ascending=False)
+smem["instruction1"] = smem["instruction1"].apply(lambda x: hex(x).replace("0x", "").upper())
+smem = smem[["line", "instruction1", "test"]]
+
+print(smem)
 
 sop1 = df[df.apply(lambda x: x["instruction0"] >> 23 == 0b10_1111101, axis=1)]
 #code_freq(sop1)
@@ -54,5 +62,5 @@ sop1 = df[df.apply(lambda x: x["instruction0"] >> 23 == 0b10_1111101, axis=1)]
 
 
 vop2 = df[df.apply(lambda x: x["instruction0"] >> 31 == 0b0 and not (x["instruction0"] >> 25 == 0b0111111), axis=1)]
-print(vop2.head())
+#print(vop2.head())
 #code_freq(vop2)
