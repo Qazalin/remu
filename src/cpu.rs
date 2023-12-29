@@ -65,6 +65,7 @@ impl CPU {
                     let offset_info = prg[self.pc as usize] as u64;
                     println!("SMEM {:08X} {:08X}", instruction, offset_info);
                     let instr = offset_info << 32 | *instruction as u64;
+                    println!("{:b}", instr);
                     let sbase = instr & 0x3f;
                     let sdata = (instr >> 6) & 0x7f;
                     let dlc = (instr >> 13) & 0x1;
@@ -72,11 +73,12 @@ impl CPU {
                     let glc = (instr >> 14) & 0x1;
                     let op = (instr >> 18) & 0xff;
                     let encoding = (instr >> 26) & 0x3f;
-                    let offset = (instr >> 32) & 0x1fffff;
+                    // offset is a sign-extend immediate 21-bit constant
+                    let offset = ((instr >> 32) & 0x1fffff) as i64 as u64;
                     let soffset = match instr & 0x7F {
                         _ if offset == 0 => 0, // NULL
-                        0..=105 => self.scalar_reg[((instr >> 57) & 0x7f) as usize],
-                        _ => todo!("smem soffset {}", instr & 0x7F),
+                        // the SGPR contains an unsigned byte offset (the 2 LSBs are ignored).
+                        val => (self.resolve_ssrc(val as u32) & -4) as u64,
                     };
 
                     println!(
@@ -84,7 +86,7 @@ impl CPU {
                         sbase, sdata, dlc, glc, op, offset, soffset
                     );
 
-                    let addr = (self.scalar_reg[sbase as usize] + (offset as u32) + soffset) as u64;
+                    let addr = (self.scalar_reg[sbase as usize] as u64) + (offset as u64) + soffset;
 
                     match op {
                         0..=4 => {
