@@ -250,8 +250,11 @@ impl CPU {
 
                     self.pc += 1;
                 }
-                // flat_scratch_global
+                // global
                 _ if instruction >> 26 == 0b110111 => {
+                    let addr_info = prg[self.pc as usize] as u64;
+                    let instr = addr_info << 32 | *instruction as u64;
+
                     let offset = instruction & 0x1fff;
                     let dls = (instruction >> 13) & 0x1;
                     let glc = (instruction >> 14) & 0x1;
@@ -259,13 +262,15 @@ impl CPU {
                     let seg = (instruction >> 16) & 0x3;
                     let op = (instruction >> 18) & 0x7f;
 
-                    let addr_info = prg[self.pc as usize];
-
                     let addr = addr_info & 0xff;
                     let data = (addr_info >> 8) & 0xff;
                     let saddr = (addr_info >> 16) & 0x7f;
                     let sve = (addr_info >> 23) & 0x1;
                     let vdst = (addr_info >> 24) & 0xff;
+
+                    if *DEBUG {
+                        println!("GLOBAL {:08X} {:08X}", instruction, addr_info);
+                    }
 
                     assert_eq!(seg, 2, "flat and scratch arent supported");
                     match op {
@@ -284,7 +289,7 @@ impl CPU {
                             println!("{} {} {}", effective_addr, vdata, data);
                             self.write_memory_32(effective_addr, vdata);
                         }
-                        _ => todo!("flat_scratch_global {}", op),
+                        _ => todo!(),
                     }
 
                     self.pc += 1;
@@ -577,11 +582,11 @@ mod test_smem {
 }
 
 #[cfg(test)]
-mod test_flat_scratch_global {
+mod test_global {
     use super::*;
 
     #[test]
-    fn test_global_store_b32() {
+    fn test_store_b32() {
         let mut cpu = CPU::new();
         cpu.vec_reg[1] = 0xaa;
         cpu.vec_reg[2] = 0x1;
