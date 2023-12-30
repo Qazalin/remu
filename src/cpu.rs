@@ -95,6 +95,11 @@ impl CPU {
                     match op {
                         0..=4 => {
                             for i in 0..=2_u64.pow(op as u32) {
+                                println!(
+                                    "[debug] writing the value from mem={} to sgpr={}",
+                                    addr + i * 4,
+                                    sdata + i
+                                );
                                 self.scalar_reg[(sdata + i) as usize] =
                                     self.read_memory_32(addr + i * 4);
                             }
@@ -115,7 +120,15 @@ impl CPU {
                     }
 
                     match op {
-                        0 => self.write_to_sdst(sdst, ssrc0 as u32),
+                        0 => {
+                            println!(
+                                "[debug] writing to sdst={} the value={} (possibly from sgpr={})",
+                                sdst,
+                                ssrc0,
+                                instruction & 0xFF
+                            );
+                            self.write_to_sdst(sdst, ssrc0 as u32)
+                        }
                         1 => {
                             self.write_to_sdst(sdst, ssrc0 as u32);
                             self.write_to_sdst(sdst + 1, ssrc0 as u32);
@@ -139,21 +152,41 @@ impl CPU {
 
                     let tmp = match op {
                         0 => {
+                            println!(
+                                "[debug] adding the values in sgprs {} and {}",
+                                instruction & 0xfF,
+                                (instruction >> 8) & 0xFF
+                            );
                             let tmp = (ssrc0 as u64) + (ssrc1 as u64);
                             self.scc = (tmp >= 0x100000000) as u32;
                             tmp as u32
                         }
                         4 => {
+                            println!(
+                                "[debug] adding the values in sgprs {} and {}",
+                                instruction & 0xfF,
+                                (instruction >> 8) & 0xFF
+                            );
                             let tmp = (ssrc0 as u64) + (ssrc1 as u64) + (self.scc as u64);
                             self.scc = (tmp >= 0x100000000) as u32;
                             tmp as u32
                         }
                         9 => {
+                            println!(
+                                "[debug] left shift sgpr={} by {}",
+                                instruction & 0xfF,
+                                (instruction >> 8) & 0xFF
+                            );
                             let tmp = ssrc0 << (ssrc1 & 0x1F);
                             self.scc = (tmp != 0) as u32;
                             tmp as u32
                         }
                         12 => {
+                            println!(
+                                "[debug] left shift sgpr={} by {}",
+                                instruction & 0xfF,
+                                ssrc1 & 0x1F
+                            );
                             let tmp = (ssrc0 >> (ssrc1 & 0x1F)) as u32;
                             self.scc = (tmp != 0) as u32;
                             tmp as u32

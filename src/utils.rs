@@ -13,7 +13,7 @@ pub fn print_hex(i: &u32) {
 
 fn parse_rdna3(content: &str) -> Vec<u32> {
     let mut kernel = content.lines().skip(5);
-    let name = kernel.nth(0).unwrap();
+    let _name = kernel.nth(0).unwrap();
     let instructions = kernel
         .map(|line| {
             line.split_whitespace()
@@ -23,15 +23,6 @@ fn parse_rdna3(content: &str) -> Vec<u32> {
         .flatten()
         .map(|x| u32::from_str_radix(x, 16).unwrap())
         .collect::<Vec<u32>>();
-
-    if *DEBUG {
-        println!("{}", name);
-        let hex_formatted = instructions
-            .iter()
-            .map(|i| format!("0x{:08x}", i))
-            .collect::<Vec<String>>();
-        println!("{:?}", hex_formatted);
-    }
     return instructions;
 }
 
