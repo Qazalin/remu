@@ -90,7 +90,7 @@ impl CPU {
 
                     match op {
                         0..=4 => {
-                            for i in 0..=2_u64.pow(op as u32) {
+                            for i in 0..2_u64.pow(op as u32) {
                                 if *DEBUG == 2 {
                                     println!(
                                         "[state] writing the value from mem={} to sgpr={}",
