@@ -52,10 +52,6 @@ impl CPU {
             let instruction = &prg[self.pc as usize];
             self.pc += 1;
 
-            if *DEBUG == 1 {
-                println!("{} 0x{:08x}", self.pc, instruction);
-            }
-
             match instruction {
                 // control flow
                 &END_PRG => return,
@@ -84,7 +80,7 @@ impl CPU {
                         val => (self.resolve_ssrc(val as u32) & -4) as u64,
                     };
 
-                    if *DEBUG == 1 {
+                    if *DEBUG >= 1 {
                         println!("SMEM {:08X} {:08X} sbase={} sdata={} dlc={} glc={} op={} offset={} soffset={}", instruction, offset_info, sbase, sdata, dlc, glc, op, offset, soffset);
                     }
 
@@ -94,16 +90,17 @@ impl CPU {
 
                     match op {
                         0..=4 => {
-                            for i in 0..=2_u64.pow(op as u32) {
+                            for i in 0..2_u64.pow(op as u32) {
+                                self.scalar_reg[(sdata + i) as usize] =
+                                    self.read_memory_32(addr + i * 4);
                                 if *DEBUG == 2 {
                                     println!(
-                                        "[state] writing the value from mem={} to sgpr={}",
+                                        "[state] loaded the value={} from mem={} to sgpr={}",
+                                        self.scalar_reg[(sdata + i) as usize],
                                         addr + i * 4,
                                         sdata + i
                                     );
                                 }
-                                self.scalar_reg[(sdata + i) as usize] =
-                                    self.read_memory_32(addr + i * 4);
                             }
                         }
                         _ => todo!("smem op {}", op),
@@ -117,7 +114,7 @@ impl CPU {
                     let op = (instruction >> 8) & 0xFF;
                     let sdst = (instruction >> 16) & 0x7F;
 
-                    if *DEBUG == 1 {
+                    if *DEBUG >= 1 {
                         println!("SOP1 ssrc0={} sdst={} op={}", ssrc0, sdst, op);
                     }
 
@@ -147,7 +144,7 @@ impl CPU {
                     let sdst = (instruction >> 16) & 0x7F;
                     let op = (instruction >> 23) & 0xFF;
 
-                    if *DEBUG == 1 {
+                    if *DEBUG >= 1 {
                         println!(
                             "SOP2 ssrc0={} ssrc1={} sdst={} op={}",
                             ssrc0, ssrc1, sdst, op
@@ -214,7 +211,7 @@ impl CPU {
                     let op = (instruction >> 9) & 0xff;
                     let vdst = (instruction >> 17) & 0xff;
 
-                    if *DEBUG == 1 {
+                    if *DEBUG >= 1 {
                         println!("VOP1 src={} op={} vdst={}", src, op, vdst);
                     }
 
@@ -230,7 +227,7 @@ impl CPU {
                     let vdst = (instruction >> 17) & 0xFF;
                     let op = (instruction >> 25) & 0x3F;
 
-                    if *DEBUG == 1 {
+                    if *DEBUG >= 1 {
                         println!(
                             "VOP2 ssrc0={} vsrc1={} vdst={} op={}",
                             ssrc0, vsrc1, vdst, op
@@ -278,7 +275,7 @@ impl CPU {
                     let omod = (src_info >> 27) & 0x3;
                     let neg = (src_info >> 29) & 0x7;
 
-                    if *DEBUG == 1 {
+                    if *DEBUG >= 1 {
                         println!(
                             "VOP3 vdst={} abs={} opsel={} cm={} op={} ssrc0={} ssrc1={} ssrc2={} omod={} neg={}",
                             vdst, abs, opsel, cm, op, ssrc0, ssrc1, ssrc2, omod, neg
@@ -290,6 +287,9 @@ impl CPU {
                             let s0 = f32::from_bits(ssrc0 as u32);
                             let s1 = f32::from_bits(ssrc1 as u32);
                             self.vec_reg[vdst as usize] = (s0 + s1).to_bits();
+                            if *DEBUG >= 2 {
+                                println!("[state] store ALU of {}+{} to vec_reg[{}]", s0, s1, vdst);
+                            }
                         }
                         299 => {
                             let s0 = f32::from_bits(ssrc0.try_into().unwrap());
@@ -321,7 +321,7 @@ impl CPU {
                     let sve = (addr_info >> 55) & 0x1;
                     let vdst = (addr_info >> 56) & 0xff;
 
-                    if *DEBUG == 1 {
+                    if *DEBUG >= 1 {
                         println!(
                             "GLOBAL {:08X} {:08X} addr={} data={} saddr={}",
                             instruction, addr_info, addr, data, saddr
@@ -341,6 +341,13 @@ impl CPU {
                                 _ => todo!("address via registers not supported"),
                             };
                             let vdata = self.vec_reg[data as usize];
+
+                            if *DEBUG >= 2 {
+                                print!(
+                                    "storing value={} from vector register {} to mem[{}]",
+                                    vdata, data, effective_addr
+                                );
+                            }
                             self.write_memory_32(effective_addr, vdata);
                         }
                         _ => todo!(),
@@ -652,15 +659,84 @@ mod test_global {
 mod test_real_world {
     use super::*;
 
-    fn helper_test_op(op: &str) -> CPU {
+    fn helper_test_op(cpu: &mut CPU, op: &str) {
         let prg = crate::utils::parse_rdna3_file(&format!("./tests/test_ops/{}.s", op));
-        let mut cpu = CPU::new();
         cpu.interpret(&prg);
-        return cpu;
+    }
+
+    fn read_array(cpu: &CPU, addr: u64, sz: usize) -> Vec<u32> {
+        let mut data = vec![0; sz];
+        for i in 0..sz {
+            data[i] = cpu.read_memory_32(addr + (i * 4) as u64);
+        }
+        return data;
+    }
+    fn read_array_bytes(cpu: &CPU, addr: u64, sz: usize) -> Vec<u8> {
+        let mut data = vec![0; sz * 4];
+        for i in 0..data.len() {
+            data[i] = cpu.memory[addr as usize + i];
+        }
+        return data;
     }
 
     #[test]
     fn test_add_simple() {
-        let cpu = helper_test_op("test_add_simple");
+        let mut cpu = CPU::new();
+        let data0 = vec![0.0; 4];
+        let data1 = vec![1.0, 2.0, 3.0, 4.0];
+        let data2 = vec![5.0, 6.0, 7.0, 8.0];
+        let expected_data0 = vec![6.0, 8.0, 10.0, 12.0];
+
+        // allocate memory
+        let data0_addr = 1000;
+        for i in 0..data0.len() {
+            cpu.write_memory_32(data0_addr + (i * 4) as u64, f32::to_bits(data0[i]));
+        }
+
+        let data1_addr = 2000;
+        for i in 0..data1.len() {
+            cpu.write_memory_32(data1_addr + (i * 4) as u64, f32::to_bits(data1[i]));
+        }
+
+        let data2_addr = 3000;
+        for i in 0..data2.len() {
+            cpu.write_memory_32(data2_addr + (i * 4) as u64, f32::to_bits(data2[i]));
+        }
+
+        println!("Ending memory layout:");
+
+        println!(
+            "data0 = {:?} {:?}",
+            read_array(&cpu, data0_addr, 4),
+            read_array_bytes(&cpu, data0_addr, 4)
+        );
+        println!(
+            "data1 = {:?} {:?}",
+            read_array(&cpu, data1_addr, 4),
+            read_array_bytes(&cpu, data1_addr, 4)
+        );
+        println!(
+            "data2 = {:?} {:?}",
+            read_array(&cpu, data2_addr, 4),
+            read_array_bytes(&cpu, data2_addr, 4)
+        );
+
+        // allocate src registers
+        cpu.scalar_reg[6] = data1_addr as u32;
+        cpu.scalar_reg[0] = data2_addr as u32;
+        cpu.scalar_reg[4] = data0_addr as u32;
+
+        // "launch" kernel
+        let global_size = (1, 1, 1);
+
+        for i in 0..global_size.0 {
+            cpu.scalar_reg[15] = i as u32; // TODO shouldnt this be the address of blockIdx?
+            helper_test_op(&mut cpu, "test_add_simple");
+        }
+
+        for i in 0..global_size.0 {
+            let val = cpu.read_memory_32(data0_addr + (i * 4) as u64);
+            assert_eq!(f32::from_bits(val), expected_data0[i]);
+        }
     }
 }
