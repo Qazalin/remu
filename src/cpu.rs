@@ -724,7 +724,7 @@ mod test_real_world {
         // allocate src registers
         cpu.scalar_reg[6] = data1_addr as u32;
         cpu.scalar_reg[0] = data2_addr as u32;
-        cpu.vec_reg[0] = data0_addr as u32;
+        cpu.scalar_reg[4] = data0_addr as u32;
 
         // "launch" kernel
         let global_size = (1, 1, 1);
