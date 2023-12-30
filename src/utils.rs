@@ -1,7 +1,12 @@
 use once_cell::sync::Lazy;
 use std::{env, fs};
 
-pub static DEBUG: Lazy<bool> = Lazy::new(|| env::var("DEBUG").unwrap_or_default() == "1");
+pub static DEBUG: Lazy<i32> = Lazy::new(|| {
+    env::var("DEBUG")
+        .unwrap_or_default()
+        .parse::<i32>()
+        .unwrap_or(0)
+});
 
 pub fn parse_rdna3_file(file_path: &str) -> Vec<u32> {
     let content = fs::read_to_string(file_path).unwrap();
@@ -13,7 +18,7 @@ pub fn print_hex(i: &u32) {
 
 fn parse_rdna3(content: &str) -> Vec<u32> {
     let mut kernel = content.lines().skip(5);
-    let name = kernel.nth(0).unwrap();
+    let _name = kernel.nth(0).unwrap();
     let instructions = kernel
         .map(|line| {
             line.split_whitespace()
@@ -23,15 +28,6 @@ fn parse_rdna3(content: &str) -> Vec<u32> {
         .flatten()
         .map(|x| u32::from_str_radix(x, 16).unwrap())
         .collect::<Vec<u32>>();
-
-    if *DEBUG {
-        println!("{}", name);
-        let hex_formatted = instructions
-            .iter()
-            .map(|i| format!("0x{:08x}", i))
-            .collect::<Vec<String>>();
-        println!("{:?}", hex_formatted);
-    }
     return instructions;
 }
 
