@@ -8,6 +8,13 @@ pub static DEBUG: Lazy<i32> = Lazy::new(|| {
         .unwrap_or(0)
 });
 
+pub static SGPR_INDEX: Lazy<Option<i32>> = Lazy::new(|| {
+    let var = env::var("SGPR_INDEX");
+    if var.is_ok() {
+        return Some(var.unwrap().parse::<i32>().unwrap());
+    }
+    return None;
+});
 pub fn parse_rdna3_file(file_path: &str) -> Vec<u32> {
     let content = fs::read_to_string(file_path).unwrap();
     parse_rdna3(&content)

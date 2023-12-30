@@ -1,4 +1,4 @@
-use crate::utils::DEBUG;
+use crate::utils::{DEBUG, SGPR_INDEX};
 use std::ops::{Index, IndexMut};
 
 const SGPR_COUNT: usize = 105;
@@ -17,7 +17,7 @@ impl Index<usize> for SGPR {
     type Output = u32;
 
     fn index(&self, index: usize) -> &Self::Output {
-        if *DEBUG == 3 {
+        if *DEBUG >= 3 || Some(index as i32) == *SGPR_INDEX {
             println!("[SGPR] read {index}");
         }
         &self.values[index]
@@ -26,7 +26,7 @@ impl Index<usize> for SGPR {
 
 impl IndexMut<usize> for SGPR {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        if *DEBUG == 3 {
+        if *DEBUG >= 3 || Some(index as i32) == *SGPR_INDEX {
             println!("[SGPR] write {index}");
         }
         &mut self.values[index]
