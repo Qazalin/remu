@@ -104,23 +104,15 @@ impl CPU {
 
                     self.pc += 1;
                 }
-                0xca100080 => {
-                    let mut val = prg[self.pc as usize];
-                    if val < 255 {
-                        val -= 128;
-                        self.pc += 1;
-                    } else {
-                        val = prg[(self.pc + 1) as usize];
-                        self.pc += 2;
-                    }
-                    self.vec_reg[0] = 0;
-                    self.vec_reg[1] = val as u32;
-                }
                 // sop1
                 _ if instruction >> 23 == 0b10_1111101 => {
                     let ssrc0 = self.resolve_ssrc(instruction & 0xFF);
                     let op = (instruction >> 8) & 0xFF;
                     let sdst = (instruction >> 16) & 0x7F;
+
+                    if *DEBUG {
+                        println!("SOP1 ssrc0={} sdst={} op={}", ssrc0, sdst, op);
+                    }
 
                     match op {
                         0 => self.write_to_sdst(sdst, ssrc0 as u32),
@@ -139,8 +131,10 @@ impl CPU {
                     let op = (instruction >> 23) & 0xFF;
 
                     if *DEBUG {
-                        println!("srcs {} {}", instruction & 0xFF, (instruction >> 8) & 0xFF);
-                        println!("ssrc0={} ssrc1={} sdst={} op={}", ssrc0, ssrc1, sdst, op);
+                        println!(
+                            "SOP2 ssrc0={} ssrc1={} sdst={} op={}",
+                            ssrc0, ssrc1, sdst, op
+                        );
                     }
 
                     let tmp = match op {
@@ -190,6 +184,13 @@ impl CPU {
                     let vdst = (instruction >> 17) & 0xFF;
                     let op = (instruction >> 25) & 0x3F;
 
+                    if *DEBUG {
+                        println!(
+                            "VOP2 ssrc0={} vsrc1={} vdst={} op={}",
+                            ssrc0, vsrc1, vdst, op
+                        );
+                    }
+
                     match op {
                         3 => {
                             self.vec_reg[vdst as usize] = (ssrc0 as f32 + vsrc1 as f32) as u32;
@@ -231,6 +232,13 @@ impl CPU {
                     let omod = (src_info >> 27) & 0x3;
                     let neg = (src_info >> 29) & 0x7;
 
+                    if *DEBUG {
+                        println!(
+                            "VOP3 vdst={} abs={} opsel={} cm={} op={} ssrc0={} ssrc1={} ssrc2={} omod={} neg={}",
+                            vdst, abs, opsel, cm, op, ssrc0, ssrc1, ssrc2, omod, neg
+                        );
+                    }
+
                     match op {
                         259 => {
                             let s0 = f32::from_bits(ssrc0 as u32);
@@ -245,7 +253,7 @@ impl CPU {
                             );
                             self.vec_reg[vdst as usize] = (s0 * s1 + d0).to_bits();
                         }
-                        _ => todo!("vop3 op {op}"),
+                        _ => todo!(),
                     }
 
                     self.pc += 1;
