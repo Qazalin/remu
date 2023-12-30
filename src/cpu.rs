@@ -287,6 +287,9 @@ impl CPU {
                             let s0 = f32::from_bits(ssrc0 as u32);
                             let s1 = f32::from_bits(ssrc1 as u32);
                             self.vec_reg[vdst as usize] = (s0 + s1).to_bits();
+                            if *DEBUG >= 2 {
+                                println!("[state] store ALU of {}+{} to vec_reg[{}]", s0, s1, vdst);
+                            }
                         }
                         299 => {
                             let s0 = f32::from_bits(ssrc0.try_into().unwrap());
@@ -338,6 +341,13 @@ impl CPU {
                                 _ => todo!("address via registers not supported"),
                             };
                             let vdata = self.vec_reg[data as usize];
+
+                            if *DEBUG >= 2 {
+                                print!(
+                                    "storing value={} from vector register {} to mem[{}]",
+                                    vdata, data, effective_addr
+                                );
+                            }
                             self.write_memory_32(effective_addr, vdata);
                         }
                         _ => todo!(),
@@ -711,22 +721,16 @@ mod test_real_world {
             read_array_bytes(&cpu, data2_addr, 4)
         );
 
-        println!("Ending register values: ");
-        println!(
-            "s0={} s1={} s2={}",
-            cpu.scalar_reg[0], cpu.scalar_reg[1], cpu.scalar_reg[2]
-        );
-
         // allocate src registers
-        cpu.scalar_reg[0] = data0_addr as u32;
-        cpu.scalar_reg[1] = data1_addr as u32;
-        cpu.scalar_reg[2] = data1_addr as u32;
+        cpu.scalar_reg[6] = data1_addr as u32;
+        cpu.scalar_reg[0] = data2_addr as u32;
+        cpu.vec_reg[0] = data0_addr as u32;
 
         // "launch" kernel
         let global_size = (1, 1, 1);
 
         for i in 0..global_size.0 {
-            cpu.scalar_reg[15] = i as u32;
+            cpu.scalar_reg[15] = i as u32; // TODO shouldnt this be the address of blockIdx?
             helper_test_op(&mut cpu, "test_add_simple");
         }
 
