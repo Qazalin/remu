@@ -286,6 +286,7 @@ impl CPU {
             let op = (instruction >> 16) & 0x1ff;
 
             let src_info = self.prg[self.pc as usize];
+            self.pc += 1;
             let ssrc0 = self.resolve_ssrc(src_info & 0x1ff);
             let ssrc1 = self.resolve_ssrc((src_info >> 9) & 0x1ff);
             let ssrc2 = (src_info >> 18) & 0x1ff;
