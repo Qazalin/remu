@@ -52,10 +52,6 @@ impl CPU {
             let instruction = &prg[self.pc as usize];
             self.pc += 1;
 
-            if *DEBUG == 1 {
-                println!("{} 0x{:08x}", self.pc, instruction);
-            }
-
             match instruction {
                 // control flow
                 &END_PRG => return,
@@ -84,7 +80,7 @@ impl CPU {
                         val => (self.resolve_ssrc(val as u32) & -4) as u64,
                     };
 
-                    if *DEBUG == 1 {
+                    if *DEBUG >= 1 {
                         println!("SMEM {:08X} {:08X} sbase={} sdata={} dlc={} glc={} op={} offset={} soffset={}", instruction, offset_info, sbase, sdata, dlc, glc, op, offset, soffset);
                     }
 
@@ -117,7 +113,7 @@ impl CPU {
                     let op = (instruction >> 8) & 0xFF;
                     let sdst = (instruction >> 16) & 0x7F;
 
-                    if *DEBUG == 1 {
+                    if *DEBUG >= 1 {
                         println!("SOP1 ssrc0={} sdst={} op={}", ssrc0, sdst, op);
                     }
 
@@ -147,7 +143,7 @@ impl CPU {
                     let sdst = (instruction >> 16) & 0x7F;
                     let op = (instruction >> 23) & 0xFF;
 
-                    if *DEBUG == 1 {
+                    if *DEBUG >= 1 {
                         println!(
                             "SOP2 ssrc0={} ssrc1={} sdst={} op={}",
                             ssrc0, ssrc1, sdst, op
@@ -214,7 +210,7 @@ impl CPU {
                     let op = (instruction >> 9) & 0xff;
                     let vdst = (instruction >> 17) & 0xff;
 
-                    if *DEBUG == 1 {
+                    if *DEBUG >= 1 {
                         println!("VOP1 src={} op={} vdst={}", src, op, vdst);
                     }
 
@@ -230,7 +226,7 @@ impl CPU {
                     let vdst = (instruction >> 17) & 0xFF;
                     let op = (instruction >> 25) & 0x3F;
 
-                    if *DEBUG == 1 {
+                    if *DEBUG >= 1 {
                         println!(
                             "VOP2 ssrc0={} vsrc1={} vdst={} op={}",
                             ssrc0, vsrc1, vdst, op
@@ -278,7 +274,7 @@ impl CPU {
                     let omod = (src_info >> 27) & 0x3;
                     let neg = (src_info >> 29) & 0x7;
 
-                    if *DEBUG == 1 {
+                    if *DEBUG >= 1 {
                         println!(
                             "VOP3 vdst={} abs={} opsel={} cm={} op={} ssrc0={} ssrc1={} ssrc2={} omod={} neg={}",
                             vdst, abs, opsel, cm, op, ssrc0, ssrc1, ssrc2, omod, neg
@@ -321,7 +317,7 @@ impl CPU {
                     let sve = (addr_info >> 55) & 0x1;
                     let vdst = (addr_info >> 56) & 0xff;
 
-                    if *DEBUG == 1 {
+                    if *DEBUG >= 1 {
                         println!(
                             "GLOBAL {:08X} {:08X} addr={} data={} saddr={}",
                             instruction, addr_info, addr, data, saddr
