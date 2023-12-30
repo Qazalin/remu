@@ -1,4 +1,5 @@
 #![allow(unused)]
+use crate::state::{SGPR, VGPR};
 use crate::utils::{twos_complement_21bit, DEBUG};
 
 const SGPR_COUNT: u32 = 105;
@@ -8,8 +9,8 @@ pub const END_PRG: u32 = 0xbfb00000;
 pub struct CPU {
     pc: u64,
     pub memory: Vec<u8>,
-    pub scalar_reg: [u32; SGPR_COUNT as usize],
-    pub vec_reg: [u32; VGPR_COUNT as usize],
+    pub scalar_reg: SGPR,
+    pub vec_reg: VGPR,
     scc: u32,
 }
 
@@ -19,8 +20,8 @@ impl CPU {
             pc: 0,
             scc: 0,
             memory: vec![0; 24 * 1_073_741_824],
-            scalar_reg: [0; SGPR_COUNT as usize],
-            vec_reg: [0; VGPR_COUNT as usize],
+            scalar_reg: SGPR::new(),
+            vec_reg: VGPR::new(),
         };
     }
 

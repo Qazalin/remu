@@ -1,5 +1,6 @@
 pub mod cpu;
 pub mod utils;
+pub mod state;
 
 use crate::cpu::CPU;
 
