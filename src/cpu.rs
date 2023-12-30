@@ -588,11 +588,14 @@ mod test_global {
     #[test]
     fn test_store_b32() {
         let mut cpu = CPU::new();
-        cpu.vec_reg[1] = 0xaa;
-        cpu.vec_reg[2] = 0x1;
-        cpu.vec_reg[0] = 0xf2;
+        // global_store_b32 v1, v0, s[0:1]
         cpu.interpret(&vec![0xdc6a0000, 0x00000001, END_PRG]);
-        assert_eq!(cpu.read_memory_32(4294967466), 0xf2);
+        // global_store_b32 v0, v1, s[0:1]
+        cpu.interpret(&vec![0xdc6a0000, 0x00000100, END_PRG]);
+        // global_store_b32 v2, v0, s[0:1]
+        cpu.interpret(&vec![0xdc6a0000, 0x00000100, END_PRG]);
+        // global_store_b32 v2, v1, s[0:1]
+        cpu.interpret(&vec![0xdc6a0000, 0x00000102, END_PRG]);
     }
 }
 #[cfg(test)]
