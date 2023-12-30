@@ -12,6 +12,7 @@ pub struct CPU {
     pub scalar_reg: SGPR,
     pub vec_reg: VGPR,
     scc: u32,
+    prg: Vec<u32>,
 }
 
 impl CPU {
@@ -22,6 +23,7 @@ impl CPU {
             memory: vec![0; 24 * 1_073_741_824],
             scalar_reg: SGPR::new(),
             vec_reg: VGPR::new(),
+            prg: vec![],
         };
     }
 
@@ -48,315 +50,317 @@ impl CPU {
 
     pub fn interpret(&mut self, prg: &Vec<u32>) {
         self.pc = 0;
+        self.prg = prg.to_vec();
 
         loop {
-            let instruction = &prg[self.pc as usize];
+            let instruction = prg[self.pc as usize];
             self.pc += 1;
 
-            match instruction {
-                // control flow
-                &END_PRG => return,
-                _ if instruction >> 24 == 0xbf => {}
-                // smem
-                _ if instruction >> 26 == 0b111101 => {
-                    let offset_info = prg[self.pc as usize] as u64;
-                    let instr = offset_info << 32 | *instruction as u64;
-                    // NOTE: sbase has an implied LSB of zero
-                    /**
-                     * In smem reads when the address-base comes from an SGPR-pair, it's always
-                     * even-aligned. s[sbase:sbase+1]
-                     */
-                    let sbase = (instr & 0x3f) * 2;
-                    let sdata = (instr >> 6) & 0x7f;
-                    let dlc = (instr >> 13) & 0x1;
-                    let glc = (instr >> 14) & 0x1;
-                    let glc = (instr >> 14) & 0x1;
-                    let op = (instr >> 18) & 0xff;
-                    let encoding = (instr >> 26) & 0x3f;
-                    // offset is a sign-extend immediate 21-bit constant
-                    let offset = twos_complement_21bit((instr >> 32) & 0x1fffff);
-                    let soffset = match instr & 0x7F {
-                        _ if offset == 0 => 0, // NULL
-                        // the SGPR contains an unsigned byte offset (the 2 LSBs are ignored).
-                        val => (self.resolve_ssrc(val as u32) & -4) as u64,
-                    };
+            if (instruction == END_PRG) {
+                break;
+            }
 
-                    if *DEBUG >= 1 {
-                        println!("SMEM {:08X} {:08X} sbase={} sdata={} dlc={} glc={} op={} offset={} soffset={}", instruction, offset_info, sbase, sdata, dlc, glc, op, offset, soffset);
-                    }
+            if (instruction >> 24 == 0xbf) {
+                continue;
+            }
 
-                    let addr = ((self.scalar_reg[sbase as usize] as i64)
-                        + offset
-                        + (soffset as i64)) as u64;
+            self.exec(instruction);
+        }
+    }
 
-                    match op {
-                        0..=4 => {
-                            for i in 0..2_u64.pow(op as u32) {
-                                self.scalar_reg[(sdata + i) as usize] =
-                                    self.read_memory_32(addr + i * 4);
-                                if *DEBUG == 2 {
-                                    println!(
-                                        "[state] loaded the value={} from mem={} to sgpr={}",
-                                        self.scalar_reg[(sdata + i) as usize],
-                                        addr + i * 4,
-                                        sdata + i
-                                    );
-                                }
-                            }
+    fn u64_instr(&mut self) -> u64 {
+        let msb = self.prg[self.pc as usize] as u64;
+        let instr = msb << 32 | self.prg[self.pc as usize - 1] as u64;
+        self.pc += 1;
+        return instr;
+    }
+
+    fn exec(&mut self, instruction: u32) {
+        // smem
+        if instruction >> 26 == 0b111101 {
+            let instr = self.u64_instr();
+            // NOTE: sbase has an implied LSB of zero
+            /**
+             * In smem reads when the address-base comes from an SGPR-pair, it's always
+             * even-aligned. s[sbase:sbase+1]
+             */
+            let sbase = (instr & 0x3f) * 2;
+            let sdata = (instr >> 6) & 0x7f;
+            let dlc = (instr >> 13) & 0x1;
+            let glc = (instr >> 14) & 0x1;
+            let glc = (instr >> 14) & 0x1;
+            let op = (instr >> 18) & 0xff;
+            let encoding = (instr >> 26) & 0x3f;
+            // offset is a sign-extend immediate 21-bit constant
+            let offset = twos_complement_21bit((instr >> 32) & 0x1fffff);
+            let soffset = match instr & 0x7F {
+                _ if offset == 0 => 0, // NULL
+                // the SGPR contains an unsigned byte offset (the 2 LSBs are ignored).
+                val => (self.resolve_ssrc(val as u32) & -4) as u64,
+            };
+
+            if *DEBUG >= 1 {
+                println!(
+                    "SMEM sbase={} sdata={} dlc={} glc={} op={} offset={} soffset={}",
+                    sbase, sdata, dlc, glc, op, offset, soffset
+                );
+            }
+
+            let addr =
+                ((self.scalar_reg[sbase as usize] as i64) + offset + (soffset as i64)) as u64;
+
+            match op {
+                0..=4 => {
+                    for i in 0..2_u64.pow(op as u32) {
+                        self.scalar_reg[(sdata + i) as usize] = self.read_memory_32(addr + i * 4);
+                        if *DEBUG == 2 {
+                            println!(
+                                "[state] loaded the value={} from mem={} to sgpr={}",
+                                self.scalar_reg[(sdata + i) as usize],
+                                addr + i * 4,
+                                sdata + i
+                            );
                         }
-                        _ => todo!("smem op {}", op),
+                    }
+                }
+                _ => todo!("smem op {}", op),
+            }
+        }
+        // sop1
+        else if instruction >> 23 == 0b10_1111101 {
+            let ssrc0 = self.resolve_ssrc(instruction & 0xFF);
+            let op = (instruction >> 8) & 0xFF;
+            let sdst = (instruction >> 16) & 0x7F;
+
+            if *DEBUG >= 1 {
+                println!("SOP1 ssrc0={} sdst={} op={}", ssrc0, sdst, op);
+            }
+
+            match op {
+                0 => {
+                    if *DEBUG == 2 {
+                        println!(
+                            "[state] writing to sdst={} the value={} (possibly from sgpr={})",
+                            sdst,
+                            ssrc0,
+                            instruction & 0xFF
+                        );
+                    }
+                    self.write_to_sdst(sdst, ssrc0 as u32)
+                }
+                1 => {
+                    self.write_to_sdst(sdst, ssrc0 as u32);
+                    self.write_to_sdst(sdst + 1, ssrc0 as u32);
+                }
+                _ => todo!("sop1 opcode {}", op),
+            }
+        }
+        // sop2
+        else if instruction >> 30 == 0b10 {
+            let ssrc0 = self.resolve_ssrc(instruction & 0xFF);
+            let ssrc1 = self.resolve_ssrc((instruction >> 8) & 0xFF);
+            let sdst = (instruction >> 16) & 0x7F;
+            let op = (instruction >> 23) & 0xFF;
+
+            if *DEBUG >= 1 {
+                println!(
+                    "SOP2 ssrc0={} ssrc1={} sdst={} op={}",
+                    ssrc0, ssrc1, sdst, op
+                );
+            }
+
+            let tmp = match op {
+                0 => {
+                    if *DEBUG == 2 {
+                        println!(
+                            "[state] adding the values in sgprs {} and {}",
+                            instruction & 0xfF,
+                            (instruction >> 8) & 0xFF
+                        );
+                    }
+                    let tmp = (ssrc0 as u64) + (ssrc1 as u64);
+                    self.scc = (tmp >= 0x100000000) as u32;
+                    tmp as u32
+                }
+                4 => {
+                    if *DEBUG == 2 {
+                        println!(
+                            "[state] adding the values in sgprs {} and {}",
+                            instruction & 0xfF,
+                            (instruction >> 8) & 0xFF
+                        );
                     }
 
+                    let tmp = (ssrc0 as u64) + (ssrc1 as u64) + (self.scc as u64);
+                    self.scc = (tmp >= 0x100000000) as u32;
+                    tmp as u32
+                }
+                9 => {
+                    if *DEBUG == 2 {
+                        println!(
+                            "[state] left shift sgpr={} by {}",
+                            instruction & 0xfF,
+                            (instruction >> 8) & 0xFF
+                        );
+                    }
+                    let tmp = ssrc0 << (ssrc1 & 0x1F);
+                    self.scc = (tmp != 0) as u32;
+                    tmp as u32
+                }
+                12 => {
+                    if *DEBUG == 2 {
+                        println!(
+                            "[state] left shift sgpr={} by {}",
+                            instruction & 0xfF,
+                            ssrc1 & 0x1F
+                        );
+                    }
+                    let tmp = (ssrc0 >> (ssrc1 & 0x1F)) as u32;
+                    self.scc = (tmp != 0) as u32;
+                    tmp as u32
+                }
+                _ => todo!("sop2 opcode {}", op),
+            };
+            self.write_to_sdst(sdst, tmp);
+        }
+        // vop1
+        else if instruction >> 25 == 0b0111111 {
+            let src = self.resolve_ssrc(instruction & 0x1ff);
+            let op = (instruction >> 9) & 0xff;
+            let vdst = (instruction >> 17) & 0xff;
+
+            if *DEBUG >= 1 {
+                println!("VOP1 src={} op={} vdst={}", src, op, vdst);
+            }
+
+            match op {
+                1 => self.vec_reg[vdst as usize] = src as u32,
+                _ => todo!(),
+            }
+        }
+        // vop2
+        else if instruction >> 31 == 0b0 {
+            let ssrc0 = self.resolve_ssrc(instruction & 0x1FF);
+            let vsrc1 = self.vec_reg[((instruction >> 9) & 0xFF) as usize];
+            let vdst = (instruction >> 17) & 0xFF;
+            let op = (instruction >> 25) & 0x3F;
+
+            if *DEBUG >= 1 {
+                println!(
+                    "VOP2 ssrc0={} vsrc1={} vdst={} op={}",
+                    ssrc0, vsrc1, vdst, op
+                );
+            }
+
+            match op {
+                3 => {
+                    self.vec_reg[vdst as usize] = (ssrc0 as f32 + vsrc1 as f32) as u32;
+                }
+                8 => {
+                    self.vec_reg[vdst as usize] = (ssrc0 as f32 * vsrc1 as f32) as u32;
+                }
+                29 => {
+                    self.vec_reg[vdst as usize] = (ssrc0 as u32) ^ vsrc1;
+                }
+                43 => {
+                    self.vec_reg[vdst as usize] =
+                        ((ssrc0 as f32 * vsrc1 as f32) + self.vec_reg[vdst as usize] as f32) as u32;
+                }
+                45 => {
+                    let simm32 =
+                        f32::from_bits((self.prg[self.pc as usize] as i32).try_into().unwrap());
+                    let s0 = f32::from_bits(ssrc0 as u32);
+                    let s1 = f32::from_bits(vsrc1 as u32);
+                    self.vec_reg[vdst as usize] = (s0 * s1 + simm32).to_bits();
                     self.pc += 1;
                 }
-                // sop1
-                _ if instruction >> 23 == 0b10_1111101 => {
-                    let ssrc0 = self.resolve_ssrc(instruction & 0xFF);
-                    let op = (instruction >> 8) & 0xFF;
-                    let sdst = (instruction >> 16) & 0x7F;
+                _ => todo!("vop2 opcode {}", op),
+            };
+        }
+        // vop3
+        else if instruction >> 26 == 0b110101 {
+            let vdst = instruction & 0xFF;
+            let abs = (instruction >> 8) & 0x7;
+            let opsel = (instruction >> 11) & 0xf;
+            let cm = (instruction >> 15) & 0x1;
+            let op = (instruction >> 16) & 0x1ff;
 
-                    if *DEBUG >= 1 {
-                        println!("SOP1 ssrc0={} sdst={} op={}", ssrc0, sdst, op);
-                    }
+            let src_info = self.prg[self.pc as usize];
+            self.pc += 1;
+            let ssrc0 = self.resolve_ssrc(src_info & 0x1ff);
+            let ssrc1 = self.resolve_ssrc((src_info >> 9) & 0x1ff);
+            let ssrc2 = (src_info >> 18) & 0x1ff;
+            let omod = (src_info >> 27) & 0x3;
+            let neg = (src_info >> 29) & 0x7;
 
-                    match op {
-                        0 => {
-                            if *DEBUG == 2 {
-                                println!(
-                                "[state] writing to sdst={} the value={} (possibly from sgpr={})",
-                                sdst,
-                                ssrc0,
-                                instruction & 0xFF
-                            );
-                            }
-                            self.write_to_sdst(sdst, ssrc0 as u32)
-                        }
-                        1 => {
-                            self.write_to_sdst(sdst, ssrc0 as u32);
-                            self.write_to_sdst(sdst + 1, ssrc0 as u32);
-                        }
-                        _ => todo!("sop1 opcode {}", op),
-                    }
-                }
-                // sop2
-                _ if instruction >> 30 == 0b10 => {
-                    let ssrc0 = self.resolve_ssrc(instruction & 0xFF);
-                    let ssrc1 = self.resolve_ssrc((instruction >> 8) & 0xFF);
-                    let sdst = (instruction >> 16) & 0x7F;
-                    let op = (instruction >> 23) & 0xFF;
-
-                    if *DEBUG >= 1 {
-                        println!(
-                            "SOP2 ssrc0={} ssrc1={} sdst={} op={}",
-                            ssrc0, ssrc1, sdst, op
-                        );
-                    }
-
-                    let tmp = match op {
-                        0 => {
-                            if *DEBUG == 2 {
-                                println!(
-                                    "[state] adding the values in sgprs {} and {}",
-                                    instruction & 0xfF,
-                                    (instruction >> 8) & 0xFF
-                                );
-                            }
-                            let tmp = (ssrc0 as u64) + (ssrc1 as u64);
-                            self.scc = (tmp >= 0x100000000) as u32;
-                            tmp as u32
-                        }
-                        4 => {
-                            if *DEBUG == 2 {
-                                println!(
-                                    "[state] adding the values in sgprs {} and {}",
-                                    instruction & 0xfF,
-                                    (instruction >> 8) & 0xFF
-                                );
-                            }
-
-                            let tmp = (ssrc0 as u64) + (ssrc1 as u64) + (self.scc as u64);
-                            self.scc = (tmp >= 0x100000000) as u32;
-                            tmp as u32
-                        }
-                        9 => {
-                            if *DEBUG == 2 {
-                                println!(
-                                    "[state] left shift sgpr={} by {}",
-                                    instruction & 0xfF,
-                                    (instruction >> 8) & 0xFF
-                                );
-                            }
-                            let tmp = ssrc0 << (ssrc1 & 0x1F);
-                            self.scc = (tmp != 0) as u32;
-                            tmp as u32
-                        }
-                        12 => {
-                            if *DEBUG == 2 {
-                                println!(
-                                    "[state] left shift sgpr={} by {}",
-                                    instruction & 0xfF,
-                                    ssrc1 & 0x1F
-                                );
-                            }
-                            let tmp = (ssrc0 >> (ssrc1 & 0x1F)) as u32;
-                            self.scc = (tmp != 0) as u32;
-                            tmp as u32
-                        }
-                        _ => todo!("sop2 opcode {}", op),
-                    };
-                    self.write_to_sdst(sdst, tmp);
-                }
-                // vop1
-                _ if instruction >> 25 == 0b0111111 => {
-                    let src = self.resolve_ssrc(instruction & 0x1ff);
-                    let op = (instruction >> 9) & 0xff;
-                    let vdst = (instruction >> 17) & 0xff;
-
-                    if *DEBUG >= 1 {
-                        println!("VOP1 src={} op={} vdst={}", src, op, vdst);
-                    }
-
-                    match op {
-                        1 => self.vec_reg[vdst as usize] = src as u32,
-                        _ => todo!(),
-                    }
-                }
-                // vop2
-                _ if instruction >> 31 == 0b0 => {
-                    let ssrc0 = self.resolve_ssrc(instruction & 0x1FF);
-                    let vsrc1 = self.vec_reg[((instruction >> 9) & 0xFF) as usize];
-                    let vdst = (instruction >> 17) & 0xFF;
-                    let op = (instruction >> 25) & 0x3F;
-
-                    if *DEBUG >= 1 {
-                        println!(
-                            "VOP2 ssrc0={} vsrc1={} vdst={} op={}",
-                            ssrc0, vsrc1, vdst, op
-                        );
-                    }
-
-                    match op {
-                        3 => {
-                            self.vec_reg[vdst as usize] = (ssrc0 as f32 + vsrc1 as f32) as u32;
-                        }
-                        8 => {
-                            self.vec_reg[vdst as usize] = (ssrc0 as f32 * vsrc1 as f32) as u32;
-                        }
-                        29 => {
-                            self.vec_reg[vdst as usize] = (ssrc0 as u32) ^ vsrc1;
-                        }
-                        43 => {
-                            self.vec_reg[vdst as usize] = ((ssrc0 as f32 * vsrc1 as f32)
-                                + self.vec_reg[vdst as usize] as f32)
-                                as u32;
-                        }
-                        45 => {
-                            let simm32 =
-                                f32::from_bits((prg[self.pc as usize] as i32).try_into().unwrap());
-                            let s0 = f32::from_bits(ssrc0 as u32);
-                            let s1 = f32::from_bits(vsrc1 as u32);
-                            self.vec_reg[vdst as usize] = (s0 * s1 + simm32).to_bits();
-                            self.pc += 1;
-                        }
-                        _ => todo!("vop2 opcode {}", op),
-                    };
-                }
-                // vop3
-                _ if instruction >> 26 == 0b110101 => {
-                    let vdst = instruction & 0xFF;
-                    let abs = (instruction >> 8) & 0x7;
-                    let opsel = (instruction >> 11) & 0xf;
-                    let cm = (instruction >> 15) & 0x1;
-                    let op = (instruction >> 16) & 0x1ff;
-
-                    let src_info = prg[self.pc as usize];
-                    let ssrc0 = self.resolve_ssrc(src_info & 0x1ff);
-                    let ssrc1 = self.resolve_ssrc((src_info >> 9) & 0x1ff);
-                    let ssrc2 = (src_info >> 18) & 0x1ff;
-                    let omod = (src_info >> 27) & 0x3;
-                    let neg = (src_info >> 29) & 0x7;
-
-                    if *DEBUG >= 1 {
-                        println!(
+            if *DEBUG >= 1 {
+                println!(
                             "VOP3 vdst={} abs={} opsel={} cm={} op={} ssrc0={} ssrc1={} ssrc2={} omod={} neg={}",
                             vdst, abs, opsel, cm, op, ssrc0, ssrc1, ssrc2, omod, neg
                         );
-                    }
+            }
 
-                    match op {
-                        259 => {
-                            let s0 = f32::from_bits(ssrc0 as u32);
-                            let s1 = f32::from_bits(ssrc1 as u32);
-                            self.vec_reg[vdst as usize] = (s0 + s1).to_bits();
-                            if *DEBUG >= 2 {
-                                println!("[state] store ALU of {}+{} to vec_reg[{}]", s0, s1, vdst);
-                            }
-                        }
-                        299 => {
-                            let s0 = f32::from_bits(ssrc0.try_into().unwrap());
-                            let s1 = f32::from_bits(ssrc1.try_into().unwrap());
-                            let d0 = f32::from_bits(
-                                (self.vec_reg[vdst as usize] as i32).try_into().unwrap(),
-                            );
-                            self.vec_reg[vdst as usize] = (s0 * s1 + d0).to_bits();
-                        }
-                        _ => todo!(),
+            match op {
+                259 => {
+                    let s0 = f32::from_bits(ssrc0 as u32);
+                    let s1 = f32::from_bits(ssrc1 as u32);
+                    self.vec_reg[vdst as usize] = (s0 + s1).to_bits();
+                    if *DEBUG >= 2 {
+                        println!("[state] store ALU of {}+{} to vec_reg[{}]", s0, s1, vdst);
                     }
-
-                    self.pc += 1;
                 }
-                // global
-                _ if instruction >> 26 == 0b110111 => {
-                    let addr_info = prg[self.pc as usize] as u64;
-                    let instr = addr_info << 32 | *instruction as u64;
+                299 => {
+                    let s0 = f32::from_bits(ssrc0.try_into().unwrap());
+                    let s1 = f32::from_bits(ssrc1.try_into().unwrap());
+                    let d0 =
+                        f32::from_bits((self.vec_reg[vdst as usize] as i32).try_into().unwrap());
+                    self.vec_reg[vdst as usize] = (s0 * s1 + d0).to_bits();
+                }
+                _ => todo!(),
+            }
+        }
+        // global
+        else if instruction >> 26 == 0b110111 {
+            let instr = self.u64_instr();
 
-                    let offset = instr & 0x1fff;
-                    let dls = (instr >> 13) & 0x1;
-                    let glc = (instr >> 14) & 0x1;
-                    let slc = (instr >> 15) & 0x1;
-                    let seg = (instr >> 16) & 0x3;
-                    let op = (instr >> 18) & 0x7f;
-                    let addr = (instr >> 32) & 0xff;
-                    let data = (instr >> 40) & 0xff;
-                    let saddr = (instr >> 48) & 0x7f;
-                    let sve = (addr_info >> 55) & 0x1;
-                    let vdst = (addr_info >> 56) & 0xff;
+            let offset = instr & 0x1fff;
+            let dls = (instr >> 13) & 0x1;
+            let glc = (instr >> 14) & 0x1;
+            let slc = (instr >> 15) & 0x1;
+            let seg = (instr >> 16) & 0x3;
+            let op = (instr >> 18) & 0x7f;
+            let addr = (instr >> 32) & 0xff;
+            let data = (instr >> 40) & 0xff;
+            let saddr = (instr >> 48) & 0x7f;
+            let sve = (instr >> 55) & 0x1;
+            let vdst = (instr >> 56) & 0xff;
 
-                    if *DEBUG >= 1 {
-                        println!(
-                            "GLOBAL {:08X} {:08X} addr={} data={} saddr={}",
-                            instruction, addr_info, addr, data, saddr
+            if *DEBUG >= 1 {
+                println!("GLOBAL addr={} data={} saddr={}", addr, data, saddr);
+            }
+
+            assert_eq!(seg, 2, "flat and scratch arent supported");
+            match op {
+                26 => {
+                    let effective_addr = match saddr {
+                        0 => {
+                            let addr_lsb = self.vec_reg[addr as usize] as u64;
+                            let addr_msb = self.vec_reg[(addr + 1) as usize] as u64;
+                            let full_addr = ((addr_msb << 32) | addr_lsb) as u64;
+                            full_addr.wrapping_add(offset as u64) // Add the offset
+                        }
+                        _ => todo!("address via registers not supported"),
+                    };
+                    let vdata = self.vec_reg[data as usize];
+
+                    if *DEBUG >= 2 {
+                        print!(
+                            "storing value={} from vector register {} to mem[{}]",
+                            vdata, data, effective_addr
                         );
                     }
-
-                    assert_eq!(seg, 2, "flat and scratch arent supported");
-                    match op {
-                        26 => {
-                            let effective_addr = match saddr {
-                                0 => {
-                                    let addr_lsb = self.vec_reg[addr as usize] as u64;
-                                    let addr_msb = self.vec_reg[(addr + 1) as usize] as u64;
-                                    let full_addr = ((addr_msb << 32) | addr_lsb) as u64;
-                                    full_addr.wrapping_add(offset as u64) // Add the offset
-                                }
-                                _ => todo!("address via registers not supported"),
-                            };
-                            let vdata = self.vec_reg[data as usize];
-
-                            if *DEBUG >= 2 {
-                                print!(
-                                    "storing value={} from vector register {} to mem[{}]",
-                                    vdata, data, effective_addr
-                                );
-                            }
-                            self.write_memory_32(effective_addr, vdata);
-                        }
-                        _ => todo!(),
-                    }
-
-                    self.pc += 1;
+                    self.write_memory_32(effective_addr, vdata);
                 }
-
                 _ => todo!(),
             }
         }
