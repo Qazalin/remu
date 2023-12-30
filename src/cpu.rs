@@ -268,7 +268,10 @@ impl CPU {
                     let vdst = (addr_info >> 56) & 0xff;
 
                     if *DEBUG {
-                        println!("GLOBAL {:08X} {:08X}", instruction, addr_info);
+                        println!(
+                            "GLOBAL {:08X} {:08X} addr={} data={} saddr={}",
+                            instruction, addr_info, addr, data, saddr
+                        );
                     }
 
                     assert_eq!(seg, 2, "flat and scratch arent supported");
@@ -585,14 +588,9 @@ mod test_global {
     #[test]
     fn test_store_b32() {
         let mut cpu = CPU::new();
-        //  v1, v0, s[0:1]
         cpu.interpret(&vec![0xdc6a0000, 0x00000001, END_PRG]);
-        panic!();
-        //  v0, v1, s[0:1]
         cpu.interpret(&vec![0xdc6a0000, 0x00000100, END_PRG]);
-        //  v2, v0, s[0:1]
-        cpu.interpret(&vec![0xdc6a0000, 0x00000100, END_PRG]);
-        //  v2, v1, s[0:1]
+        cpu.interpret(&vec![0xdc6a0000, 0x00000002, END_PRG]);
         cpu.interpret(&vec![0xdc6a0000, 0x00000102, END_PRG]);
     }
 }
