@@ -652,15 +652,51 @@ mod test_global {
 mod test_real_world {
     use super::*;
 
-    fn helper_test_op(op: &str) -> CPU {
+    fn helper_test_op(cpu: &mut CPU, op: &str) {
         let prg = crate::utils::parse_rdna3_file(&format!("./tests/test_ops/{}.s", op));
-        let mut cpu = CPU::new();
         cpu.interpret(&prg);
-        return cpu;
     }
 
     #[test]
     fn test_add_simple() {
-        let cpu = helper_test_op("test_add_simple");
+        let mut cpu = CPU::new();
+        let data0 = vec![0.0; 4];
+        let data1 = vec![1.0, 2.0, 3.0, 4.0];
+        let data2 = vec![5.0, 6.0, 7.0, 8.0];
+        let expected_data0 = vec![6.0, 8.0, 10.0, 12.0];
+
+        // allocate memory
+        let data0_addr = 1000;
+        for i in 0..data0.len() {
+            cpu.write_memory_32(data0_addr + (i * 4) as u64, f32::to_bits(data0[i]));
+        }
+
+        let data1_addr = 2000;
+        for i in 0..data1.len() {
+            cpu.write_memory_32(data1_addr + (i * 4) as u64, f32::to_bits(data1[i]));
+        }
+
+        let data2_addr = 3000;
+        for i in 0..data2.len() {
+            cpu.write_memory_32(data2_addr + (i * 4) as u64, f32::to_bits(data2[i]));
+        }
+
+        // allocate src registers
+        cpu.scalar_reg[0] = data0_addr as u32;
+        cpu.scalar_reg[1] = data1_addr as u32;
+        cpu.scalar_reg[2] = data1_addr as u32;
+
+        // "launch" kernel
+        let global_size = (1, 1, 1);
+
+        for i in 0..global_size.0 {
+            cpu.scalar_reg[15] = i as u32;
+            helper_test_op(&mut cpu, "test_add_simple");
+        }
+
+        for i in 0..global_size.0 {
+            let val = cpu.read_memory_32(data0_addr + (i * 4) as u64);
+            assert_eq!(f32::from_bits(val), expected_data0[i]);
+        }
     }
 }
