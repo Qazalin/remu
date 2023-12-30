@@ -1,7 +1,12 @@
 use once_cell::sync::Lazy;
 use std::{env, fs};
 
-pub static DEBUG: Lazy<bool> = Lazy::new(|| env::var("DEBUG").unwrap_or_default() == "1");
+pub static DEBUG: Lazy<i32> = Lazy::new(|| {
+    env::var("DEBUG")
+        .unwrap_or_default()
+        .parse::<i32>()
+        .unwrap_or(0)
+});
 
 pub fn parse_rdna3_file(file_path: &str) -> Vec<u32> {
     let content = fs::read_to_string(file_path).unwrap();

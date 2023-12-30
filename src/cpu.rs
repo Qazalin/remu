@@ -52,7 +52,7 @@ impl CPU {
             let instruction = &prg[self.pc as usize];
             self.pc += 1;
 
-            if *DEBUG {
+            if *DEBUG == 1 {
                 println!("{} 0x{:08x}", self.pc, instruction);
             }
 
@@ -84,7 +84,7 @@ impl CPU {
                         val => (self.resolve_ssrc(val as u32) & -4) as u64,
                     };
 
-                    if *DEBUG {
+                    if *DEBUG == 1 {
                         println!("SMEM {:08X} {:08X} sbase={} sdata={} dlc={} glc={} op={} offset={} soffset={}", instruction, offset_info, sbase, sdata, dlc, glc, op, offset, soffset);
                     }
 
@@ -95,11 +95,13 @@ impl CPU {
                     match op {
                         0..=4 => {
                             for i in 0..=2_u64.pow(op as u32) {
-                                println!(
-                                    "[debug] writing the value from mem={} to sgpr={}",
-                                    addr + i * 4,
-                                    sdata + i
-                                );
+                                if *DEBUG == 2 {
+                                    println!(
+                                        "[state] writing the value from mem={} to sgpr={}",
+                                        addr + i * 4,
+                                        sdata + i
+                                    );
+                                }
                                 self.scalar_reg[(sdata + i) as usize] =
                                     self.read_memory_32(addr + i * 4);
                             }
@@ -115,18 +117,20 @@ impl CPU {
                     let op = (instruction >> 8) & 0xFF;
                     let sdst = (instruction >> 16) & 0x7F;
 
-                    if *DEBUG {
+                    if *DEBUG == 1 {
                         println!("SOP1 ssrc0={} sdst={} op={}", ssrc0, sdst, op);
                     }
 
                     match op {
                         0 => {
-                            println!(
-                                "[debug] writing to sdst={} the value={} (possibly from sgpr={})",
+                            if *DEBUG == 2 {
+                                println!(
+                                "[state] writing to sdst={} the value={} (possibly from sgpr={})",
                                 sdst,
                                 ssrc0,
                                 instruction & 0xFF
                             );
+                            }
                             self.write_to_sdst(sdst, ssrc0 as u32)
                         }
                         1 => {
@@ -143,7 +147,7 @@ impl CPU {
                     let sdst = (instruction >> 16) & 0x7F;
                     let op = (instruction >> 23) & 0xFF;
 
-                    if *DEBUG {
+                    if *DEBUG == 1 {
                         println!(
                             "SOP2 ssrc0={} ssrc1={} sdst={} op={}",
                             ssrc0, ssrc1, sdst, op
@@ -152,41 +156,50 @@ impl CPU {
 
                     let tmp = match op {
                         0 => {
-                            println!(
-                                "[debug] adding the values in sgprs {} and {}",
-                                instruction & 0xfF,
-                                (instruction >> 8) & 0xFF
-                            );
+                            if *DEBUG == 2 {
+                                println!(
+                                    "[state] adding the values in sgprs {} and {}",
+                                    instruction & 0xfF,
+                                    (instruction >> 8) & 0xFF
+                                );
+                            }
                             let tmp = (ssrc0 as u64) + (ssrc1 as u64);
                             self.scc = (tmp >= 0x100000000) as u32;
                             tmp as u32
                         }
                         4 => {
-                            println!(
-                                "[debug] adding the values in sgprs {} and {}",
-                                instruction & 0xfF,
-                                (instruction >> 8) & 0xFF
-                            );
+                            if *DEBUG == 2 {
+                                println!(
+                                    "[state] adding the values in sgprs {} and {}",
+                                    instruction & 0xfF,
+                                    (instruction >> 8) & 0xFF
+                                );
+                            }
+
                             let tmp = (ssrc0 as u64) + (ssrc1 as u64) + (self.scc as u64);
                             self.scc = (tmp >= 0x100000000) as u32;
                             tmp as u32
                         }
                         9 => {
-                            println!(
-                                "[debug] left shift sgpr={} by {}",
-                                instruction & 0xfF,
-                                (instruction >> 8) & 0xFF
-                            );
+                            if *DEBUG == 2 {
+                                println!(
+                                    "[state] left shift sgpr={} by {}",
+                                    instruction & 0xfF,
+                                    (instruction >> 8) & 0xFF
+                                );
+                            }
                             let tmp = ssrc0 << (ssrc1 & 0x1F);
                             self.scc = (tmp != 0) as u32;
                             tmp as u32
                         }
                         12 => {
-                            println!(
-                                "[debug] left shift sgpr={} by {}",
-                                instruction & 0xfF,
-                                ssrc1 & 0x1F
-                            );
+                            if *DEBUG == 2 {
+                                println!(
+                                    "[state] left shift sgpr={} by {}",
+                                    instruction & 0xfF,
+                                    ssrc1 & 0x1F
+                                );
+                            }
                             let tmp = (ssrc0 >> (ssrc1 & 0x1F)) as u32;
                             self.scc = (tmp != 0) as u32;
                             tmp as u32
@@ -201,7 +214,7 @@ impl CPU {
                     let op = (instruction >> 9) & 0xff;
                     let vdst = (instruction >> 17) & 0xff;
 
-                    if *DEBUG {
+                    if *DEBUG == 1 {
                         println!("VOP1 src={} op={} vdst={}", src, op, vdst);
                     }
 
@@ -217,7 +230,7 @@ impl CPU {
                     let vdst = (instruction >> 17) & 0xFF;
                     let op = (instruction >> 25) & 0x3F;
 
-                    if *DEBUG {
+                    if *DEBUG == 1 {
                         println!(
                             "VOP2 ssrc0={} vsrc1={} vdst={} op={}",
                             ssrc0, vsrc1, vdst, op
@@ -265,7 +278,7 @@ impl CPU {
                     let omod = (src_info >> 27) & 0x3;
                     let neg = (src_info >> 29) & 0x7;
 
-                    if *DEBUG {
+                    if *DEBUG == 1 {
                         println!(
                             "VOP3 vdst={} abs={} opsel={} cm={} op={} ssrc0={} ssrc1={} ssrc2={} omod={} neg={}",
                             vdst, abs, opsel, cm, op, ssrc0, ssrc1, ssrc2, omod, neg
@@ -308,7 +321,7 @@ impl CPU {
                     let sve = (addr_info >> 55) & 0x1;
                     let vdst = (addr_info >> 56) & 0xff;
 
-                    if *DEBUG {
+                    if *DEBUG == 1 {
                         println!(
                             "GLOBAL {:08X} {:08X} addr={} data={} saddr={}",
                             instruction, addr_info, addr, data, saddr
