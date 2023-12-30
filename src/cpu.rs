@@ -91,15 +91,16 @@ impl CPU {
                     match op {
                         0..=4 => {
                             for i in 0..2_u64.pow(op as u32) {
+                                self.scalar_reg[(sdata + i) as usize] =
+                                    self.read_memory_32(addr + i * 4);
                                 if *DEBUG == 2 {
                                     println!(
-                                        "[state] writing the value from mem={} to sgpr={}",
+                                        "[state] loaded the value={} from mem={} to sgpr={}",
+                                        self.scalar_reg[(sdata + i) as usize],
                                         addr + i * 4,
                                         sdata + i
                                     );
                                 }
-                                self.scalar_reg[(sdata + i) as usize] =
-                                    self.read_memory_32(addr + i * 4);
                             }
                         }
                         _ => todo!("smem op {}", op),
@@ -653,6 +654,21 @@ mod test_real_world {
         cpu.interpret(&prg);
     }
 
+    fn read_array(cpu: &CPU, addr: u64, sz: usize) -> Vec<u32> {
+        let mut data = vec![0; sz];
+        for i in 0..sz {
+            data[i] = cpu.read_memory_32(addr + (i * 4) as u64);
+        }
+        return data;
+    }
+    fn read_array_bytes(cpu: &CPU, addr: u64, sz: usize) -> Vec<u8> {
+        let mut data = vec![0; sz * 4];
+        for i in 0..data.len() {
+            data[i] = cpu.memory[addr as usize + i];
+        }
+        return data;
+    }
+
     #[test]
     fn test_add_simple() {
         let mut cpu = CPU::new();
@@ -676,6 +692,30 @@ mod test_real_world {
         for i in 0..data2.len() {
             cpu.write_memory_32(data2_addr + (i * 4) as u64, f32::to_bits(data2[i]));
         }
+
+        println!("Ending memory layout:");
+
+        println!(
+            "data0 = {:?} {:?}",
+            read_array(&cpu, data0_addr, 4),
+            read_array_bytes(&cpu, data0_addr, 4)
+        );
+        println!(
+            "data1 = {:?} {:?}",
+            read_array(&cpu, data1_addr, 4),
+            read_array_bytes(&cpu, data1_addr, 4)
+        );
+        println!(
+            "data2 = {:?} {:?}",
+            read_array(&cpu, data2_addr, 4),
+            read_array_bytes(&cpu, data2_addr, 4)
+        );
+
+        println!("Ending register values: ");
+        println!(
+            "s0={} s1={} s2={}",
+            cpu.scalar_reg[0], cpu.scalar_reg[1], cpu.scalar_reg[2]
+        );
 
         // allocate src registers
         cpu.scalar_reg[0] = data0_addr as u32;
