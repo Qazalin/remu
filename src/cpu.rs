@@ -250,22 +250,29 @@ impl CPU {
 
                     self.pc += 1;
                 }
-                // flat_scratch_global
+                // global
                 _ if instruction >> 26 == 0b110111 => {
-                    let offset = instruction & 0x1fff;
-                    let dls = (instruction >> 13) & 0x1;
-                    let glc = (instruction >> 14) & 0x1;
-                    let slc = (instruction >> 15) & 0x1;
-                    let seg = (instruction >> 16) & 0x3;
-                    let op = (instruction >> 18) & 0x7f;
+                    let addr_info = prg[self.pc as usize] as u64;
+                    let instr = addr_info << 32 | *instruction as u64;
 
-                    let addr_info = prg[self.pc as usize];
+                    let offset = instr & 0x1fff;
+                    let dls = (instr >> 13) & 0x1;
+                    let glc = (instr >> 14) & 0x1;
+                    let slc = (instr >> 15) & 0x1;
+                    let seg = (instr >> 16) & 0x3;
+                    let op = (instr >> 18) & 0x7f;
+                    let addr = (instr >> 32) & 0xff;
+                    let data = (instr >> 40) & 0xff;
+                    let saddr = (instr >> 48) & 0x7f;
+                    let sve = (addr_info >> 55) & 0x1;
+                    let vdst = (addr_info >> 56) & 0xff;
 
-                    let addr = addr_info & 0xff;
-                    let data = (addr_info >> 8) & 0xff;
-                    let saddr = (addr_info >> 16) & 0x7f;
-                    let sve = (addr_info >> 23) & 0x1;
-                    let vdst = (addr_info >> 24) & 0xff;
+                    if *DEBUG {
+                        println!(
+                            "GLOBAL {:08X} {:08X} addr={} data={} saddr={}",
+                            instruction, addr_info, addr, data, saddr
+                        );
+                    }
 
                     assert_eq!(seg, 2, "flat and scratch arent supported");
                     match op {
@@ -279,12 +286,10 @@ impl CPU {
                                 }
                                 _ => todo!("address via registers not supported"),
                             };
-
                             let vdata = self.vec_reg[data as usize];
-                            println!("{} {} {}", effective_addr, vdata, data);
                             self.write_memory_32(effective_addr, vdata);
                         }
-                        _ => todo!("flat_scratch_global {}", op),
+                        _ => todo!(),
                     }
 
                     self.pc += 1;
@@ -577,17 +582,16 @@ mod test_smem {
 }
 
 #[cfg(test)]
-mod test_flat_scratch_global {
+mod test_global {
     use super::*;
 
     #[test]
-    fn test_global_store_b32() {
+    fn test_store_b32() {
         let mut cpu = CPU::new();
-        cpu.vec_reg[1] = 0xaa;
-        cpu.vec_reg[2] = 0x1;
-        cpu.vec_reg[0] = 0xf2;
         cpu.interpret(&vec![0xdc6a0000, 0x00000001, END_PRG]);
-        assert_eq!(cpu.read_memory_32(4294967466), 0xf2);
+        cpu.interpret(&vec![0xdc6a0000, 0x00000100, END_PRG]);
+        cpu.interpret(&vec![0xdc6a0000, 0x00000002, END_PRG]);
+        cpu.interpret(&vec![0xdc6a0000, 0x00000102, END_PRG]);
     }
 }
 #[cfg(test)]

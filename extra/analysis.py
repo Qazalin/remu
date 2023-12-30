@@ -73,4 +73,10 @@ vop1 = vop1.loc[vop1["code"] == "v_mov_b32_e32"]
 
 vop1["line"] = vop1["line"].apply(lambda x: x.split("/")[0].strip())
 vop1 = vop1.groupby(["code", "line", "hex"]).count().reset_index().sort_values(by="test", ascending=False)
-print(vop1)
+#print(vop1)
+
+
+df = df[df.apply(lambda x: x["instruction0"] >> 26 == 0b110111, axis=1)]
+df["line"] = df["line"].apply(lambda x: x.split("/")[0].strip())
+df = df.groupby(["code", "line", "hex"]).count().reset_index().sort_values(by="test", ascending=False)
+print(df)
