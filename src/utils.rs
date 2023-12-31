@@ -1,3 +1,4 @@
+#![allow(unused)]
 use once_cell::sync::Lazy;
 use std::{env, fs};
 
@@ -18,9 +19,6 @@ pub static SGPR_INDEX: Lazy<Option<i32>> = Lazy::new(|| {
 pub fn parse_rdna3_file(file_path: &str) -> Vec<u32> {
     let content = fs::read_to_string(file_path).unwrap();
     parse_rdna3(&content)
-}
-pub fn print_hex(i: &u32) {
-    println!("0x{:08x}", i);
 }
 
 fn parse_rdna3(content: &str) -> Vec<u32> {

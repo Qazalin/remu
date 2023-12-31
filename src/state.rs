@@ -1,3 +1,4 @@
+#![allow(unused)]
 use crate::utils::{Colorize, DEBUG, SGPR_INDEX};
 use std::ops::{Index, IndexMut};
 
