@@ -1,6 +1,6 @@
 #![allow(unused)]
 use crate::state::{SGPR, VGPR};
-use crate::utils::{twos_complement_21bit, Colorize, DEBUG};
+use crate::utils::{twos_complement_21bit, Colorize, DEBUG, SGPR_INDEX};
 
 const SGPR_COUNT: u32 = 105;
 const VGPR_COUNT: u32 = 256;
@@ -85,7 +85,7 @@ impl CPU {
              * even-aligned. s[sbase:sbase+1]
              */
             let sbase = (instr & 0x3f) * 2;
-            let sdata = (instr >> 6) & 0x7f;
+            let sdata = ((instr >> 6) & 0x7f) as usize;
             let dlc = (instr >> 13) & 0x1;
             let glc = (instr >> 14) & 0x1;
             let glc = (instr >> 14) & 0x1;
@@ -112,19 +112,20 @@ impl CPU {
                     soffset
                 );
             }
+            let base_addr = self.scalar_reg.read_addr(sbase as usize) as i64;
+            let effective_addr = (base_addr + offset + soffset as i64) as u64;
+
+            println!("effective final addr {}", effective_addr);
 
             match op {
                 0 => {
-                    let base_addr = self.scalar_reg.read_addr(sbase as usize) as i64;
-                    let addr = base_addr + offset + soffset as i64;
-                    println!("effective final addr {}", addr);
-                    self.scalar_reg[sdata as usize] = self.read_memory_32(addr as u64);
+                    self.scalar_reg[sdata] = self.read_memory_32(effective_addr);
                 }
                 2 => {
-                    self.scalar_reg[sdata as usize] = self.scalar_reg[sbase as usize];
-                    self.scalar_reg[sdata as usize + 1] = self.scalar_reg[sbase as usize + 1];
-                    self.scalar_reg[sdata as usize + 2] = self.scalar_reg[sbase as usize + 2];
-                    self.scalar_reg[sdata as usize + 3] = self.scalar_reg[sbase as usize + 3];
+                    self.scalar_reg[sdata] = self.read_memory_32(effective_addr);
+                    self.scalar_reg[sdata + 1] = self.read_memory_32(effective_addr + 4);
+                    self.scalar_reg[sdata + 2] = self.read_memory_32(effective_addr + 8);
+                    self.scalar_reg[sdata + 3] = self.read_memory_32(effective_addr + 12);
                 }
                 _ => todo!(),
             }
@@ -788,13 +789,14 @@ mod test_real_world {
             read_array_bytes(&cpu, data0_addr, 4)
         );
 
-        let data0_ptr_addr = 3000;
+        // "stack" pointers
+        let data0_ptr_addr = 1200;
         cpu.write_memory_32(data0_ptr_addr, data0_addr as u32);
-        let data1_ptr_addr = 4000;
+        let data1_ptr_addr = 1208;
         cpu.write_memory_32(data1_ptr_addr, data1_addr as u32);
 
-        cpu.scalar_reg.write_addr(0, data0_addr);
-        cpu.scalar_reg.write_addr(2, data1_addr);
+        cpu.scalar_reg.write_addr(0, data0_ptr_addr);
+        cpu.scalar_reg.write_addr(2, data1_ptr_addr);
 
         cpu.interpret(&parse_rdna3_file("./tests/misc/test_add_const_index.s"));
 
