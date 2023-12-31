@@ -688,6 +688,7 @@ mod test_global {
         cpu.interpret(&vec![0xdc6a0000, 0x00000102, END_PRG]);
     }
 }
+
 #[cfg(test)]
 mod test_real_world {
     use super::*;
@@ -711,6 +712,11 @@ mod test_real_world {
         }
         return data;
     }
+    fn write_array(cpu: &mut CPU, addr: u64, values: Vec<f32>) {
+        for i in 0..values.len() {
+            cpu.write_memory_32(addr + (i * 4) as u64, f32::to_bits(values[i]));
+        }
+    }
 
     #[test]
     fn test_add_simple() {
@@ -722,21 +728,11 @@ mod test_real_world {
 
         // allocate memory
         let data0_addr = 1000;
-        for i in 0..data0.len() {
-            cpu.write_memory_32(data0_addr + (i * 4) as u64, f32::to_bits(data0[i]));
-        }
-
+        write_array(&mut cpu, data0_addr, data0);
         let data1_addr = 2000;
-        for i in 0..data1.len() {
-            cpu.write_memory_32(data1_addr + (i * 4) as u64, f32::to_bits(data1[i]));
-        }
-
+        write_array(&mut cpu, data1_addr, data1);
         let data2_addr = 3000;
-        for i in 0..data2.len() {
-            cpu.write_memory_32(data2_addr + (i * 4) as u64, f32::to_bits(data2[i]));
-        }
-
-        println!("Ending memory layout:");
+        write_array(&mut cpu, data2_addr, data2);
 
         println!(
             "data0 = {:?} {:?}",
@@ -771,5 +767,34 @@ mod test_real_world {
             let val = cpu.read_memory_32(data0_addr + (i * 4) as u64);
             assert_eq!(f32::from_bits(val), expected_data0[i]);
         }
+    }
+
+    // load data0
+    // load data1
+    // store data0 into data1
+    #[test]
+    fn test_load_store() {
+        let mut cpu = CPU::new();
+        let data0 = vec![0.0; 4];
+        let data1 = vec![1.0, 2.0, 3.0, 4.0];
+
+        let data0_addr = 1000;
+        write_array(&mut cpu, data0_addr, data0);
+        let data1_addr = 2000;
+        write_array(&mut cpu, data1_addr, data1);
+
+        println!(
+            "data0 = {:?} {:?}",
+            read_array(&cpu, data0_addr, 4),
+            read_array_bytes(&cpu, data0_addr, 4)
+        );
+        println!(
+            "data1 = {:?} {:?}",
+            read_array(&cpu, data1_addr, 4),
+            read_array_bytes(&cpu, data1_addr, 4)
+        );
+
+
+        panic!();
     }
 }
