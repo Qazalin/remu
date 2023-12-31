@@ -1,10 +1,10 @@
 use crate::cpu::CPU;
 use crate::utils::DEBUG;
 use std::os::raw::c_void;
+mod allocator;
 mod cpu;
 mod state;
 mod utils;
-mod allocator;
 
 #[no_mangle]
 pub extern "C" fn hipModuleLaunchKernel(
@@ -48,9 +48,11 @@ pub extern "C" fn hipModuleLaunchKernel(
 
 #[no_mangle]
 pub extern "C" fn hipMalloc(ptr: *mut c_void, size: u32) {
+    let mut cpu = CPU::new();
+
     unsafe {
         let data_ptr = ptr as *mut u64;
-        *data_ptr = 42;
+        *data_ptr = cpu.allocator.alloc(size);
     }
 
     if *DEBUG >= 1 {
