@@ -29,13 +29,11 @@ pub extern "C" fn hipModuleLaunchKernel(
 
     if *DEBUG >= 1 {
         println!(
-            "[remu] launching kernel with global_size {} {} {} local_size {} {} {} args {:?}",
-            grid_dim_x, grid_dim_y, grid_dim_z, block_dim_x, block_dim_y, block_dim_z, kernel_args
+            "[remu] launching kernel with global_size {} {} {} local_size {} {} {} {} args {:?}",
+            grid_dim_x, grid_dim_y, grid_dim_z, block_dim_x, block_dim_y, block_dim_z, args_len, kernel_args
         );
     }
 
     let mut cpu = CPU::new();
     let prg: Vec<u32> = vec![]; // TODO this should come from the lib arg
-
-    println!("args={:?}", kernel_args);
 }
