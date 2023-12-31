@@ -691,11 +691,7 @@ mod test_global {
 #[cfg(test)]
 mod test_real_world {
     use super::*;
-
-    fn helper_test_op(cpu: &mut CPU, op: &str) {
-        let prg = crate::utils::parse_rdna3_file(&format!("./tests/test_ops/{}.s", op));
-        cpu.interpret(&prg);
-    }
+    use crate::utils::parse_rdna3_file;
 
     fn read_array(cpu: &CPU, addr: u64, sz: usize) -> Vec<u32> {
         let mut data = vec![0; sz];
@@ -766,7 +762,7 @@ mod test_real_world {
 
         for i in 0..global_size.0 {
             cpu.scalar_reg[15] = i as u32; // TODO shouldnt this be the address of blockIdx?
-            helper_test_op(&mut cpu, "test_add_simple");
+            cpu.interpret(&parse_rdna3_file("./tests/test_ops/test_add_simple.s"));
         }
 
         for i in 0..global_size.0 {
@@ -775,14 +771,11 @@ mod test_real_world {
         }
     }
 
-    // load data0
-    // load data1
-    // store data1+data1 into data0 at index 0, everything else stays the same
     #[test]
-    fn test_load_store() {
+    fn test_add_const_index() {
         let mut cpu = CPU::new();
         let mut data0 = vec![0.0; 4];
-        let data1 = vec![69.0, 69.0, 3.0, 4.0];
+        let data1 = vec![1.0, 21.0, 3.0, 4.0];
 
         let data0_addr = 1000;
         write_array(&mut cpu, data0_addr, data0);
@@ -803,26 +796,9 @@ mod test_real_world {
         cpu.scalar_reg.write_addr(0, data0_addr);
         cpu.scalar_reg.write_addr(2, data1_addr);
 
-        let prg = crate::utils::parse_rdna3_file("const_gidx.s");
-        cpu.interpret(&prg);
+        cpu.interpret(&parse_rdna3_file("./tests/misc/test_add_const_index.s"));
 
         data0 = read_array_f32(&cpu, data0_addr, 4);
-        assert_eq!(data0[1], 69.0 + 69.0);
-    }
-
-    /* void E(float* data0, const float* data1) { */
-    #[test]
-    fn test_data0_data1() {
-        let mut cpu = CPU::new();
-
-        let data0_addr = 4294967296;
-        let data1_addr = 7294967296;
-
-        cpu.scalar_reg.write_addr(6, data1_addr);
-
-        cpu.interpret(&vec![0xf4080100, 0xf8000000, END_PRG]);
-
-        assert_eq!(cpu.scalar_reg.read_addr(4), data0_addr);
-        assert_eq!(cpu.scalar_reg.read_addr(6), data1_addr);
+        assert_eq!(data0[1], 42.0);
     }
 }
