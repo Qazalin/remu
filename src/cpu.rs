@@ -48,6 +48,21 @@ impl CPU {
         self.memory[addr + 3] = ((val >> 24) & 0xFF) as u8;
     }
 
+    pub fn write_memory_64(&mut self, addr_bf: u64, val: u64) {
+        let addr = addr_bf as usize;
+        if addr + 8 > self.memory.len() {
+            panic!("Memory write out of bounds");
+        }
+        self.memory[addr] = (val & 0xFF) as u8;
+        self.memory[addr + 1] = ((val >> 8) & 0xFF) as u8;
+        self.memory[addr + 2] = ((val >> 16) & 0xFF) as u8;
+        self.memory[addr + 3] = ((val >> 24) & 0xFF) as u8;
+        self.memory[addr + 4] = ((val >> 32) & 0xFF) as u8;
+        self.memory[addr + 5] = ((val >> 40) & 0xFF) as u8;
+        self.memory[addr + 6] = ((val >> 48) & 0xFF) as u8;
+        self.memory[addr + 7] = ((val >> 56) & 0xFF) as u8;
+    }
+
     pub fn interpret(&mut self, prg: &Vec<u32>) {
         self.pc = 0;
         self.prg = prg.to_vec();
@@ -94,7 +109,7 @@ impl CPU {
             // offset is a sign-extend immediate 21-bit constant
             let offset = twos_complement_21bit((instr >> 32) & 0x1fffff);
             let soffset = match instr & 0x7F {
-                _ if offset == 0 => 0, // NULL
+                0 => 0, //  set to "NULL" to not use (offset=0).
                 // the SGPR contains an unsigned byte offset (the 2 LSBs are ignored).
                 val => (self.resolve_ssrc(val as u32) & -4) as u64,
             };
@@ -115,11 +130,13 @@ impl CPU {
             let base_addr = self.scalar_reg.read_addr(sbase as usize) as i64;
             let effective_addr = (base_addr + offset + soffset as i64) as u64;
 
-            println!("effective final addr {}", effective_addr);
-
             match op {
                 0 => {
                     self.scalar_reg[sdata] = self.read_memory_32(effective_addr);
+                }
+                1 => {
+                    self.scalar_reg[sdata] = self.read_memory_32(effective_addr);
+                    self.scalar_reg[sdata + 1] = self.read_memory_32(effective_addr + 4);
                 }
                 2 => {
                     self.scalar_reg[sdata] = self.read_memory_32(effective_addr);
@@ -132,7 +149,7 @@ impl CPU {
         }
         // sop1
         else if instruction >> 23 == 0b10_1111101 {
-            let ssrc0 = self.resolve_ssrc(instruction & 0xFF);
+            let ssrc0 = instruction & 0xFF;
             let op = (instruction >> 8) & 0xFF;
             let sdst = (instruction >> 16) & 0x7F;
 
@@ -147,22 +164,12 @@ impl CPU {
             }
 
             match op {
-                0 => {
-                    if *DEBUG == 2 {
-                        println!(
-                            "[state] writing to sdst={} the value={} (possibly from sgpr={})",
-                            sdst,
-                            ssrc0,
-                            instruction & 0xFF
-                        );
-                    }
-                    self.write_to_sdst(sdst, ssrc0 as u32)
-                }
+                0 => self.write_to_sdst(sdst, self.resolve_ssrc(ssrc0) as u32),
                 1 => {
-                    self.write_to_sdst(sdst, ssrc0 as u32);
-                    self.write_to_sdst(sdst + 1, ssrc0 as u32);
+                    self.write_to_sdst(sdst, ssrc0);
+                    self.write_to_sdst(sdst + 1, ssrc0);
                 }
-                _ => todo!("sop1 opcode {}", op),
+                _ => todo!(),
             }
         }
         // sop2
@@ -724,52 +731,40 @@ mod test_real_world {
     #[test]
     fn test_add_simple() {
         let mut cpu = CPU::new();
-        let data0 = vec![0.0; 4];
+        let mut data0 = vec![0.0; 4];
         let data1 = vec![1.0, 2.0, 3.0, 4.0];
         let data2 = vec![5.0, 6.0, 7.0, 8.0];
         let expected_data0 = vec![6.0, 8.0, 10.0, 12.0];
 
         // allocate memory
         let data0_addr = 1000;
-        write_array(&mut cpu, data0_addr, data0);
+        write_array(&mut cpu, data0_addr, data0.clone());
         let data1_addr = 2000;
         write_array(&mut cpu, data1_addr, data1);
         let data2_addr = 3000;
         write_array(&mut cpu, data2_addr, data2);
 
-        println!(
-            "data0 = {:?} {:?}",
-            read_array(&cpu, data0_addr, 4),
-            read_array_bytes(&cpu, data0_addr, 4)
-        );
-        println!(
-            "data1 = {:?} {:?}",
-            read_array(&cpu, data1_addr, 4),
-            read_array_bytes(&cpu, data1_addr, 4)
-        );
-        println!(
-            "data2 = {:?} {:?}",
-            read_array(&cpu, data2_addr, 4),
-            read_array_bytes(&cpu, data2_addr, 4)
-        );
-
-        // allocate src registers
-        cpu.scalar_reg.write_addr(0, data0_addr);
-        cpu.scalar_reg.write_addr(2, data1_addr);
-        cpu.scalar_reg.write_addr(4, data2_addr);
+        // "stack" pointers in memory
+        let data0_ptr_addr: u64 = 131300;
+        let data1_ptr_addr = data0_ptr_addr + 8;
+        let data2_ptr_addr = data0_ptr_addr + 16;
+        cpu.write_memory_64(data0_ptr_addr, data0_addr);
+        cpu.write_memory_64(data1_ptr_addr, data1_addr);
+        cpu.write_memory_64(data2_ptr_addr, data2_addr);
 
         // "launch" kernel
-        let global_size = (1, 1, 1);
-
+        let global_size = (4, 1, 1);
         for i in 0..global_size.0 {
-            cpu.scalar_reg[15] = i as u32; // TODO shouldnt this be the address of blockIdx?
+            // allocate src registers
+            cpu.scalar_reg.reset();
+            cpu.scalar_reg.write_addr(0, data0_ptr_addr);
+            println!("i={i}");
+            cpu.scalar_reg[15] = i;
             cpu.interpret(&parse_rdna3_file("./tests/test_ops/test_add_simple.s"));
+            data0[i as usize] = read_array_f32(&cpu, data0_addr, 4)[i as usize];
         }
 
-        for i in 0..global_size.0 {
-            let val = cpu.read_memory_32(data0_addr + (i * 4) as u64);
-            assert_eq!(f32::from_bits(val), expected_data0[i]);
-        }
+        assert_eq!(data0, expected_data0);
     }
 
     #[test]
@@ -789,14 +784,13 @@ mod test_real_world {
             read_array_bytes(&cpu, data0_addr, 4)
         );
 
-        // "stack" pointers
+        // "stack" pointers in memory
         let data0_ptr_addr = 1200;
-        cpu.write_memory_32(data0_ptr_addr, data0_addr as u32);
-        let data1_ptr_addr = 1208;
-        cpu.write_memory_32(data1_ptr_addr, data1_addr as u32);
+        cpu.write_memory_64(data0_ptr_addr, data0_addr);
+        let data1_ptr_addr = data0_ptr_addr + 8;
+        cpu.write_memory_64(data1_ptr_addr, data1_addr);
 
         cpu.scalar_reg.write_addr(0, data0_ptr_addr);
-        cpu.scalar_reg.write_addr(2, data1_ptr_addr);
 
         cpu.interpret(&parse_rdna3_file("./tests/misc/test_add_const_index.s"));
 
