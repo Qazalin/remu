@@ -16,11 +16,12 @@ pub extern "C" fn hipModuleLaunchKernel(
     _shared_mem_bytes: u32,
     _stream: *const *const c_void,
     _kernel_params: *const *const c_void,
+    args_len: u32,
     args: *const *const c_void,
 ) {
     let mut kernel_args: Vec<u64> = Vec::new();
     unsafe {
-        for i in 0..5 {
+        for i in 0..args_len {
             let ptr = *args.offset(i as isize);
             kernel_args.push(ptr as u64);
         }
@@ -36,18 +37,5 @@ pub extern "C" fn hipModuleLaunchKernel(
     let mut cpu = CPU::new();
     let prg: Vec<u32> = vec![]; // TODO this should come from the lib arg
 
-    let bufs_ptr = kernel_args[1] as *const u64;
-    let bufs_size_ptr = kernel_args[3] as *const usize;
-
-    let bufs_size: usize;
-    unsafe {
-        bufs_size = *bufs_size_ptr;
-    }
-
-    let bufs_vec: Vec<u64>;
-    unsafe {
-        bufs_vec = Vec::from_raw_parts(bufs_ptr as *mut u64, bufs_size, bufs_size);
-    }
-
-    println!("values={:?}", bufs_vec);
+    println!("args={:?}", kernel_args);
 }
