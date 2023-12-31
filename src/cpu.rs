@@ -1,6 +1,6 @@
 #![allow(unused)]
 use crate::state::{SGPR, VGPR};
-use crate::utils::{twos_complement_21bit, DEBUG};
+use crate::utils::{twos_complement_21bit, Colorize, DEBUG};
 
 const SGPR_COUNT: u32 = 105;
 const VGPR_COUNT: u32 = 256;
@@ -101,8 +101,15 @@ impl CPU {
 
             if *DEBUG >= 1 {
                 println!(
-                    "SMEM sbase={} sdata={} dlc={} glc={} op={} offset={} soffset={}",
-                    sbase, sdata, dlc, glc, op, offset, soffset
+                    "{} sbase={} sdata={} dlc={} glc={} op={} offset={} soffset={}",
+                    "SMEM".color("blue"),
+                    sbase,
+                    sdata,
+                    dlc,
+                    glc,
+                    op,
+                    offset,
+                    soffset
                 );
             }
 
@@ -133,7 +140,13 @@ impl CPU {
             let sdst = (instruction >> 16) & 0x7F;
 
             if *DEBUG >= 1 {
-                println!("SOP1 ssrc0={} sdst={} op={}", ssrc0, sdst, op);
+                println!(
+                    "{} ssrc0={} sdst={} op={}",
+                    "SOP1".color("blue"),
+                    ssrc0,
+                    sdst,
+                    op,
+                );
             }
 
             match op {
@@ -164,8 +177,12 @@ impl CPU {
 
             if *DEBUG >= 1 {
                 println!(
-                    "SOP2 ssrc0={} ssrc1={} sdst={} op={}",
-                    ssrc0, ssrc1, sdst, op
+                    "{} ssrc0={} ssrc1={} sdst={} op={}",
+                    "SOP2".color("blue"),
+                    ssrc0,
+                    ssrc1,
+                    sdst,
+                    op
                 );
             }
 
@@ -230,7 +247,13 @@ impl CPU {
             let vdst = (instruction >> 17) & 0xff;
 
             if *DEBUG >= 1 {
-                println!("VOP1 src={} op={} vdst={}", src, op, vdst);
+                println!(
+                    "{} src={} op={} vdst={}",
+                    "VOP1".color("blue"),
+                    src,
+                    op,
+                    vdst,
+                );
             }
 
             match op {
@@ -247,8 +270,12 @@ impl CPU {
 
             if *DEBUG >= 1 {
                 println!(
-                    "VOP2 ssrc0={} vsrc1={} vdst={} op={}",
-                    ssrc0, vsrc1, vdst, op
+                    "{} ssrc0={} vsrc1={} vdst={} op={}",
+                    "VOP2".color("blue"),
+                    ssrc0,
+                    vsrc1,
+                    vdst,
+                    op
                 );
             }
 
@@ -295,8 +322,8 @@ impl CPU {
 
             if *DEBUG >= 1 {
                 println!(
-                            "VOP3 vdst={} abs={} opsel={} cm={} op={} ssrc0={} ssrc1={} ssrc2={} omod={} neg={}",
-                            vdst, abs, opsel, cm, op, ssrc0, ssrc1, ssrc2, omod, neg
+                            "{} vdst={} abs={} opsel={} cm={} op={} ssrc0={} ssrc1={} ssrc2={} omod={} neg={}",
+                            "VOP3".color("blue"), vdst, abs, opsel, cm, op, ssrc0, ssrc1, ssrc2, omod, neg
                         );
             }
 
@@ -336,7 +363,13 @@ impl CPU {
             let vdst = (instr >> 56) & 0xff;
 
             if *DEBUG >= 1 {
-                println!("GLOBAL addr={} data={} saddr={}", addr, data, saddr);
+                println!(
+                    "{} addr={} data={} saddr={}",
+                    "GLOBAL".color("blue"),
+                    addr,
+                    data,
+                    saddr,
+                );
             }
 
             assert_eq!(seg, 2, "flat and scratch arent supported");

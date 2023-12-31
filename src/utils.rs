@@ -86,3 +86,24 @@ Disassembly of section .text:
         assert_eq!(twos_complement_21bit(0b000111111111111111111), 262143);
     }
 }
+
+pub trait Colorize {
+    fn color(self, color: &str) -> String;
+}
+
+impl<'a> Colorize for &'a str {
+    fn color(self, color: &str) -> String {
+        let intensity = if color == color.to_uppercase() { 60 } else { 0 };
+        let color_code = match color.to_lowercase().as_str() {
+            "black" => 0,
+            "red" => 1,
+            "green" => 2,
+            "yellow" => 3,
+            "blue" => 4,
+            "magenta" => 5,
+            "cyan" => 6,
+            _ => 7, // white
+        };
+        format!("\x1b[{}m{}\x1b[0m", 0 + intensity + 30 + color_code, self)
+    }
+}

@@ -1,4 +1,4 @@
-use crate::utils::{DEBUG, SGPR_INDEX};
+use crate::utils::{Colorize, DEBUG, SGPR_INDEX};
 use std::ops::{Index, IndexMut};
 
 const SGPR_COUNT: usize = 105;
@@ -18,7 +18,7 @@ impl Index<usize> for SGPR {
 
     fn index(&self, index: usize) -> &Self::Output {
         if *DEBUG >= 3 || Some(index as i32) == *SGPR_INDEX {
-            println!("[SGPR] read {index}");
+            println!("{} read {}", "[SGPR]".color("magenta"), index);
         }
         &self.values[index]
     }
@@ -27,7 +27,7 @@ impl Index<usize> for SGPR {
 impl IndexMut<usize> for SGPR {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         if *DEBUG >= 3 || Some(index as i32) == *SGPR_INDEX {
-            println!("[SGPR] write {index}");
+            println!("{} write {}", "[SGPR]".color("magenta"), index);
         }
         &mut self.values[index]
     }
