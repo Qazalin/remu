@@ -357,29 +357,31 @@ impl CPU {
 
             if *DEBUG >= 1 {
                 println!(
-                    "{} addr={} data={} saddr={}",
+                    "{} addr={} data={} saddr={} op={} offset={}",
                     "GLOBAL".color("blue"),
                     addr,
                     data,
                     saddr,
+                    op,
+                    offset
                 );
             }
 
             assert_eq!(seg, 2, "flat and scratch arent supported");
             match op {
                 26 => {
-                    let effective_addr = match saddr {
-                        0 => self.vec_reg.read_addr(addr as usize).wrapping_add(offset),
+                    let effective_addr = match self.resolve_ssrc(saddr as u32) {
+                        0 | 0x7F => self.vec_reg.read_addr(addr as usize).wrapping_add(offset), // SADDR is NULL or 0x7f: specifies an address
                         _ => {
                             let scalar_addr = self.scalar_reg.read_addr(saddr as usize);
                             let vgpr_offset = self.vec_reg[addr as usize];
                             scalar_addr + vgpr_offset as u64 + offset
-                        }
+                        } // SADDR is not NULL or 0x7f: specifies an offset.
                     };
                     let vdata = self.vec_reg[data as usize];
 
                     if *DEBUG >= 2 {
-                        print!(
+                        println!(
                             "storing value={} from vector register {} to mem[{}]",
                             vdata, data, effective_addr
                         );
@@ -793,8 +795,13 @@ mod test_real_world {
             read_array_bytes(&cpu, data0_addr, 4)
         );
 
-        cpu.scalar_reg.write_addr(4, data0_addr);
-        cpu.scalar_reg.write_addr(6, data1_addr);
+        let data0_ptr_addr = 3000;
+        cpu.write_memory_32(data0_ptr_addr, data0_addr as u32);
+        let data1_ptr_addr = 4000;
+        cpu.write_memory_32(data1_ptr_addr, data1_addr as u32);
+
+        cpu.scalar_reg.write_addr(0, data0_addr);
+        cpu.scalar_reg.write_addr(2, data1_addr);
 
         let prg = crate::utils::parse_rdna3_file("const_gidx.s");
         cpu.interpret(&prg);
