@@ -741,7 +741,7 @@ mod test_real_world {
     #[test]
     fn test_add_simple() {
         let mut cpu = CPU::new();
-        let data0 = vec![0.0; 4];
+        let mut data0 = vec![0.0; 4];
         let data1 = vec![1.0, 2.0, 3.0, 4.0];
         let data2 = vec![5.0, 6.0, 7.0, 8.0];
         let expected_data0 = vec![6.0, 8.0, 10.0, 12.0];
@@ -775,10 +775,8 @@ mod test_real_world {
             cpu.interpret(&parse_rdna3_file("./tests/test_ops/test_add_simple.s"));
         }
 
-        for i in 0..global_size.0 {
-            let val = cpu.read_memory_32(data0_addr + (i * 4) as u64);
-            assert_eq!(f32::from_bits(val), expected_data0[i]);
-        }
+        data0 = read_array_f32(&cpu, data0_addr, 4);
+        assert_eq!(data0, expected_data0);
     }
 
     #[test]
