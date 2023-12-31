@@ -771,7 +771,7 @@ mod test_real_world {
 
     // load data0
     // load data1
-    // store data0 into data1
+    // store data1+data1 into data0 at index 0, everything else stays the same
     #[test]
     fn test_load_store() {
         let mut cpu = CPU::new();
@@ -794,7 +794,10 @@ mod test_real_world {
             read_array_bytes(&cpu, data1_addr, 4)
         );
 
+        let prg = crate::utils::parse_rdna3_file("const_gidx.s");
+        cpu.interpret(&prg);
 
-        panic!();
+        let val = cpu.read_memory_32(data0_addr as u64);
+        assert_eq!(f32::from_bits(val), 2.0);
     }
 }
