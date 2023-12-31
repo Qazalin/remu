@@ -1,3 +1,4 @@
+use crate::cpu::CPU;
 use crate::utils::DEBUG;
 use std::os::raw::c_void;
 mod cpu;
@@ -31,4 +32,22 @@ pub extern "C" fn hipModuleLaunchKernel(
             grid_dim_x, grid_dim_y, grid_dim_z, block_dim_x, block_dim_y, block_dim_z, kernel_args
         );
     }
+
+    let mut cpu = CPU::new();
+    let prg: Vec<u32> = vec![]; // TODO this should come from the lib arg
+
+    let bufs_ptr = kernel_args[1] as *const u64;
+    let bufs_size_ptr = kernel_args[3] as *const usize;
+
+    let bufs_size: usize;
+    unsafe {
+        bufs_size = *bufs_size_ptr;
+    }
+
+    let bufs_vec: Vec<u64>;
+    unsafe {
+        bufs_vec = Vec::from_raw_parts(bufs_ptr as *mut u64, bufs_size, bufs_size);
+    }
+
+    println!("values={:?}", bufs_vec);
 }
