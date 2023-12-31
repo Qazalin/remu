@@ -22,6 +22,10 @@ impl SGPR {
         self.values[idx as usize] = (addr & 0xffffffff) as u32;
         self.values[idx as usize + 1] = ((addr & (0xffffffff << 32)) >> 32) as u32;
     }
+
+    pub fn reset(&mut self) {
+        self.values = [0; SGPR_COUNT]
+    }
 }
 
 impl Index<usize> for SGPR {

@@ -135,7 +135,6 @@ impl CPU {
                     self.scalar_reg[sdata] = self.read_memory_32(effective_addr);
                 }
                 1 => {
-                    println!("effective_addr={}", effective_addr);
                     self.scalar_reg[sdata] = self.read_memory_32(effective_addr);
                     self.scalar_reg[sdata + 1] = self.read_memory_32(effective_addr + 4);
                 }
@@ -739,7 +738,7 @@ mod test_real_world {
 
         // allocate memory
         let data0_addr = 1000;
-        write_array(&mut cpu, data0_addr, data0);
+        write_array(&mut cpu, data0_addr, data0.clone());
         let data1_addr = 2000;
         write_array(&mut cpu, data1_addr, data1);
         let data2_addr = 3000;
@@ -753,24 +752,19 @@ mod test_real_world {
         cpu.write_memory_64(data1_ptr_addr, data1_addr);
         cpu.write_memory_64(data2_ptr_addr, data2_addr);
 
-        // allocate src registers
-        cpu.scalar_reg.write_addr(0, data0_ptr_addr);
-
         // "launch" kernel
-        let global_size = (1, 1, 1);
-
+        let global_size = (4, 1, 1);
         for i in 0..global_size.0 {
-            cpu.scalar_reg[15] = i as u32; // TODO shouldnt this be the address of blockIdx?
+            // allocate src registers
+            cpu.scalar_reg.reset();
+            cpu.scalar_reg.write_addr(0, data0_ptr_addr);
+            println!("i={i}");
+            cpu.scalar_reg[15] = i;
             cpu.interpret(&parse_rdna3_file("./tests/test_ops/test_add_simple.s"));
+            data0[i as usize] = read_array_f32(&cpu, data0_addr, 4)[i as usize];
         }
 
-        assert_eq!(cpu.scalar_reg.read_addr(4), data0_addr);
-        assert_eq!(cpu.scalar_reg.read_addr(6), data1_addr);
-        assert_eq!(cpu.scalar_reg.read_addr(0), data2_addr);
-        assert_eq!(cpu.scalar_reg[2], 0);
-
-        data0 = read_array_f32(&cpu, data0_addr, 4);
-        // assert_eq!(data0, expected_data0);
+        assert_eq!(data0, expected_data0);
     }
 
     #[test]
