@@ -149,7 +149,7 @@ impl CPU {
         }
         // sop1
         else if instruction >> 23 == 0b10_1111101 {
-            let ssrc0 = self.resolve_ssrc(instruction & 0xFF);
+            let ssrc0 = instruction & 0xFF;
             let op = (instruction >> 8) & 0xFF;
             let sdst = (instruction >> 16) & 0x7F;
 
@@ -164,20 +164,10 @@ impl CPU {
             }
 
             match op {
-                0 => {
-                    if *DEBUG == 2 {
-                        println!(
-                            "[state] writing to sdst={} the value={} (possibly from sgpr={})",
-                            sdst,
-                            ssrc0,
-                            instruction & 0xFF
-                        );
-                    }
-                    self.write_to_sdst(sdst, ssrc0 as u32)
-                }
+                0 => self.write_to_sdst(sdst, ssrc0),
                 1 => {
-                    self.write_to_sdst(sdst, ssrc0 as u32);
-                    self.write_to_sdst(sdst + 1, ssrc0 as u32);
+                    self.write_to_sdst(sdst, ssrc0);
+                    self.write_to_sdst(sdst + 1, ssrc0);
                 }
                 _ => todo!("sop1 opcode {}", op),
             }
