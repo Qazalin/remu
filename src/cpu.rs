@@ -113,24 +113,20 @@ impl CPU {
                 );
             }
 
-            let addr =
-                ((self.scalar_reg[sbase as usize] as i64) + offset + (soffset as i64)) as u64;
-
             match op {
-                0..=4 => {
-                    for i in 0..2_u64.pow(op as u32) {
-                        self.scalar_reg[(sdata + i) as usize] = self.read_memory_32(addr + i * 4);
-                        if *DEBUG == 2 {
-                            println!(
-                                "[state] loaded the value={} from mem={} to sgpr={}",
-                                self.scalar_reg[(sdata + i) as usize],
-                                addr + i * 4,
-                                sdata + i
-                            );
-                        }
-                    }
+                0 => {
+                    let base_addr = self.scalar_reg.read_addr(sbase as usize) as i64;
+                    let addr = base_addr + offset + soffset as i64;
+                    println!("effective final addr {}", addr);
+                    self.scalar_reg[sdata as usize] = self.read_memory_32(addr as u64);
                 }
-                _ => todo!("smem op {}", op),
+                2 => {
+                    self.scalar_reg[sdata as usize] = self.scalar_reg[sbase as usize];
+                    self.scalar_reg[sdata as usize + 1] = self.scalar_reg[sbase as usize + 1];
+                    self.scalar_reg[sdata as usize + 2] = self.scalar_reg[sbase as usize + 2];
+                    self.scalar_reg[sdata as usize + 3] = self.scalar_reg[sbase as usize + 3];
+                }
+                _ => todo!(),
             }
         }
         // sop1
@@ -321,10 +317,7 @@ impl CPU {
             let neg = (src_info >> 29) & 0x7;
 
             if *DEBUG >= 1 {
-                println!(
-                            "{} vdst={} abs={} opsel={} cm={} op={} ssrc0={} ssrc1={} ssrc2={} omod={} neg={}",
-                            "VOP3".color("blue"), vdst, abs, opsel, cm, op, ssrc0, ssrc1, ssrc2, omod, neg
-                        );
+                println!("{} vdst={} abs={} opsel={} cm={} op={} ssrc0={} ssrc1={} ssrc2={} omod={} neg={}", "VOP3".color("blue"), vdst, abs, opsel, cm, op, ssrc0, ssrc1, ssrc2, omod, neg);
             }
 
             match op {
@@ -364,30 +357,31 @@ impl CPU {
 
             if *DEBUG >= 1 {
                 println!(
-                    "{} addr={} data={} saddr={}",
+                    "{} addr={} data={} saddr={} op={} offset={}",
                     "GLOBAL".color("blue"),
                     addr,
                     data,
                     saddr,
+                    op,
+                    offset
                 );
             }
 
             assert_eq!(seg, 2, "flat and scratch arent supported");
             match op {
                 26 => {
-                    let effective_addr = match saddr {
-                        0 => {
-                            let addr_lsb = self.vec_reg[addr as usize] as u64;
-                            let addr_msb = self.vec_reg[(addr + 1) as usize] as u64;
-                            let full_addr = ((addr_msb << 32) | addr_lsb) as u64;
-                            full_addr.wrapping_add(offset as u64) // Add the offset
-                        }
-                        _ => todo!("address via registers not supported"),
+                    let effective_addr = match self.resolve_ssrc(saddr as u32) {
+                        0 | 0x7F => self.vec_reg.read_addr(addr as usize).wrapping_add(offset), // SADDR is NULL or 0x7f: specifies an address
+                        _ => {
+                            let scalar_addr = self.scalar_reg.read_addr(saddr as usize);
+                            let vgpr_offset = self.vec_reg[addr as usize];
+                            scalar_addr + vgpr_offset as u64 + offset
+                        } // SADDR is not NULL or 0x7f: specifies an offset.
                     };
                     let vdata = self.vec_reg[data as usize];
 
                     if *DEBUG >= 2 {
-                        print!(
+                        println!(
                             "storing value={} from vector register {} to mem[{}]",
                             vdata, data, effective_addr
                         );
@@ -693,19 +687,23 @@ mod test_global {
         cpu.interpret(&vec![0xdc6a0000, 0x00000102, END_PRG]);
     }
 }
+
 #[cfg(test)]
 mod test_real_world {
     use super::*;
-
-    fn helper_test_op(cpu: &mut CPU, op: &str) {
-        let prg = crate::utils::parse_rdna3_file(&format!("./tests/test_ops/{}.s", op));
-        cpu.interpret(&prg);
-    }
+    use crate::utils::parse_rdna3_file;
 
     fn read_array(cpu: &CPU, addr: u64, sz: usize) -> Vec<u32> {
         let mut data = vec![0; sz];
         for i in 0..sz {
             data[i] = cpu.read_memory_32(addr + (i * 4) as u64);
+        }
+        return data;
+    }
+    fn read_array_f32(cpu: &CPU, addr: u64, sz: usize) -> Vec<f32> {
+        let mut data = vec![0.0; sz];
+        for i in 0..sz {
+            data[i] = f32::from_bits(cpu.read_memory_32(addr + (i * 4) as u64));
         }
         return data;
     }
@@ -715,6 +713,11 @@ mod test_real_world {
             data[i] = cpu.memory[addr as usize + i];
         }
         return data;
+    }
+    fn write_array(cpu: &mut CPU, addr: u64, values: Vec<f32>) {
+        for i in 0..values.len() {
+            cpu.write_memory_32(addr + (i * 4) as u64, f32::to_bits(values[i]));
+        }
     }
 
     #[test]
@@ -727,21 +730,11 @@ mod test_real_world {
 
         // allocate memory
         let data0_addr = 1000;
-        for i in 0..data0.len() {
-            cpu.write_memory_32(data0_addr + (i * 4) as u64, f32::to_bits(data0[i]));
-        }
-
+        write_array(&mut cpu, data0_addr, data0);
         let data1_addr = 2000;
-        for i in 0..data1.len() {
-            cpu.write_memory_32(data1_addr + (i * 4) as u64, f32::to_bits(data1[i]));
-        }
-
+        write_array(&mut cpu, data1_addr, data1);
         let data2_addr = 3000;
-        for i in 0..data2.len() {
-            cpu.write_memory_32(data2_addr + (i * 4) as u64, f32::to_bits(data2[i]));
-        }
-
-        println!("Ending memory layout:");
+        write_array(&mut cpu, data2_addr, data2);
 
         println!(
             "data0 = {:?} {:?}",
@@ -760,21 +753,52 @@ mod test_real_world {
         );
 
         // allocate src registers
-        cpu.scalar_reg[6] = data1_addr as u32;
-        cpu.scalar_reg[0] = data2_addr as u32;
-        cpu.scalar_reg[4] = data0_addr as u32;
+        cpu.scalar_reg.write_addr(0, data0_addr);
+        cpu.scalar_reg.write_addr(2, data1_addr);
+        cpu.scalar_reg.write_addr(4, data2_addr);
 
         // "launch" kernel
         let global_size = (1, 1, 1);
 
         for i in 0..global_size.0 {
             cpu.scalar_reg[15] = i as u32; // TODO shouldnt this be the address of blockIdx?
-            helper_test_op(&mut cpu, "test_add_simple");
+            cpu.interpret(&parse_rdna3_file("./tests/test_ops/test_add_simple.s"));
         }
 
         for i in 0..global_size.0 {
             let val = cpu.read_memory_32(data0_addr + (i * 4) as u64);
             assert_eq!(f32::from_bits(val), expected_data0[i]);
         }
+    }
+
+    #[test]
+    fn test_add_const_index() {
+        let mut cpu = CPU::new();
+        let mut data0 = vec![0.0; 4];
+        let data1 = vec![1.0, 21.0, 3.0, 4.0];
+
+        let data0_addr = 1000;
+        write_array(&mut cpu, data0_addr, data0);
+        let data1_addr = 2000;
+        write_array(&mut cpu, data1_addr, data1);
+
+        println!(
+            "data0 = {:?} {:?}",
+            read_array(&cpu, data0_addr, 4),
+            read_array_bytes(&cpu, data0_addr, 4)
+        );
+
+        let data0_ptr_addr = 3000;
+        cpu.write_memory_32(data0_ptr_addr, data0_addr as u32);
+        let data1_ptr_addr = 4000;
+        cpu.write_memory_32(data1_ptr_addr, data1_addr as u32);
+
+        cpu.scalar_reg.write_addr(0, data0_addr);
+        cpu.scalar_reg.write_addr(2, data1_addr);
+
+        cpu.interpret(&parse_rdna3_file("./tests/misc/test_add_const_index.s"));
+
+        data0 = read_array_f32(&cpu, data0_addr, 4);
+        assert_eq!(data0[1], 42.0);
     }
 }
