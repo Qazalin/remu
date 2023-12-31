@@ -109,7 +109,7 @@ impl CPU {
             // offset is a sign-extend immediate 21-bit constant
             let offset = twos_complement_21bit((instr >> 32) & 0x1fffff);
             let soffset = match instr & 0x7F {
-                _ if offset == 0 => 0, // NULL
+                0 => 0, //  set to "NULL" to not use (offset=0).
                 // the SGPR contains an unsigned byte offset (the 2 LSBs are ignored).
                 val => (self.resolve_ssrc(val as u32) & -4) as u64,
             };
@@ -165,7 +165,7 @@ impl CPU {
             }
 
             match op {
-                0 => self.write_to_sdst(sdst, ssrc0),
+                0 => self.write_to_sdst(sdst, self.resolve_ssrc(ssrc0) as u32),
                 1 => {
                     self.write_to_sdst(sdst, ssrc0);
                     self.write_to_sdst(sdst + 1, ssrc0);
@@ -746,7 +746,7 @@ mod test_real_world {
         write_array(&mut cpu, data2_addr, data2);
 
         // "stack" pointers in memory
-        let data0_ptr_addr: u64 = 11000;
+        let data0_ptr_addr: u64 = 131300;
         let data1_ptr_addr = data0_ptr_addr + 8;
         let data2_ptr_addr = data0_ptr_addr + 16;
         cpu.write_memory_64(data0_ptr_addr, data0_addr);
@@ -767,6 +767,7 @@ mod test_real_world {
         assert_eq!(cpu.scalar_reg.read_addr(4), data0_addr);
         assert_eq!(cpu.scalar_reg.read_addr(6), data1_addr);
         assert_eq!(cpu.scalar_reg.read_addr(0), data2_addr);
+        assert_eq!(cpu.scalar_reg[2], 0);
 
         data0 = read_array_f32(&cpu, data0_addr, 4);
         // assert_eq!(data0, expected_data0);
