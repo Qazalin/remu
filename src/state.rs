@@ -14,7 +14,7 @@ impl SGPR {
     /** read a 64bit memory address from two 32bit registers */
     pub fn read_addr(&self, idx: usize) -> u64 {
         let addr_lsb = self.values[idx];
-        let addr_msb = self.values[idx];
+        let addr_msb = self.values[idx + 1];
         ((addr_msb as u64) << 32) | addr_lsb as u64
     }
     /** write a 64bit memory address to two 32bit registers */
@@ -58,7 +58,7 @@ impl VGPR {
     /** read a 64bit memory address from two 32bit registers */
     pub fn read_addr(&self, idx: usize) -> u64 {
         let addr_lsb = self.values[idx];
-        let addr_msb = self.values[idx];
+        let addr_msb = self.values[idx + 1];
         ((addr_msb as u64) << 32) | addr_lsb as u64
     }
     /** write a 64bit memory address to two 32bit registers */

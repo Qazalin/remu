@@ -113,24 +113,20 @@ impl CPU {
                 );
             }
 
-            let addr =
-                ((self.scalar_reg[sbase as usize] as i64) + offset + (soffset as i64)) as u64;
-
             match op {
-                0..=4 => {
-                    for i in 0..2_u64.pow(op as u32) {
-                        self.scalar_reg[(sdata + i) as usize] = self.read_memory_32(addr + i * 4);
-                        if *DEBUG == 2 {
-                            println!(
-                                "[state] loaded the value={} from mem={} to sgpr={}",
-                                self.scalar_reg[(sdata + i) as usize],
-                                addr + i * 4,
-                                sdata + i
-                            );
-                        }
-                    }
+                0 => {
+                    let base_addr = self.scalar_reg.read_addr(sbase as usize) as i64;
+                    let addr = base_addr + offset + soffset as i64;
+                    println!("effective final addr {}", addr);
+                    self.scalar_reg[sdata as usize] = self.read_memory_32(addr as u64);
                 }
-                _ => todo!("smem op {}", op),
+                2 => {
+                    self.scalar_reg[sdata as usize] = self.scalar_reg[sbase as usize];
+                    self.scalar_reg[sdata as usize + 1] = self.scalar_reg[sbase as usize + 1];
+                    self.scalar_reg[sdata as usize + 2] = self.scalar_reg[sbase as usize + 2];
+                    self.scalar_reg[sdata as usize + 3] = self.scalar_reg[sbase as usize + 3];
+                }
+                _ => todo!(),
             }
         }
         // sop1
@@ -321,10 +317,7 @@ impl CPU {
             let neg = (src_info >> 29) & 0x7;
 
             if *DEBUG >= 1 {
-                println!(
-                            "{} vdst={} abs={} opsel={} cm={} op={} ssrc0={} ssrc1={} ssrc2={} omod={} neg={}",
-                            "VOP3".color("blue"), vdst, abs, opsel, cm, op, ssrc0, ssrc1, ssrc2, omod, neg
-                        );
+                println!("{} vdst={} abs={} opsel={} cm={} op={} ssrc0={} ssrc1={} ssrc2={} omod={} neg={}", "VOP3".color("blue"), vdst, abs, opsel, cm, op, ssrc0, ssrc1, ssrc2, omod, neg);
             }
 
             match op {
@@ -709,6 +702,13 @@ mod test_real_world {
         }
         return data;
     }
+    fn read_array_f32(cpu: &CPU, addr: u64, sz: usize) -> Vec<f32> {
+        let mut data = vec![0.0; sz];
+        for i in 0..sz {
+            data[i] = f32::from_bits(cpu.read_memory_32(addr + (i * 4) as u64));
+        }
+        return data;
+    }
     fn read_array_bytes(cpu: &CPU, addr: u64, sz: usize) -> Vec<u8> {
         let mut data = vec![0; sz * 4];
         for i in 0..data.len() {
@@ -779,8 +779,8 @@ mod test_real_world {
     #[test]
     fn test_load_store() {
         let mut cpu = CPU::new();
-        let data0 = vec![0.0; 4];
-        let data1 = vec![1.0, 2.0, 3.0, 4.0];
+        let mut data0 = vec![0.0; 4];
+        let data1 = vec![69.0, 69.0, 3.0, 4.0];
 
         let data0_addr = 1000;
         write_array(&mut cpu, data0_addr, data0);
@@ -792,16 +792,30 @@ mod test_real_world {
             read_array(&cpu, data0_addr, 4),
             read_array_bytes(&cpu, data0_addr, 4)
         );
-        println!(
-            "data1 = {:?} {:?}",
-            read_array(&cpu, data1_addr, 4),
-            read_array_bytes(&cpu, data1_addr, 4)
-        );
+
+        cpu.scalar_reg.write_addr(4, data0_addr);
+        cpu.scalar_reg.write_addr(6, data1_addr);
 
         let prg = crate::utils::parse_rdna3_file("const_gidx.s");
         cpu.interpret(&prg);
 
-        let val = cpu.read_memory_32(data0_addr as u64);
-        assert_eq!(f32::from_bits(val), 2.0);
+        data0 = read_array_f32(&cpu, data0_addr, 4);
+        assert_eq!(data0[1], 69.0 + 69.0);
+    }
+
+    /* void E(float* data0, const float* data1) { */
+    #[test]
+    fn test_data0_data1() {
+        let mut cpu = CPU::new();
+
+        let data0_addr = 4294967296;
+        let data1_addr = 7294967296;
+
+        cpu.scalar_reg.write_addr(6, data1_addr);
+
+        cpu.interpret(&vec![0xf4080100, 0xf8000000, END_PRG]);
+
+        assert_eq!(cpu.scalar_reg.read_addr(4), data0_addr);
+        assert_eq!(cpu.scalar_reg.read_addr(6), data1_addr);
     }
 }
