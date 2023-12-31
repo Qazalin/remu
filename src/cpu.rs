@@ -377,7 +377,11 @@ impl CPU {
                 26 => {
                     let effective_addr = match saddr {
                         0 => self.vec_reg.read_addr(addr as usize).wrapping_add(offset),
-                        _ => todo!("address via registers not supported"),
+                        _ => {
+                            let scalar_addr = self.scalar_reg.read_addr(saddr as usize);
+                            let vgpr_offset = self.vec_reg[addr as usize];
+                            scalar_addr + vgpr_offset as u64 + offset
+                        }
                     };
                     let vdata = self.vec_reg[data as usize];
 
