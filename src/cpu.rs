@@ -1,4 +1,5 @@
 #![allow(unused)]
+use crate::allocator::BumpAllocator;
 use crate::state::{SGPR, VGPR};
 use crate::utils::{twos_complement_21bit, Colorize, DEBUG, SGPR_INDEX};
 
@@ -8,7 +9,7 @@ pub const END_PRG: u32 = 0xbfb00000;
 
 pub struct CPU {
     pc: u64,
-    pub memory: Vec<u8>,
+    pub allocator: BumpAllocator,
     pub scalar_reg: SGPR,
     pub vec_reg: VGPR,
     scc: u32,
@@ -20,7 +21,7 @@ impl CPU {
         return CPU {
             pc: 0,
             scc: 0,
-            memory: vec![0; 24 * 1_073_741_824],
+            allocator: BumpAllocator::new(),
             scalar_reg: SGPR::new(),
             vec_reg: VGPR::new(),
             prg: vec![],
@@ -29,38 +30,38 @@ impl CPU {
 
     pub fn read_memory_32(&self, addr_bf: u64) -> u32 {
         let addr = addr_bf as usize;
-        if addr + 4 > self.memory.len() {
+        if addr + 4 > self.allocator.memory.len() {
             panic!("Memory read out of bounds");
         }
-        (self.memory[addr] as u32)
-            | ((self.memory[addr + 1] as u32) << 8)
-            | ((self.memory[addr + 2] as u32) << 16)
-            | ((self.memory[addr + 3] as u32) << 24)
+        (self.allocator.memory[addr] as u32)
+            | ((self.allocator.memory[addr + 1] as u32) << 8)
+            | ((self.allocator.memory[addr + 2] as u32) << 16)
+            | ((self.allocator.memory[addr + 3] as u32) << 24)
     }
     pub fn write_memory_32(&mut self, addr_bf: u64, val: u32) {
         let addr = addr_bf as usize;
-        if addr + 4 > self.memory.len() {
+        if addr + 4 > self.allocator.memory.len() {
             panic!("Memory write out of bounds");
         }
-        self.memory[addr] = (val & 0xFF) as u8;
-        self.memory[addr + 1] = ((val >> 8) & 0xFF) as u8;
-        self.memory[addr + 2] = ((val >> 16) & 0xFF) as u8;
-        self.memory[addr + 3] = ((val >> 24) & 0xFF) as u8;
+        self.allocator.memory[addr] = (val & 0xFF) as u8;
+        self.allocator.memory[addr + 1] = ((val >> 8) & 0xFF) as u8;
+        self.allocator.memory[addr + 2] = ((val >> 16) & 0xFF) as u8;
+        self.allocator.memory[addr + 3] = ((val >> 24) & 0xFF) as u8;
     }
 
     pub fn write_memory_64(&mut self, addr_bf: u64, val: u64) {
         let addr = addr_bf as usize;
-        if addr + 8 > self.memory.len() {
+        if addr + 8 > self.allocator.memory.len() {
             panic!("Memory write out of bounds");
         }
-        self.memory[addr] = (val & 0xFF) as u8;
-        self.memory[addr + 1] = ((val >> 8) & 0xFF) as u8;
-        self.memory[addr + 2] = ((val >> 16) & 0xFF) as u8;
-        self.memory[addr + 3] = ((val >> 24) & 0xFF) as u8;
-        self.memory[addr + 4] = ((val >> 32) & 0xFF) as u8;
-        self.memory[addr + 5] = ((val >> 40) & 0xFF) as u8;
-        self.memory[addr + 6] = ((val >> 48) & 0xFF) as u8;
-        self.memory[addr + 7] = ((val >> 56) & 0xFF) as u8;
+        self.allocator.memory[addr] = (val & 0xFF) as u8;
+        self.allocator.memory[addr + 1] = ((val >> 8) & 0xFF) as u8;
+        self.allocator.memory[addr + 2] = ((val >> 16) & 0xFF) as u8;
+        self.allocator.memory[addr + 3] = ((val >> 24) & 0xFF) as u8;
+        self.allocator.memory[addr + 4] = ((val >> 32) & 0xFF) as u8;
+        self.allocator.memory[addr + 5] = ((val >> 40) & 0xFF) as u8;
+        self.allocator.memory[addr + 6] = ((val >> 48) & 0xFF) as u8;
+        self.allocator.memory[addr + 7] = ((val >> 56) & 0xFF) as u8;
     }
 
     pub fn interpret(&mut self, prg: &Vec<u32>) {
@@ -718,7 +719,7 @@ mod test_real_world {
     fn read_array_bytes(cpu: &CPU, addr: u64, sz: usize) -> Vec<u8> {
         let mut data = vec![0; sz * 4];
         for i in 0..data.len() {
-            data[i] = cpu.memory[addr as usize + i];
+            data[i] = cpu.allocator.memory[addr as usize + i];
         }
         return data;
     }

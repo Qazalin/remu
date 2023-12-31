@@ -1,6 +1,7 @@
 use crate::cpu::CPU;
 use crate::utils::DEBUG;
 use std::os::raw::c_void;
+mod allocator;
 mod cpu;
 mod state;
 mod utils;
@@ -30,10 +31,31 @@ pub extern "C" fn hipModuleLaunchKernel(
     if *DEBUG >= 1 {
         println!(
             "[remu] launching kernel with global_size {} {} {} local_size {} {} {} {} args {:?}",
-            grid_dim_x, grid_dim_y, grid_dim_z, block_dim_x, block_dim_y, block_dim_z, args_len, kernel_args
+            grid_dim_x,
+            grid_dim_y,
+            grid_dim_z,
+            block_dim_x,
+            block_dim_y,
+            block_dim_z,
+            args_len,
+            kernel_args
         );
     }
 
     let mut cpu = CPU::new();
     let prg: Vec<u32> = vec![]; // TODO this should come from the lib arg
+}
+
+#[no_mangle]
+pub extern "C" fn hipMalloc(ptr: *mut c_void, size: u32) {
+    let mut cpu = CPU::new();
+
+    unsafe {
+        let data_ptr = ptr as *mut u64;
+        *data_ptr = cpu.allocator.alloc(size);
+    }
+
+    if *DEBUG >= 1 {
+        println!("[remu] hipMalloc({})", size);
+    }
 }
