@@ -1,6 +1,6 @@
 #![allow(unused)]
 use crate::state::{SGPR, VGPR};
-use crate::utils::{twos_complement_21bit, DEBUG};
+use crate::utils::{twos_complement_21bit, DEBUG, Colorize};
 
 const SGPR_COUNT: u32 = 105;
 const VGPR_COUNT: u32 = 256;
