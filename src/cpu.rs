@@ -48,6 +48,21 @@ impl CPU {
         self.memory[addr + 3] = ((val >> 24) & 0xFF) as u8;
     }
 
+    pub fn write_memory_64(&mut self, addr_bf: u64, val: u64) {
+        let addr = addr_bf as usize;
+        if addr + 8 > self.memory.len() {
+            panic!("Memory write out of bounds");
+        }
+        self.memory[addr] = (val & 0xFF) as u8;
+        self.memory[addr + 1] = ((val >> 8) & 0xFF) as u8;
+        self.memory[addr + 2] = ((val >> 16) & 0xFF) as u8;
+        self.memory[addr + 3] = ((val >> 24) & 0xFF) as u8;
+        self.memory[addr + 4] = ((val >> 32) & 0xFF) as u8;
+        self.memory[addr + 5] = ((val >> 40) & 0xFF) as u8;
+        self.memory[addr + 6] = ((val >> 48) & 0xFF) as u8;
+        self.memory[addr + 7] = ((val >> 56) & 0xFF) as u8;
+    }
+
     pub fn interpret(&mut self, prg: &Vec<u32>) {
         self.pc = 0;
         self.prg = prg.to_vec();
@@ -737,26 +752,18 @@ mod test_real_world {
         let data2_addr = 3000;
         write_array(&mut cpu, data2_addr, data2);
 
-        println!(
-            "data0 = {:?} {:?}",
-            read_array(&cpu, data0_addr, 4),
-            read_array_bytes(&cpu, data0_addr, 4)
-        );
-        println!(
-            "data1 = {:?} {:?}",
-            read_array(&cpu, data1_addr, 4),
-            read_array_bytes(&cpu, data1_addr, 4)
-        );
-        println!(
-            "data2 = {:?} {:?}",
-            read_array(&cpu, data2_addr, 4),
-            read_array_bytes(&cpu, data2_addr, 4)
-        );
+        // "stack" pointers in memory
+        let data0_ptr_addr: u64 = 11000;
+        let data1_ptr_addr = data0_ptr_addr + 8;
+        let data2_ptr_addr = data0_ptr_addr + 16;
+        cpu.write_memory_64(data0_ptr_addr, data0_addr);
+        cpu.write_memory_64(data1_ptr_addr, data1_addr);
+        cpu.write_memory_64(data2_ptr_addr, data2_addr);
 
         // allocate src registers
-        cpu.scalar_reg.write_addr(0, data0_addr);
-        cpu.scalar_reg.write_addr(2, data1_addr);
-        cpu.scalar_reg.write_addr(4, data2_addr);
+        cpu.scalar_reg.write_addr(0, data0_ptr_addr);
+        cpu.scalar_reg.write_addr(2, data1_ptr_addr);
+        cpu.scalar_reg.write_addr(4, data2_ptr_addr);
 
         // "launch" kernel
         let global_size = (1, 1, 1);
@@ -789,11 +796,11 @@ mod test_real_world {
             read_array_bytes(&cpu, data0_addr, 4)
         );
 
-        // "stack" pointers
+        // "stack" pointers in memory
         let data0_ptr_addr = 1200;
-        cpu.write_memory_32(data0_ptr_addr, data0_addr as u32);
-        let data1_ptr_addr = 1208;
-        cpu.write_memory_32(data1_ptr_addr, data1_addr as u32);
+        cpu.write_memory_64(data0_ptr_addr, data0_addr);
+        let data1_ptr_addr = data0_ptr_addr + 8;
+        cpu.write_memory_64(data1_ptr_addr, data1_addr);
 
         cpu.scalar_reg.write_addr(0, data0_ptr_addr);
         cpu.scalar_reg.write_addr(2, data1_ptr_addr);
