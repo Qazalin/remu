@@ -130,11 +130,13 @@ impl CPU {
             let base_addr = self.scalar_reg.read_addr(sbase as usize) as i64;
             let effective_addr = (base_addr + offset + soffset as i64) as u64;
 
-            println!("effective final addr {}", effective_addr);
-
             match op {
                 0 => {
                     self.scalar_reg[sdata] = self.read_memory_32(effective_addr);
+                }
+                1 => {
+                    self.scalar_reg[sdata] = self.read_memory_32(effective_addr);
+                    self.scalar_reg[sdata + 1] = self.read_memory_32(effective_addr + 4);
                 }
                 2 => {
                     self.scalar_reg[sdata] = self.read_memory_32(effective_addr);
