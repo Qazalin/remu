@@ -4,6 +4,7 @@ use std::os::raw::c_void;
 mod cpu;
 mod state;
 mod utils;
+mod allocator;
 
 #[no_mangle]
 pub extern "C" fn hipModuleLaunchKernel(
