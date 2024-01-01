@@ -25,6 +25,7 @@ impl BumpAllocator {
         return last_allocated + size as u64;
     }
 
+    /** "persist" memory and locations for the next library call */
     pub fn save(&self) {
         let enc = bincode::serialize(&self).unwrap();
         std::fs::write("/tmp/wave.bin", &enc[..]).unwrap();

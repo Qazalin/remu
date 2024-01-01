@@ -58,4 +58,6 @@ pub extern "C" fn hipMalloc(ptr: *mut c_void, size: u32) {
     if *DEBUG >= 1 {
         println!("[remu] hipMalloc({})", size);
     }
+
+    cpu.allocator.save();
 }
