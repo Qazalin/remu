@@ -7,7 +7,7 @@ impl BumpAllocator {
     pub fn new() -> Self {
         Self {
             last: 0,
-            memory: vec![0; 24 * 1_073_741_824],
+            memory: vec![0; 24 * 1_073_741],
         }
     }
 
