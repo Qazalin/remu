@@ -729,6 +729,12 @@ mod test_real_world {
         }
     }
 
+    fn to_bytes(fvec: Vec<f32>) -> Vec<u8> {
+        fvec.iter()
+            .map(|&v| f32::to_le_bytes(v).to_vec())
+            .flatten()
+            .collect()
+    }
     #[test]
     fn test_add_simple() {
         let mut cpu = CPU::new();
@@ -737,21 +743,24 @@ mod test_real_world {
         let data2 = vec![5.0, 6.0, 7.0, 8.0];
         let expected_data0 = vec![6.0, 8.0, 10.0, 12.0];
 
-        // allocate memory
-        let data0_addr = 1000;
-        write_array(&mut cpu, data0_addr, data0.clone());
-        let data1_addr = 2000;
-        write_array(&mut cpu, data1_addr, data1);
-        let data2_addr = 3000;
-        write_array(&mut cpu, data2_addr, data2);
+        let data0_bytes: Vec<u8> = to_bytes(data0.clone());
+        let data1_bytes: Vec<u8> = to_bytes(data1);
+        let data2_bytes: Vec<u8> = to_bytes(data2);
+
+        // malloc tinygrad style
+        let data1_ptr = cpu.allocator.alloc(data1_bytes.len() as u32);
+        let data2_ptr = cpu.allocator.alloc(data2_bytes.len() as u32);
+        let data0_ptr = cpu.allocator.alloc(data0_bytes.len() as u32);
+        cpu.allocator.copyin(data1_ptr, &data1_bytes);
+        cpu.allocator.copyin(data2_ptr, &data2_bytes);
 
         // "stack" pointers in memory
-        let data0_ptr_addr: u64 = 131300;
+        let data0_ptr_addr: u64 = cpu.allocator.alloc(24);
         let data1_ptr_addr = data0_ptr_addr + 8;
         let data2_ptr_addr = data0_ptr_addr + 16;
-        cpu.write_memory_64(data0_ptr_addr, data0_addr);
-        cpu.write_memory_64(data1_ptr_addr, data1_addr);
-        cpu.write_memory_64(data2_ptr_addr, data2_addr);
+        cpu.write_memory_64(data0_ptr_addr, data0_ptr);
+        cpu.write_memory_64(data1_ptr_addr, data1_ptr);
+        cpu.write_memory_64(data2_ptr_addr, data2_ptr);
 
         // "launch" kernel
         let global_size = (4, 1, 1);
@@ -762,7 +771,7 @@ mod test_real_world {
             println!("i={i}");
             cpu.scalar_reg[15] = i;
             cpu.interpret(&parse_rdna3_file("./tests/test_ops/test_add_simple.s"));
-            data0[i as usize] = read_array_f32(&cpu, data0_addr, 4)[i as usize];
+            data0[i as usize] = read_array_f32(&cpu, data0_ptr, 4)[i as usize];
         }
 
         assert_eq!(data0, expected_data0);

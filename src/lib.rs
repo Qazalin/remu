@@ -54,12 +54,20 @@ pub extern "C" fn hipModuleLaunchKernel(
     let mut cpu = CPU::new();
     let prg = utils::read_asm(&lib_bytes);
 
+    let stack_ptr = cpu.allocator.alloc(kernel_args.len() as u32 * 8);
+    kernel_args.iter().enumerate().for_each(|(i, x)| {
+        cpu.allocator
+            .copyin(stack_ptr + i as u64 * 8, &x.to_le_bytes());
+    });
+
     for i in 0..grid_dim_x {
         cpu.scalar_reg.reset();
-        cpu.scalar_reg.write_addr(0, kernel_args[0]);
+        cpu.scalar_reg.write_addr(0, stack_ptr);
         cpu.scalar_reg[15] = i;
         cpu.interpret(&prg);
     }
+
+    cpu.allocator.save();
 }
 
 #[no_mangle]
@@ -97,4 +105,6 @@ pub extern "C" fn hipMemcpy(dest: *const c_void, src: *const c_void, size: u32, 
         }
         _ => panic!("invalid mode"),
     }
+
+    cpu.allocator.save();
 }
