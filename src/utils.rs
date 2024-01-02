@@ -5,7 +5,7 @@ use std::process::{Command, Stdio};
 use std::{env, fs, str};
 
 pub static DEBUG: Lazy<i32> = Lazy::new(|| {
-    env::var("DEBUG")
+    env::var("REMU_DEBUG")
         .unwrap_or_default()
         .parse::<i32>()
         .unwrap_or(0)
