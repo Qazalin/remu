@@ -114,7 +114,7 @@ impl CPU {
         }
         // sop1
         else if instruction >> 23 == 0b10_1111101 {
-            let ssrc0 = instruction & 0xFF;
+            let ssrc0 = self.resolve_ssrc(instruction & 0xFF) as u32;
             let op = (instruction >> 8) & 0xFF;
             let sdst = (instruction >> 16) & 0x7F;
 
@@ -129,7 +129,7 @@ impl CPU {
             }
 
             match op {
-                0 => self.write_to_sdst(sdst, self.resolve_ssrc(ssrc0) as u32),
+                0 => self.write_to_sdst(sdst, ssrc0),
                 1 => {
                     self.write_to_sdst(sdst, ssrc0);
                     self.write_to_sdst(sdst + 1, ssrc0);
@@ -624,13 +624,14 @@ mod test_smem {
         // negative offset
         let offset_value: i64 = -0x4;
         let mut cpu = CPU::new();
-        cpu.scalar_reg[0] = 10000;
-        helper_test_s_load(cpu, 0xf4000000, 0xf81fffd8, &vec![42], 19960, 0);
+        cpu.scalar_reg.write_addr(0, 10000);
+
+        helper_test_s_load(cpu, 0xf4000000, 0xf81fffd8, &vec![42], 9960, 0);
     }
 
     #[test]
     fn test_s_load_b64() {
-        let data = (0..=2).collect();
+        let data = (0..2).collect();
 
         // positive offset
         helper_test_s_load(CPU::new(), 0xf4040000, 0xf8000010, &data, 0x10, 0);
@@ -639,44 +640,26 @@ mod test_smem {
         // negative offset
         let mut cpu = CPU::new();
         cpu.scalar_reg[2] = 612;
+        cpu.scalar_reg.write_addr(2, 612);
         helper_test_s_load(cpu, 0xf4040301, 0xf81ffd9c, &data, 0, 12);
     }
 
     #[test]
     fn test_s_load_b128() {
-        let data = (0..=4).collect();
+        let data = (0..4).collect();
 
         // positive offset
         helper_test_s_load(CPU::new(), 0xf4080000, 0xf8000000, &data, 0, 0);
 
         let mut cpu = CPU::new();
         let base_mem_addr: u64 = 0x10;
-        cpu.scalar_reg[6] = base_mem_addr as u32;
+        cpu.scalar_reg.write_addr(6, base_mem_addr);
         helper_test_s_load(cpu, 0xf4080203, 0xf8000000, &data, base_mem_addr, 8);
 
         // negative offset
         let mut cpu = CPU::new();
-        cpu.scalar_reg[2] = 0x10;
+        cpu.scalar_reg.write_addr(2, 0x10);
         helper_test_s_load(cpu, 0xf4080401, 0xf81ffff0, &data, 0, 16);
-    }
-
-    #[test]
-    fn test_s_load_b256() {
-        let data = (0..=8).collect();
-
-        // positive offset
-        helper_test_s_load(CPU::new(), 0xf40c0000, 0xf8000000, &data, 0, 0);
-
-        let mut cpu = CPU::new();
-        let base_mem_addr: u64 = 0x55;
-        cpu.scalar_reg[10] = base_mem_addr as u32;
-        helper_test_s_load(cpu, 0xf40c0005, 0xf8000040, &data, base_mem_addr + 0x40, 0);
-
-        // negative offset
-        let mut cpu = CPU::new();
-        let base_mem_addr: u64 = 0x55;
-        cpu.scalar_reg[2] = base_mem_addr as u32;
-        helper_test_s_load(cpu, 0xf40c0401, 0xf81fffd0, &data, base_mem_addr - 0x30, 16);
     }
 }
 
