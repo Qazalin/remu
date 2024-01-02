@@ -1,6 +1,5 @@
 use crate::cpu::CPU;
 use crate::utils::DEBUG;
-use std::alloc::{alloc, dealloc, Layout};
 use std::os::raw::{c_char, c_void};
 mod allocator;
 mod cpu;
@@ -54,7 +53,13 @@ pub extern "C" fn hipModuleLaunchKernel(
 
     let mut cpu = CPU::new();
     let prg = utils::read_asm(&lib_bytes);
-    cpu.interpret(&prg);
+
+    for i in 0..grid_dim_x {
+        cpu.scalar_reg.reset();
+        cpu.scalar_reg.write_addr(0, kernel_args[0]);
+        cpu.scalar_reg[15] = i;
+        cpu.interpret(&prg);
+    }
 }
 
 #[no_mangle]
