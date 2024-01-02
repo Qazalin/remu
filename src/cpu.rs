@@ -28,42 +28,6 @@ impl CPU {
         };
     }
 
-    pub fn read_memory_32(&self, addr_bf: u64) -> u32 {
-        let addr = addr_bf as usize;
-        if addr + 4 > self.allocator.memory.len() {
-            panic!("Memory read out of bounds");
-        }
-        (self.allocator.memory[addr] as u32)
-            | ((self.allocator.memory[addr + 1] as u32) << 8)
-            | ((self.allocator.memory[addr + 2] as u32) << 16)
-            | ((self.allocator.memory[addr + 3] as u32) << 24)
-    }
-    pub fn write_memory_32(&mut self, addr_bf: u64, val: u32) {
-        let addr = addr_bf as usize;
-        if addr + 4 > self.allocator.memory.len() {
-            panic!("Memory write out of bounds");
-        }
-        self.allocator.memory[addr] = (val & 0xFF) as u8;
-        self.allocator.memory[addr + 1] = ((val >> 8) & 0xFF) as u8;
-        self.allocator.memory[addr + 2] = ((val >> 16) & 0xFF) as u8;
-        self.allocator.memory[addr + 3] = ((val >> 24) & 0xFF) as u8;
-    }
-
-    pub fn write_memory_64(&mut self, addr_bf: u64, val: u64) {
-        let addr = addr_bf as usize;
-        if addr + 8 > self.allocator.memory.len() {
-            panic!("Memory write out of bounds");
-        }
-        self.allocator.memory[addr] = (val & 0xFF) as u8;
-        self.allocator.memory[addr + 1] = ((val >> 8) & 0xFF) as u8;
-        self.allocator.memory[addr + 2] = ((val >> 16) & 0xFF) as u8;
-        self.allocator.memory[addr + 3] = ((val >> 24) & 0xFF) as u8;
-        self.allocator.memory[addr + 4] = ((val >> 32) & 0xFF) as u8;
-        self.allocator.memory[addr + 5] = ((val >> 40) & 0xFF) as u8;
-        self.allocator.memory[addr + 6] = ((val >> 48) & 0xFF) as u8;
-        self.allocator.memory[addr + 7] = ((val >> 56) & 0xFF) as u8;
-    }
-
     pub fn interpret(&mut self, prg: &Vec<u32>) {
         self.pc = 0;
         self.prg = prg.to_vec();
@@ -133,17 +97,17 @@ impl CPU {
 
             match op {
                 0 => {
-                    self.scalar_reg[sdata] = self.read_memory_32(effective_addr);
+                    self.scalar_reg[sdata] = self.allocator.read(effective_addr);
                 }
                 1 => {
-                    self.scalar_reg[sdata] = self.read_memory_32(effective_addr);
-                    self.scalar_reg[sdata + 1] = self.read_memory_32(effective_addr + 4);
+                    self.scalar_reg[sdata] = self.allocator.read(effective_addr);
+                    self.scalar_reg[sdata + 1] = self.allocator.read(effective_addr + 4);
                 }
                 2 => {
-                    self.scalar_reg[sdata] = self.read_memory_32(effective_addr);
-                    self.scalar_reg[sdata + 1] = self.read_memory_32(effective_addr + 4);
-                    self.scalar_reg[sdata + 2] = self.read_memory_32(effective_addr + 8);
-                    self.scalar_reg[sdata + 3] = self.read_memory_32(effective_addr + 12);
+                    self.scalar_reg[sdata] = self.allocator.read(effective_addr);
+                    self.scalar_reg[sdata + 1] = self.allocator.read(effective_addr + 4);
+                    self.scalar_reg[sdata + 2] = self.allocator.read(effective_addr + 8);
+                    self.scalar_reg[sdata + 3] = self.allocator.read(effective_addr + 12);
                 }
                 _ => todo!(),
             }
@@ -427,7 +391,7 @@ impl CPU {
                             vdata, data, effective_addr
                         );
                     }
-                    self.write_memory_32(effective_addr, vdata);
+                    self.allocator.write(effective_addr, vdata);
                 }
                 _ => todo!(),
             }
@@ -638,9 +602,10 @@ mod test_smem {
         base_mem_addr: u64,
         starting_dest_sgpr: u32,
     ) {
-        data.iter()
-            .enumerate()
-            .for_each(|(i, &v)| cpu.write_memory_32((base_mem_addr + (i as u64) * 4) as u64, v));
+        data.iter().enumerate().for_each(|(i, &v)| {
+            cpu.allocator
+                .write((base_mem_addr + (i as u64) * 4) as u64, v)
+        });
         cpu.interpret(&vec![op, offset, END_PRG]);
         data.iter()
             .enumerate()
@@ -737,14 +702,14 @@ mod test_real_world {
     fn read_array(cpu: &CPU, addr: u64, sz: usize) -> Vec<u32> {
         let mut data = vec![0; sz];
         for i in 0..sz {
-            data[i] = cpu.read_memory_32(addr + (i * 4) as u64);
+            data[i] = cpu.allocator.read(addr + (i * 4) as u64);
         }
         return data;
     }
     fn read_array_f32(cpu: &CPU, addr: u64, sz: usize) -> Vec<f32> {
         let mut data = vec![0.0; sz];
         for i in 0..sz {
-            data[i] = f32::from_bits(cpu.read_memory_32(addr + (i * 4) as u64));
+            data[i] = f32::from_bits(cpu.allocator.read(addr + (i * 4) as u64));
         }
         return data;
     }
@@ -757,7 +722,8 @@ mod test_real_world {
     }
     fn write_array(cpu: &mut CPU, addr: u64, values: Vec<f32>) {
         for i in 0..values.len() {
-            cpu.write_memory_32(addr + (i * 4) as u64, f32::to_bits(values[i]));
+            cpu.allocator
+                .write(addr + (i * 4) as u64, f32::to_bits(values[i]));
         }
     }
 
@@ -790,9 +756,9 @@ mod test_real_world {
         let data0_ptr_addr: u64 = cpu.allocator.alloc(24);
         let data1_ptr_addr = data0_ptr_addr + 8;
         let data2_ptr_addr = data0_ptr_addr + 16;
-        cpu.write_memory_64(data0_ptr_addr, data0_ptr);
-        cpu.write_memory_64(data1_ptr_addr, data1_ptr);
-        cpu.write_memory_64(data2_ptr_addr, data2_ptr);
+        cpu.allocator.write(data0_ptr_addr, data0_ptr);
+        cpu.allocator.write(data1_ptr_addr, data1_ptr);
+        cpu.allocator.write(data2_ptr_addr, data2_ptr);
 
         // "launch" kernel
         let global_size = (4, 1, 1);
@@ -828,9 +794,9 @@ mod test_real_world {
 
         // "stack" pointers in memory
         let data0_ptr_addr = 1200;
-        cpu.write_memory_64(data0_ptr_addr, data0_addr);
+        cpu.allocator.write(data0_ptr_addr, data0_addr);
         let data1_ptr_addr = data0_ptr_addr + 8;
-        cpu.write_memory_64(data1_ptr_addr, data1_addr);
+        cpu.allocator.write(data1_ptr_addr, data1_addr);
 
         cpu.scalar_reg.write_addr(0, data0_ptr_addr);
 

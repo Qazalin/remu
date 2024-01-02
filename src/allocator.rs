@@ -1,3 +1,4 @@
+use core::mem;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -34,10 +35,34 @@ impl BumpAllocator {
         let enc = bincode::serialize(&self).unwrap();
         std::fs::write("/tmp/wave.bin", &enc[..]).unwrap();
     }
+
+    pub fn read<D: DType>(&self, addr: u64) -> D {
+        assert!(addr as usize + mem::size_of::<D>() <= self.memory.len());
+        unsafe {
+            let ptr = self.memory.as_ptr().offset(addr as isize) as *const D;
+            *ptr
+        }
+    }
+
+    pub fn write<D: DType>(&mut self, addr: u64, val: D) {
+        assert!(addr as usize + mem::size_of::<D>() <= self.memory.len());
+        unsafe {
+            let ptr = self.memory.as_mut_ptr().offset(addr as isize) as *mut D;
+            *ptr = val;
+        }
+    }
 }
 
+pub trait DType: Copy + 'static {}
+macro_rules! impl_dtype_for {
+    ($($t:ty),*) => {
+        $(impl DType for $t {})*
+    };
+}
+impl_dtype_for!(u8, u16, u32, u64);
+
 #[cfg(test)]
-mod test {
+mod test_allocation {
     use super::*;
     #[test]
     fn test_bump_allocator() {
@@ -72,5 +97,38 @@ mod test {
         assert_eq!(allocator.memory[1], 0x02);
         assert_eq!(allocator.memory[2], 0x03);
         assert_eq!(allocator.memory[3], 0x04);
+    }
+}
+
+mod test_dtype {
+    use super::*;
+
+    fn helper_test_mem<D: DType>(val: D) -> BumpAllocator {
+        let mut memory = BumpAllocator::new();
+        memory.write(0, val);
+        return memory;
+    }
+
+    #[test]
+    fn test_u8() {
+        let val: u8 = 10;
+        let memory = helper_test_mem(val);
+        assert_eq!(memory.read::<u8>(0), val)
+    }
+
+    #[test]
+    fn test_u16() {
+        let val: u16 = 30000;
+        let memory = helper_test_mem(val);
+        assert_eq!(memory.read::<u16>(0), val);
+        assert_eq!(memory.memory.get(0..2).unwrap(), vec![48, 117]);
+    }
+
+    #[test]
+    fn test_u32() {
+        let val: u32 = 1234567890;
+        let memory = helper_test_mem(val);
+        assert_eq!(memory.read::<u32>(0), val);
+        assert_eq!(memory.memory.get(0..4).unwrap(), vec![210, 2, 150, 73]);
     }
 }
