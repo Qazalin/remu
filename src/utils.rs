@@ -24,6 +24,16 @@ pub fn parse_rdna3_file(file_path: &str) -> Vec<u32> {
 }
 
 fn parse_rdna3(content: &str) -> Vec<u32> {
+    if *DEBUG >= 1 {
+        println!(
+            "{}",
+            content
+                .lines()
+                .filter(|x| !x.contains("s_code_end"))
+                .collect::<Vec<&str>>()
+                .join("\n")
+        );
+    }
     let mut kernel = content.lines().skip(5);
     let _name = kernel.nth(0).unwrap();
     let instructions = kernel

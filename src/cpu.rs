@@ -193,15 +193,13 @@ impl CPU {
 
             let tmp = match op {
                 0 => {
-                    if *DEBUG == 2 {
-                        println!(
-                            "[state] adding the values in sgprs {} and {}",
-                            instruction & 0xfF,
-                            (instruction >> 8) & 0xFF
-                        );
-                    }
                     let tmp = (ssrc0 as u64) + (ssrc1 as u64);
                     self.scc = (tmp >= 0x100000000) as u32;
+                    tmp as u32
+                }
+                2 => {
+                    let tmp = (ssrc0 as i32) + (ssrc1 as i32);
+                    self.scc = 0; // TODO
                     tmp as u32
                 }
                 4 => {
@@ -266,6 +264,40 @@ impl CPU {
                 _ => todo!(),
             }
         }
+        // vopd
+        else if instruction >> 26 == 0b110010 {
+            let instr = self.u64_instr();
+            let srcx0 = self.resolve_ssrc((instr & 0x1ff) as u32);
+            let vsrcx1 = (instr >> 9) & 0xff;
+            let opy = (instr >> 17) & 0x1f;
+            let opx = (instr >> 22) & 0xf;
+            let srcy0 = self.resolve_ssrc(((instr >> 32) & 0x1ff) as u32);
+            let vsrcy1 = (instr >> 41) & 0xff;
+            let vdsty = (instr >> 49) & 0x7f;
+            let vdstx = (instr >> 56) & 0xff;
+
+            if *DEBUG >= 1 {
+                println!(
+                    "{} srcx0={} vsrcx1={} opy={} opx={} srcy0={} vsrcy1={} vdsty={} vdstx={}",
+                    "VOPD".color("blue"),
+                    srcx0,
+                    vsrcx1,
+                    opy,
+                    opx,
+                    srcy0,
+                    vsrcy1,
+                    vdsty,
+                    vdstx
+                );
+            }
+
+            for g in [[srcx0 as u64, vsrcx1, opx], [srcy0 as u64, vsrcy1, opy]] {
+                match g[2] {
+                    8 => self.vec_reg[g[0] as usize] = g[1] as u32,
+                    _ => todo!(),
+                }
+            }
+        }
         // vop2
         else if instruction >> 31 == 0b0 {
             let ssrc0 = self.resolve_ssrc(instruction & 0x1FF);
@@ -306,7 +338,7 @@ impl CPU {
                     self.vec_reg[vdst as usize] = (s0 * s1 + simm32).to_bits();
                     self.pc += 1;
                 }
-                _ => todo!("vop2 opcode {}", op),
+                _ => todo!(),
             };
         }
         // vop3
