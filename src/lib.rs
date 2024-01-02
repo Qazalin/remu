@@ -1,6 +1,6 @@
 use crate::cpu::CPU;
 use crate::utils::DEBUG;
-use std::os::raw::c_void;
+use std::os::raw::{c_uchar, c_void};
 mod allocator;
 mod cpu;
 mod state;
@@ -60,4 +60,25 @@ pub extern "C" fn hipMalloc(ptr: *mut c_void, size: u32) {
     }
 
     cpu.allocator.save();
+}
+
+#[no_mangle]
+pub extern "C" fn hipMemcpy(dest: *const c_void, src: *const c_void, size: u32, mode: u32) {
+    let mut cpu = CPU::new();
+
+    match mode {
+        1 => {
+            let bytes =
+                unsafe { std::slice::from_raw_parts(src as *const u8, size as usize) }.to_vec();
+            cpu.allocator.copyin(dest as u64, &bytes);
+        }
+        2 => {
+            let bytes = &cpu.allocator.memory[src as usize..src as usize + size as usize];
+            unsafe {
+                let dest = dest as *mut u8;
+                std::slice::from_raw_parts_mut(dest, bytes.len()).copy_from_slice(&bytes);
+            }
+        }
+        _ => panic!("invalid mode"),
+    }
 }

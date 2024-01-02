@@ -25,6 +25,10 @@ impl BumpAllocator {
         return last_allocated + size as u64;
     }
 
+    pub fn copyin(&mut self, addr: u64, data: &[u8]) {
+        self.memory[addr as usize..addr as usize + data.len()].copy_from_slice(data);
+    }
+
     /** "persist" memory and locations for the next library call */
     pub fn save(&self) {
         let enc = bincode::serialize(&self).unwrap();
@@ -55,5 +59,18 @@ mod test {
         allocator.save();
         let allocator = BumpAllocator::new();
         assert_eq!(allocator.last, 4);
+    }
+
+    #[test]
+    fn test_copyin() {
+        // remove tmp files
+        std::fs::remove_file("/tmp/wave.bin").unwrap_or(());
+        let mut allocator = BumpAllocator::new();
+        allocator.alloc(4);
+        allocator.copyin(0, &[0x01, 0x02, 0x03, 0x04]);
+        assert_eq!(allocator.memory[0], 0x01);
+        assert_eq!(allocator.memory[1], 0x02);
+        assert_eq!(allocator.memory[2], 0x03);
+        assert_eq!(allocator.memory[3], 0x04);
     }
 }
