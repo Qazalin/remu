@@ -1,6 +1,7 @@
 use crate::cpu::CPU;
 use crate::utils::DEBUG;
-use std::os::raw::{c_uchar, c_void};
+use std::alloc::{alloc, dealloc, Layout};
+use std::os::raw::{c_char, c_void};
 mod allocator;
 mod cpu;
 mod state;
@@ -8,6 +9,8 @@ mod utils;
 
 #[no_mangle]
 pub extern "C" fn hipModuleLaunchKernel(
+    lib: *const c_char,
+    lib_sz: u32,
     grid_dim_x: u32,
     grid_dim_y: u32,
     grid_dim_z: u32,
@@ -20,6 +23,13 @@ pub extern "C" fn hipModuleLaunchKernel(
     args_len: u32,
     args: *const *const c_void,
 ) {
+    let mut lib_bytes: Vec<u8> = Vec::new();
+    unsafe {
+        for i in 0..lib_sz {
+            lib_bytes.push(*lib.offset(i as isize) as u8);
+        }
+    }
+
     let mut kernel_args: Vec<u64> = Vec::new();
     unsafe {
         for i in 0..args_len {
@@ -43,7 +53,8 @@ pub extern "C" fn hipModuleLaunchKernel(
     }
 
     let mut cpu = CPU::new();
-    let prg: Vec<u32> = vec![]; // TODO this should come from the lib arg
+    let prg = utils::read_asm(&lib_bytes);
+    cpu.interpret(&prg);
 }
 
 #[no_mangle]

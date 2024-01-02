@@ -1,6 +1,8 @@
 #![allow(unused)]
 use once_cell::sync::Lazy;
-use std::{env, fs};
+use std::io::{BufRead, BufReader, Write};
+use std::process::{Command, Stdio};
+use std::{env, fs, str};
 
 pub static DEBUG: Lazy<i32> = Lazy::new(|| {
     env::var("DEBUG")
@@ -103,5 +105,28 @@ impl<'a> Colorize for &'a str {
             _ => 7, // white
         };
         format!("\x1b[{}m{}\x1b[0m", 0 + intensity + 30 + color_code, self)
+    }
+}
+
+pub fn read_asm(lib: &Vec<u8>) -> Vec<u32> {
+    let mut child = Command::new("/opt/rocm/llvm/bin/llvm-objdump")
+        .args(&["-d", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("Failed to execute command");
+
+    {
+        let stdin = child.stdin.as_mut().expect("Failed to open stdin");
+        stdin.write_all(lib).expect("Failed to write to stdin");
+    }
+
+    let output = child.wait_with_output().expect("Failed to read stdout");
+    if output.status.success() {
+        let asm = String::from_utf8_lossy(&output.stdout);
+        parse_rdna3(&asm.to_string())
+    } else {
+        let err = String::from_utf8_lossy(&output.stderr);
+        panic!("Command failed with error: {}", err);
     }
 }
