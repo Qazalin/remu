@@ -158,6 +158,9 @@ impl<'a> Colorize for &'a str {
 }
 
 pub fn read_asm(lib: &Vec<u8>) -> Vec<u32> {
+    let asm = fs::read_to_string("/tmp/compiled.s").unwrap();
+    parse_rdna3(&asm.to_string())
+    /*
     let mut child = Command::new("/opt/rocm/llvm/bin/llvm-objdump")
         .args(&["-d", "-"])
         .stdin(Stdio::piped())
@@ -178,4 +181,5 @@ pub fn read_asm(lib: &Vec<u8>) -> Vec<u32> {
         let err = String::from_utf8_lossy(&output.stderr);
         panic!("Command failed with error: {}", err);
     }
+    */
 }
