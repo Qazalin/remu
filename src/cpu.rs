@@ -172,12 +172,15 @@ impl CPU {
         // vopd
         else if instruction >> 26 == 0b110010 {
             let instr = self.u64_instr();
+
             let srcx0 = self.resolve_src((instr & 0x1ff) as u32);
-            let vsrcx1 = (instr >> 9) & 0xff;
-            let opy = (instr >> 17) & 0x1f;
-            let opx = (instr >> 22) & 0xf;
+            let vsrcx1 = self.vec_reg[((instr >> 9) & 0xff) as usize];
+            let opy = ((instr >> 17) & 0x1f) as u32;
+
+            let opx = ((instr >> 22) & 0xf) as u32;
             let srcy0 = self.resolve_src(((instr >> 32) & 0x1ff) as u32);
-            let vsrcy1 = (instr >> 41) & 0xff;
+            let vsrcy1 = self.vec_reg[((instr >> 41) & 0xff) as usize];
+
             let vdsty = (instr >> 49) & 0x7f;
             let vdstx = (instr >> 56) & 0xff;
 
@@ -196,12 +199,22 @@ impl CPU {
                 );
             }
 
-            for g in [[srcx0 as u64, vsrcx1, opx], [srcy0 as u64, vsrcy1, opy]] {
-                match g[2] {
-                    8 => self.vec_reg[g[0] as usize] = g[1] as u32,
+            ([
+                [opx, srcx0 as u32, vsrcx1, vdstx as u32],
+                [opy, srcy0 as u32, vsrcy1, vdsty as u32],
+            ])
+            .iter()
+            .for_each(|i| {
+                let s0 = f32::from_bits(i[1]);
+                let s1 = f32::from_bits(i[2]);
+                self.vec_reg[i[3] as usize] = match i[0] {
+                    10 => f32::max(s0, s1),
+                    4 => s0 + s1,
+                    8 => s0,
                     _ => todo!(),
                 }
-            }
+                .to_bits();
+            });
         }
         // vop2
         else if instruction >> 31 == 0b0 {
@@ -269,6 +282,7 @@ impl CPU {
             self.vec_reg[vdst as usize] = match op {
                 259 => s0 + s1,
                 264 => s0 * s1,
+                272 => f32::max(s0, s0),
                 _ => todo!(),
             }
             .to_bits();
@@ -462,6 +476,12 @@ mod test_vop3 {
     #[test]
     fn test_v_add_f32() {
         assert_eq!(helper_test_vop3(0xd5030000, 0.4, 0.2), 0.6);
+    }
+
+    #[test]
+    fn test_v_max_f32() {
+        assert_eq!(helper_test_vop3(0xd5100000, 0.4, 0.2), 0.4);
+        assert_eq!(helper_test_vop3(0xd5100000, 0.2, 0.8), 0.8);
     }
 
     #[test]
