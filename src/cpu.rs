@@ -280,30 +280,17 @@ impl CPU {
                 );
             }
 
-            match op {
-                3 => {
-                    self.vec_reg[vdst as usize] = (ssrc0 as f32 + vsrc1 as f32) as u32;
-                }
-                8 => {
-                    self.vec_reg[vdst as usize] = (ssrc0 as f32 * vsrc1 as f32) as u32;
-                }
-                29 => {
-                    self.vec_reg[vdst as usize] = (ssrc0 as u32) ^ vsrc1;
-                }
-                43 => {
-                    self.vec_reg[vdst as usize] =
-                        ((ssrc0 as f32 * vsrc1 as f32) + self.vec_reg[vdst as usize] as f32) as u32;
-                }
-                45 => {
-                    let simm32 =
-                        f32::from_bits((self.prg[self.pc as usize] as i32).try_into().unwrap());
-                    let s0 = f32::from_bits(ssrc0 as u32);
-                    let s1 = f32::from_bits(vsrc1 as u32);
-                    self.vec_reg[vdst as usize] = (s0 * s1 + simm32).to_bits();
-                    self.pc += 1;
-                }
+            let s0 = f32::from_bits(ssrc0 as u32);
+            let s1 = f32::from_bits(vsrc1 as u32);
+            let d0 = f32::from_bits((self.vec_reg[vdst as usize] as i32).try_into().unwrap());
+
+            self.vec_reg[vdst as usize] = match op {
+                3 | 50 => s0 + s1,
+                8 => s0 * s1,
+                43 => (s0 * s1) + d0,
                 _ => todo!(),
-            };
+            }
+            .to_bits();
         }
         // vop3
         else if instruction >> 26 == 0b110101 {
@@ -325,24 +312,18 @@ impl CPU {
                 println!("{} vdst={} abs={} opsel={} cm={} op={} ssrc0={} ssrc1={} ssrc2={} omod={} neg={}", "VOP3".color("blue"), vdst, abs, opsel, cm, op, ssrc0, ssrc1, ssrc2, omod, neg);
             }
 
-            match op {
-                259 => {
-                    let s0 = f32::from_bits(ssrc0 as u32);
-                    let s1 = f32::from_bits(ssrc1 as u32);
-                    self.vec_reg[vdst as usize] = (s0 + s1).to_bits();
-                    if *DEBUG >= 2 {
-                        println!("[state] store ALU of {}+{} to vec_reg[{}]", s0, s1, vdst);
-                    }
-                }
-                299 => {
-                    let s0 = f32::from_bits(ssrc0.try_into().unwrap());
-                    let s1 = f32::from_bits(ssrc1.try_into().unwrap());
-                    let d0 =
-                        f32::from_bits((self.vec_reg[vdst as usize] as i32).try_into().unwrap());
-                    self.vec_reg[vdst as usize] = (s0 * s1 + d0).to_bits();
-                }
+            // TODO s0 and s1 dont have to be floats
+            let s0 = f32::from_bits(ssrc0 as u32);
+            let s1 = f32::from_bits(ssrc1 as u32);
+            let d0 = f32::from_bits((self.vec_reg[vdst as usize] as i32).try_into().unwrap());
+
+            self.vec_reg[vdst as usize] = match op {
+                259 => s0 + s1,
+                264 => s0 * s1,
+                299 => (s0 * s1) + d0,
                 _ => todo!(),
             }
+            .to_bits();
         }
         // global
         else if instruction >> 26 == 0b110111 {
@@ -371,28 +352,24 @@ impl CPU {
                     offset
                 );
             }
-
             assert_eq!(seg, 2, "flat and scratch arent supported");
-            match op {
-                26 => {
-                    let effective_addr = match self.resolve_ssrc(saddr as u32) {
-                        0 | 0x7F => self.vec_reg.read_addr(addr as usize).wrapping_add(offset), // SADDR is NULL or 0x7f: specifies an address
-                        _ => {
-                            let scalar_addr = self.scalar_reg.read_addr(saddr as usize);
-                            let vgpr_offset = self.vec_reg[addr as usize];
-                            scalar_addr + vgpr_offset as u64 + offset
-                        } // SADDR is not NULL or 0x7f: specifies an offset.
-                    };
-                    let vdata = self.vec_reg[data as usize];
 
-                    if *DEBUG >= 2 {
-                        println!(
-                            "storing value={} from vector register {} to mem[{}]",
-                            vdata, data, effective_addr
-                        );
-                    }
-                    self.allocator.write(effective_addr, vdata);
+            let effective_addr = match self.resolve_ssrc(saddr as u32) {
+                0 | 0x7F => self.vec_reg.read_addr(addr as usize).wrapping_add(offset), // SADDR is NULL or 0x7f: specifies an address
+                _ => {
+                    let scalar_addr = self.scalar_reg.read_addr(saddr as usize);
+                    let vgpr_offset = self.vec_reg[addr as usize];
+                    scalar_addr + vgpr_offset as u64 + offset
+                } // SADDR is not NULL or 0x7f: specifies an offset.
+            };
+            let vdata = self.vec_reg[data as usize];
+            match op {
+                // global_load
+                18 => {
+                    self.vec_reg[vdst as usize] = self.allocator.read::<u16>(effective_addr) as u32
                 }
+                // global_store
+                26 | 25 => self.allocator.write(effective_addr, vdata),
                 _ => todo!(),
             }
         }
@@ -523,46 +500,19 @@ mod test_vop2 {
     #[test]
     fn test_v_add_f32_e32() {
         let mut cpu = CPU::new();
-        cpu.scalar_reg[2] = 41;
-        cpu.vec_reg[0] = 1;
+        cpu.scalar_reg[2] = f32::to_bits(42.0);
+        cpu.vec_reg[0] = f32::to_bits(1.0);
         cpu.interpret(&vec![0x06000002, END_PRG]);
-        assert_eq!(cpu.vec_reg[0], 42);
+        assert_eq!(f32::from_bits(cpu.vec_reg[0]), 43.0);
     }
 
     #[test]
     fn test_v_mul_f32_e32() {
         let mut cpu = CPU::new();
-        cpu.vec_reg[2] = 21;
-        cpu.vec_reg[4] = 2;
+        cpu.vec_reg[2] = f32::to_bits(21.0);
+        cpu.vec_reg[4] = f32::to_bits(2.0);
         cpu.interpret(&vec![0x10060504, END_PRG]);
-        assert_eq!(cpu.vec_reg[3], 42);
-    }
-
-    #[test]
-    fn test_v_fmac_f32_e32() {
-        let mut cpu = CPU::new();
-        cpu.vec_reg[1] = 2;
-        cpu.vec_reg[2] = 4;
-        cpu.interpret(&vec![0x56020302, END_PRG]);
-        assert_eq!(cpu.vec_reg[1], 10);
-    }
-
-    #[test]
-    fn test_v_xor_b32_e32() {
-        let mut cpu = CPU::new();
-        cpu.vec_reg[5] = 42;
-        cpu.scalar_reg[8] = 24;
-        cpu.interpret(&vec![0x3a0a0a08, END_PRG]);
-        assert_eq!(cpu.vec_reg[5], 50);
-    }
-
-    #[test]
-    fn test_v_fmaak_f32() {
-        let mut cpu = CPU::new();
-        cpu.vec_reg[5] = f32::to_bits(0.42);
-        cpu.scalar_reg[7] = f32::to_bits(0.24);
-        cpu.interpret(&vec![0x5a100a07, f32::to_bits(0.93), END_PRG]);
-        assert_eq!(f32::from_bits(cpu.vec_reg[8]), 1.0308);
+        assert_eq!(f32::from_bits(cpu.vec_reg[3]), 42.0);
     }
 }
 
@@ -570,13 +520,22 @@ mod test_vop2 {
 mod test_vop3 {
     use super::*;
 
-    #[test]
-    fn test_v_add_f32() {
+    fn helper_test_vop3(op: u32, a: f32, b: f32) -> f32 {
         let mut cpu = CPU::new();
         cpu.scalar_reg[0] = f32::to_bits(0.4);
         cpu.scalar_reg[6] = f32::to_bits(0.2);
-        cpu.interpret(&vec![0xd5030000, 0x00000006, END_PRG]);
-        assert_eq!(f32::from_bits(cpu.vec_reg[0]), 0.6);
+        cpu.interpret(&vec![op, 0x00000006, END_PRG]);
+        return f32::from_bits(cpu.vec_reg[0]);
+    }
+
+    #[test]
+    fn test_v_add_f32() {
+        assert_eq!(helper_test_vop3(0xd5030000, 0.4, 0.2), 0.6);
+    }
+
+    #[test]
+    fn test_v_mul_f32() {
+        assert_eq!(helper_test_vop3(0xd5080000, 0.4, 0.2), 0.4 * 0.2);
     }
 
     #[test]

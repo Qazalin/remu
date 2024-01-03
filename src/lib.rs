@@ -3,6 +3,7 @@ use crate::utils::DEBUG;
 use std::os::raw::{c_char, c_void};
 mod allocator;
 mod cpu;
+mod dtype;
 mod state;
 mod utils;
 
