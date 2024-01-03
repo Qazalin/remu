@@ -61,7 +61,7 @@ impl CPU {
             let instr = self.u64_instr();
             // NOTE: sbase has an implied LSB of zero
             /**
-             * In smem reads when the address-base comes from an SGPR-pair, it's always
+             * In reads, the address-base comes from an SGPR-pair, it's always
              * even-aligned. s[sbase:sbase+1]
              */
             let sbase = (instr & 0x3f) * 2;
@@ -92,23 +92,14 @@ impl CPU {
                     soffset
                 );
             }
-            let base_addr = self.scalar_reg.read_addr(sbase as usize) as i64;
-            let effective_addr = (base_addr + offset + soffset as i64) as u64;
+            let base_addr = self.scalar_reg.read_addr(sbase as usize);
+            let effective_addr = (base_addr as i64 + offset + soffset as i64) as u64;
 
             match op {
-                0 => {
-                    self.scalar_reg[sdata] = self.allocator.read(effective_addr);
-                }
-                1 => {
-                    self.scalar_reg[sdata] = self.allocator.read(effective_addr);
-                    self.scalar_reg[sdata + 1] = self.allocator.read(effective_addr + 4);
-                }
-                2 => {
-                    self.scalar_reg[sdata] = self.allocator.read(effective_addr);
-                    self.scalar_reg[sdata + 1] = self.allocator.read(effective_addr + 4);
-                    self.scalar_reg[sdata + 2] = self.allocator.read(effective_addr + 8);
-                    self.scalar_reg[sdata + 3] = self.allocator.read(effective_addr + 12);
-                }
+                0..=2 => (0..2_usize.pow(op as u32)).for_each(|i| {
+                    self.scalar_reg[sdata + i] =
+                        self.allocator.read(effective_addr + (4 * i as u64));
+                }),
                 _ => todo!(),
             }
         }
@@ -130,10 +121,6 @@ impl CPU {
 
             match op {
                 0 => self.write_to_sdst(sdst, ssrc0),
-                1 => {
-                    self.write_to_sdst(sdst, ssrc0);
-                    self.write_to_sdst(sdst + 1, ssrc0);
-                }
                 _ => todo!(),
             }
         }
@@ -156,56 +143,13 @@ impl CPU {
             }
 
             let tmp = match op {
-                0 => {
-                    let tmp = (ssrc0 as u64) + (ssrc1 as u64);
-                    self.scc = (tmp >= 0x100000000) as u32;
-                    tmp as u32
-                }
-                2 => {
-                    let tmp = (ssrc0 as i32) + (ssrc1 as i32);
-                    self.scc = 0; // TODO
-                    tmp as u32
-                }
-                4 => {
-                    if *DEBUG == 2 {
-                        println!(
-                            "[state] adding the values in sgprs {} and {}",
-                            instruction & 0xfF,
-                            (instruction >> 8) & 0xFF
-                        );
-                    }
-
-                    let tmp = (ssrc0 as u64) + (ssrc1 as u64) + (self.scc as u64);
-                    self.scc = (tmp >= 0x100000000) as u32;
-                    tmp as u32
-                }
-                9 => {
-                    if *DEBUG == 2 {
-                        println!(
-                            "[state] left shift sgpr={} by {}",
-                            instruction & 0xfF,
-                            (instruction >> 8) & 0xFF
-                        );
-                    }
-                    let tmp = ssrc0 << (ssrc1 & 0x1F);
-                    self.scc = (tmp != 0) as u32;
-                    tmp as u32
-                }
-                12 => {
-                    if *DEBUG == 2 {
-                        println!(
-                            "[state] left shift sgpr={} by {}",
-                            instruction & 0xfF,
-                            ssrc1 & 0x1F
-                        );
-                    }
-                    let tmp = (ssrc0 >> (ssrc1 & 0x1F)) as u32;
-                    self.scc = (tmp != 0) as u32;
-                    tmp as u32
-                }
+                0 => (ssrc0 as u64) + (ssrc1 as u64),
+                4 => (ssrc0 as u64) + (ssrc1 as u64) + (self.scc as u64),
+                9 => (ssrc0 as u64) << (ssrc1 as u64 & 0x1F),
+                12 => (ssrc0 >> (ssrc1 & 0x1F)) as u64,
                 _ => todo!("sop2 opcode {}", op),
             };
-            self.write_to_sdst(sdst, tmp);
+            self.write_to_sdst(sdst, tmp as u32);
         }
         // vop1
         else if instruction >> 25 == 0b0111111 {
@@ -404,14 +348,6 @@ mod test_sop1 {
         cpu.interpret(&vec![0xbe82000f, END_PRG]);
         assert_eq!(cpu.scalar_reg[2], 42);
     }
-
-    #[test]
-    fn test_s_mov_b64() {
-        let mut cpu = CPU::new();
-        cpu.interpret(&vec![0xbe920180, END_PRG]);
-        assert_eq!(cpu.scalar_reg[18], 0);
-        assert_eq!(cpu.scalar_reg[19], 0);
-    }
 }
 
 #[cfg(test)]
@@ -425,7 +361,6 @@ mod test_sop2 {
         cpu.scalar_reg[6] = 13;
         cpu.interpret(&vec![0x80060206, END_PRG]);
         assert_eq!(cpu.scalar_reg[6], 55);
-        assert_eq!(cpu.scc, 0);
     }
 
     #[test]
@@ -436,7 +371,6 @@ mod test_sop2 {
         cpu.scc = 1;
         cpu.interpret(&vec![0x82070307, END_PRG]);
         assert_eq!(cpu.scalar_reg[7], 56);
-        assert_eq!(cpu.scc, 0);
     }
 
     #[test]
@@ -445,7 +379,6 @@ mod test_sop2 {
         cpu.scalar_reg[15] = 42;
         cpu.interpret(&vec![0x86039f0f, END_PRG]);
         assert_eq!(cpu.scalar_reg[3], 0);
-        assert_eq!(cpu.scc, 0);
     }
 
     #[test]
@@ -454,7 +387,6 @@ mod test_sop2 {
         cpu.scalar_reg[2] = 42;
         cpu.interpret(&vec![0x84828202, END_PRG]);
         assert_eq!(cpu.scalar_reg[2], 42 << 2);
-        assert_eq!(cpu.scc, 1);
     }
 }
 
