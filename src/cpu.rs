@@ -1,7 +1,6 @@
-#![allow(unused)]
 use crate::allocator::BumpAllocator;
 use crate::state::{SGPR, VGPR};
-use crate::utils::{twos_complement_21bit, Colorize, DEBUG, SGPR_INDEX};
+use crate::utils::{twos_complement_21bit, Colorize, DEBUG};
 
 const SGPR_COUNT: u32 = 105;
 const VGPR_COUNT: u32 = 256;
@@ -36,11 +35,11 @@ impl CPU {
             let instruction = prg[self.pc as usize];
             self.pc += 1;
 
-            if (instruction == END_PRG) {
+            if instruction == END_PRG {
                 break;
             }
 
-            if (instruction >> 24 == 0xbf) {
+            if instruction >> 24 == 0xbf {
                 continue;
             }
 
@@ -60,7 +59,7 @@ impl CPU {
         if instruction >> 26 == 0b111101 {
             let instr = self.u64_instr();
             // NOTE: sbase has an implied LSB of zero
-            /**
+            /*
              * In reads, the address-base comes from an SGPR-pair, it's always
              * even-aligned. s[sbase:sbase+1]
              */
@@ -68,15 +67,13 @@ impl CPU {
             let sdata = ((instr >> 6) & 0x7f) as usize;
             let dlc = (instr >> 13) & 0x1;
             let glc = (instr >> 14) & 0x1;
-            let glc = (instr >> 14) & 0x1;
             let op = (instr >> 18) & 0xff;
-            let encoding = (instr >> 26) & 0x3f;
             // offset is a sign-extend immediate 21-bit constant
             let offset = twos_complement_21bit((instr >> 32) & 0x1fffff);
             let soffset = match instr & 0x7F {
                 0 => 0, //  set to "NULL" to not use (offset=0).
                 // the SGPR contains an unsigned byte offset (the 2 LSBs are ignored).
-                val => (self.resolve_ssrc(val as u32) & -4) as u64,
+                val => (self.resolve_src(val as u32) & -4) as u64,
             };
 
             if *DEBUG >= 1 {
@@ -105,7 +102,7 @@ impl CPU {
         }
         // sop1
         else if instruction >> 23 == 0b10_1111101 {
-            let ssrc0 = self.resolve_ssrc(instruction & 0xFF) as u32;
+            let ssrc0 = self.resolve_src(instruction & 0xFF) as u32;
             let op = (instruction >> 8) & 0xFF;
             let sdst = (instruction >> 16) & 0x7F;
 
@@ -126,8 +123,8 @@ impl CPU {
         }
         // sop2
         else if instruction >> 30 == 0b10 {
-            let ssrc0 = self.resolve_ssrc(instruction & 0xFF);
-            let ssrc1 = self.resolve_ssrc((instruction >> 8) & 0xFF);
+            let ssrc0 = self.resolve_src(instruction & 0xFF);
+            let ssrc1 = self.resolve_src((instruction >> 8) & 0xFF);
             let sdst = (instruction >> 16) & 0x7F;
             let op = (instruction >> 23) & 0xFF;
 
@@ -153,7 +150,7 @@ impl CPU {
         }
         // vop1
         else if instruction >> 25 == 0b0111111 {
-            let src = self.resolve_ssrc(instruction & 0x1ff);
+            let src = self.resolve_src(instruction & 0x1ff);
             let op = (instruction >> 9) & 0xff;
             let vdst = (instruction >> 17) & 0xff;
 
@@ -175,11 +172,11 @@ impl CPU {
         // vopd
         else if instruction >> 26 == 0b110010 {
             let instr = self.u64_instr();
-            let srcx0 = self.resolve_ssrc((instr & 0x1ff) as u32);
+            let srcx0 = self.resolve_src((instr & 0x1ff) as u32);
             let vsrcx1 = (instr >> 9) & 0xff;
             let opy = (instr >> 17) & 0x1f;
             let opx = (instr >> 22) & 0xf;
-            let srcy0 = self.resolve_ssrc(((instr >> 32) & 0x1ff) as u32);
+            let srcy0 = self.resolve_src(((instr >> 32) & 0x1ff) as u32);
             let vsrcy1 = (instr >> 41) & 0xff;
             let vdsty = (instr >> 49) & 0x7f;
             let vdstx = (instr >> 56) & 0xff;
@@ -208,7 +205,7 @@ impl CPU {
         }
         // vop2
         else if instruction >> 31 == 0b0 {
-            let ssrc0 = self.resolve_ssrc(instruction & 0x1FF);
+            let ssrc0 = self.resolve_src(instruction & 0x1FF);
             let vsrc1 = self.vec_reg[((instruction >> 9) & 0xFF) as usize];
             let vdst = (instruction >> 17) & 0xFF;
             let op = (instruction >> 25) & 0x3F;
@@ -225,46 +222,53 @@ impl CPU {
             }
 
             let s0 = f32::from_bits(ssrc0 as u32);
-            let s1 = f32::from_bits(vsrc1 as u32);
-            let d0 = f32::from_bits((self.vec_reg[vdst as usize] as i32).try_into().unwrap());
+            let s1 = f32::from_bits(vsrc1);
 
             self.vec_reg[vdst as usize] = match op {
                 3 | 50 => s0 + s1,
                 8 => s0 * s1,
-                43 => (s0 * s1) + d0,
                 _ => todo!(),
             }
             .to_bits();
         }
         // vop3
         else if instruction >> 26 == 0b110101 {
-            let vdst = instruction & 0xFF;
-            let abs = (instruction >> 8) & 0x7;
-            let opsel = (instruction >> 11) & 0xf;
-            let cm = (instruction >> 15) & 0x1;
-            let op = (instruction >> 16) & 0x1ff;
+            let instr = self.u64_instr();
+            let vdst = instr & 0xff;
+            let abs = (instr >> 8) & 0x7;
+            let opsel = (instr >> 11) & 0xf;
+            let op = (instr >> 16) & 0x3ff;
 
-            let src_info = self.prg[self.pc as usize];
-            self.pc += 1;
-            let ssrc0 = self.resolve_ssrc(src_info & 0x1ff);
-            let ssrc1 = self.resolve_ssrc((src_info >> 9) & 0x1ff);
-            let ssrc2 = (src_info >> 18) & 0x1ff;
-            let omod = (src_info >> 27) & 0x3;
-            let neg = (src_info >> 29) & 0x7;
+            let src0 = self.resolve_src(((instr >> 32) & 0x1ff) as u32);
+            let src1 = self.resolve_src(((instr >> 41) & 0x1ff) as u32);
+            let src2 = self.resolve_src(((instr >> 50) & 0x1ff) as u32);
+
+            let omod = (instr >> 59) & 0x3;
+            let neg = (instr >> 61) & 0x7;
 
             if *DEBUG >= 1 {
-                println!("{} vdst={} abs={} opsel={} cm={} op={} ssrc0={} ssrc1={} ssrc2={} omod={} neg={}", "VOP3".color("blue"), vdst, abs, opsel, cm, op, ssrc0, ssrc1, ssrc2, omod, neg);
+                println!(
+                    "{} vdst={} abs={} opsel={} op={} src0={} src1={} src2={} omod={} neg={}",
+                    "VOP3".color("blue"),
+                    vdst,
+                    abs,
+                    opsel,
+                    op,
+                    src0,
+                    src1,
+                    src2,
+                    omod,
+                    neg
+                );
             }
 
-            // TODO s0 and s1 dont have to be floats
-            let s0 = f32::from_bits(ssrc0 as u32);
-            let s1 = f32::from_bits(ssrc1 as u32);
-            let d0 = f32::from_bits((self.vec_reg[vdst as usize] as i32).try_into().unwrap());
+            // TODO for now only float vops
+            let s0 = f32::from_bits(src0 as u32);
+            let s1 = f32::from_bits(src1 as u32);
 
             self.vec_reg[vdst as usize] = match op {
                 259 => s0 + s1,
                 264 => s0 * s1,
-                299 => (s0 * s1) + d0,
                 _ => todo!(),
             }
             .to_bits();
@@ -272,17 +276,12 @@ impl CPU {
         // global
         else if instruction >> 26 == 0b110111 {
             let instr = self.u64_instr();
-
             let offset = instr & 0x1fff;
-            let dls = (instr >> 13) & 0x1;
-            let glc = (instr >> 14) & 0x1;
-            let slc = (instr >> 15) & 0x1;
             let seg = (instr >> 16) & 0x3;
             let op = (instr >> 18) & 0x7f;
             let addr = (instr >> 32) & 0xff;
             let data = (instr >> 40) & 0xff;
             let saddr = (instr >> 48) & 0x7f;
-            let sve = (instr >> 55) & 0x1;
             let vdst = (instr >> 56) & 0xff;
 
             if *DEBUG >= 1 {
@@ -298,7 +297,7 @@ impl CPU {
             }
             assert_eq!(seg, 2, "flat and scratch arent supported");
 
-            let effective_addr = match self.resolve_ssrc(saddr as u32) {
+            let effective_addr = match self.resolve_src(saddr as u32) {
                 0 | 0x7F => self.vec_reg.read_addr(addr as usize).wrapping_add(offset), // SADDR is NULL or 0x7f: specifies an address
                 _ => {
                     let scalar_addr = self.scalar_reg.read_addr(saddr as usize);
@@ -319,14 +318,14 @@ impl CPU {
         }
     }
 
-    /* Scalar ALU utils */
-    fn resolve_ssrc(&self, ssrc_bf: u32) -> i32 {
+    /* ALU utils */
+    fn resolve_src(&self, ssrc_bf: u32) -> i32 {
         match ssrc_bf {
             0..=SGPR_COUNT => self.scalar_reg[ssrc_bf as usize] as i32,
             VGPR_COUNT..=511 => self.vec_reg[(ssrc_bf - VGPR_COUNT) as usize] as i32,
             128 => 0,
             129..=192 => (ssrc_bf - 128) as i32,
-            _ => todo!("resolve ssrc {}", ssrc_bf),
+            _ => todo!(),
         }
     }
     fn write_to_sdst(&mut self, sdst_bf: u32, val: u32) {
@@ -454,8 +453,8 @@ mod test_vop3 {
 
     fn helper_test_vop3(op: u32, a: f32, b: f32) -> f32 {
         let mut cpu = CPU::new();
-        cpu.scalar_reg[0] = f32::to_bits(0.4);
-        cpu.scalar_reg[6] = f32::to_bits(0.2);
+        cpu.scalar_reg[0] = f32::to_bits(a);
+        cpu.scalar_reg[6] = f32::to_bits(b);
         cpu.interpret(&vec![op, 0x00000006, END_PRG]);
         return f32::from_bits(cpu.vec_reg[0]);
     }
@@ -468,16 +467,6 @@ mod test_vop3 {
     #[test]
     fn test_v_mul_f32() {
         assert_eq!(helper_test_vop3(0xd5080000, 0.4, 0.2), 0.4 * 0.2);
-    }
-
-    #[test]
-    fn test_v_fmac_f32() {
-        let mut cpu = CPU::new();
-        cpu.scalar_reg[29] = f32::to_bits(0.42);
-        cpu.scalar_reg[13] = f32::to_bits(0.24);
-        cpu.vec_reg[0] = f32::to_bits(0.15);
-        cpu.interpret(&vec![0xd52b0000, 0x00003a0d, END_PRG]);
-        assert_eq!(f32::from_bits(cpu.vec_reg[0]), 0.42 * 0.24 + 0.15);
     }
 }
 
@@ -513,10 +502,8 @@ mod test_smem {
         helper_test_s_load(CPU::new(), 0xf4000000, 0xf800000c, &vec![42], 0xc, 0);
 
         // negative offset
-        let offset_value: i64 = -0x4;
         let mut cpu = CPU::new();
         cpu.scalar_reg.write_addr(0, 10000);
-
         helper_test_s_load(cpu, 0xf4000000, 0xf81fffd8, &vec![42], 9960, 0);
     }
 
