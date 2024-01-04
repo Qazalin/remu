@@ -205,6 +205,7 @@ impl CPU {
                 .for_each(|i| {
                     let s0 = f32::from_bits(i[1] as u32);
                     let s1 = f32::from_bits(i[2] as u32);
+                    println!("{} {}", s0, s1);
                     self.vec_reg[i[3] as usize] = match i[0] {
                         10 => f32::max(s0, s1),
                         4 => s0 + s1,
@@ -245,21 +246,33 @@ impl CPU {
         // vop3
         else if instruction >> 26 == 0b110101 {
             let instr = self.u64_instr();
+
             let vdst = instr & 0xff;
             let abs = (instr >> 8) & 0x7;
             let opsel = (instr >> 11) & 0xf;
             let op = (instr >> 16) & 0x3ff;
 
-            let src0 = self.resolve_src(((instr >> 32) & 0x1ff) as u32);
-            let src1 = self.resolve_src(((instr >> 41) & 0x1ff) as u32);
-            let src2 = self.resolve_src(((instr >> 50) & 0x1ff) as u32);
+            let mut src0 = self.resolve_src(((instr >> 32) & 0x1ff) as u32);
+            let mut src1 = self.resolve_src(((instr >> 41) & 0x1ff) as u32);
+            let mut src2 = self.resolve_src(((instr >> 50) & 0x1ff) as u32);
 
             let omod = (instr >> 59) & 0x3;
             let neg = (instr >> 61) & 0x7;
 
+            // Negate input. TODO this could be done better
+            if ((neg >> 0) & 1) == 1 {
+                src0 = -src0;
+            }
+            if ((neg >> 1) & 1) == 1 {
+                src1 = -src1;
+            }
+            if ((neg >> 2) & 1) == 1 {
+                src2 = -src2;
+            }
+
             if *DEBUG >= 1 {
                 println!(
-                    "{} vdst={} abs={} opsel={} op={} src0={} src1={} src2={} omod={} neg={}",
+                    "{} vdst={} abs={} opsel={} op={} src0={} src1={} src2={} omod={} neg=0b{:03b}",
                     "VOP3".color("blue"),
                     vdst,
                     abs,
@@ -273,14 +286,13 @@ impl CPU {
                 );
             }
 
-            // TODO for now only float vops
             let s0 = f32::from_bits(src0 as u32);
             let s1 = f32::from_bits(src1 as u32);
 
             self.vec_reg[vdst as usize] = match op {
                 259 => s0 + s1,
                 264 => s0 * s1,
-                272 => f32::max(s0, s0),
+                272 => f32::max(s0, s1),
                 _ => todo!(),
             }
             .to_bits();
@@ -509,6 +521,21 @@ mod test_vop3 {
     #[test]
     fn test_v_mul_f32() {
         assert_eq!(helper_test_vop3(0xd5080000, 0.4, 0.2), 0.4 * 0.2);
+    }
+
+    #[test]
+    fn test_signed_src() {
+        // v0, max(s2, s2)
+        let mut cpu = CPU::new();
+        cpu.scalar_reg[2] = f32::to_bits(2.0);
+        cpu.interpret(&vec![0xd5100000, 0x00000402, END_PRG]);
+        assert_eq!(f32::from_bits(cpu.vec_reg[0]), 2.0);
+
+        // v1, max(-s2, -s2)
+        let mut cpu = CPU::new();
+        cpu.scalar_reg[2] = f32::to_bits(2.0);
+        cpu.interpret(&vec![0xd5100001, 0x60000402, END_PRG]);
+        assert_eq!(f32::from_bits(cpu.vec_reg[1]), -2.0);
     }
 }
 
