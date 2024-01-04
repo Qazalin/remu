@@ -1,3 +1,5 @@
+rm -rd /tmp/*.bin
+
 cd ~/code/tinygrad/tinygrad
 
 if git status | grep 'not staged' > /dev/null 2>&1; then

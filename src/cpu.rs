@@ -994,6 +994,7 @@ mod test_smem {
         cpu.scalar_reg.write_addr(2, 0x10);
         helper_test_s_load(cpu, 0xf4080401, 0xf81ffff0, &data, 0, 16);
     }
+
 }
 
 #[cfg(test)]
