@@ -173,48 +173,46 @@ impl CPU {
         else if instruction >> 26 == 0b110010 {
             let instr = self.u64_instr();
 
-            let srcx0 = self.resolve_src((instr & 0x1ff) as u32);
-            let vsrcx1 = self.vec_reg[((instr >> 9) & 0xff) as usize];
-            let opy = ((instr >> 17) & 0x1f) as u32;
+            let srcx0 = self.resolve_src((instr & 0x1ff) as u32) as u64;
+            let vsrcx1 = self.vec_reg[((instr >> 9) & 0xff) as usize] as u64;
+            let opy = (instr >> 17) & 0x1f;
 
-            let opx = ((instr >> 22) & 0xf) as u32;
-            let srcy0 = self.resolve_src(((instr >> 32) & 0x1ff) as u32);
-            let vsrcy1 = self.vec_reg[((instr >> 41) & 0xff) as usize];
+            let opx = (instr >> 22) & 0xf;
+            let srcy0 = self.resolve_src(((instr >> 32) & 0x1ff) as u32) as u64;
+            let vsrcy1 = self.vec_reg[((instr >> 41) & 0xff) as usize] as u64;
 
-            let vdsty = (instr >> 49) & 0x7f;
             let vdstx = (instr >> 56) & 0xff;
+            // LSB is the opposite of VDSTX[0]
+            let vdsty = ((instr >> 49) & 0x7f) << 1 | ((vdstx & 1) ^ 1);
 
             if *DEBUG >= 1 {
                 println!(
-                    "{} srcx0={} vsrcx1={} opy={} opx={} srcy0={} vsrcy1={} vdsty={} vdstx={}",
+                    "{} X=[op={}, dest={} src={}, vsrc={}] Y=[op={}, dest={}, src={}, vsrc={}]",
                     "VOPD".color("blue"),
+                    opx,
+                    vdstx,
                     srcx0,
                     vsrcx1,
                     opy,
-                    opx,
+                    vdsty,
                     srcy0,
                     vsrcy1,
-                    vdsty,
-                    vdstx
                 );
             }
 
-            ([
-                [opx, srcx0 as u32, vsrcx1, vdstx as u32],
-                [opy, srcy0 as u32, vsrcy1, vdsty as u32],
-            ])
-            .iter()
-            .for_each(|i| {
-                let s0 = f32::from_bits(i[1]);
-                let s1 = f32::from_bits(i[2]);
-                self.vec_reg[i[3] as usize] = match i[0] {
-                    10 => f32::max(s0, s1),
-                    4 => s0 + s1,
-                    8 => s0,
-                    _ => todo!(),
-                }
-                .to_bits();
-            });
+            ([[opx, srcx0, vsrcx1, vdstx], [opy, srcy0, vsrcy1, vdsty]])
+                .iter()
+                .for_each(|i| {
+                    let s0 = f32::from_bits(i[1] as u32);
+                    let s1 = f32::from_bits(i[2] as u32);
+                    self.vec_reg[i[3] as usize] = match i[0] {
+                        10 => f32::max(s0, s1),
+                        4 => s0 + s1,
+                        8 => s0,
+                        _ => todo!(),
+                    }
+                    .to_bits();
+                });
         }
         // vop2
         else if instruction >> 31 == 0b0 {
@@ -403,6 +401,30 @@ mod test_sop2 {
     }
 }
 
+#[cfg(test)]
+mod test_vopd {
+    use super::*;
+
+    #[test]
+    fn test_add_mov() {
+        let mut cpu = CPU::new();
+        cpu.vec_reg[0] = f32::to_bits(10.5);
+        cpu.interpret(&vec![0xC9100300, 0x00000080, END_PRG]);
+        assert_eq!(f32::from_bits(cpu.vec_reg[0]), 10.5);
+        assert_eq!(cpu.vec_reg[1], 0);
+    }
+
+    #[test]
+    fn test_max_add() {
+        let mut cpu = CPU::new();
+        cpu.vec_reg[0] = f32::to_bits(5.0);
+        cpu.vec_reg[3] = f32::to_bits(2.0);
+        cpu.vec_reg[1] = f32::to_bits(2.0);
+        cpu.interpret(&vec![0xCA880280, 0x01000700, END_PRG]);
+        assert_eq!(f32::from_bits(cpu.vec_reg[0]), 7.0);
+        assert_eq!(f32::from_bits(cpu.vec_reg[1]), 2.0);
+    }
+}
 #[cfg(test)]
 mod test_vop1 {
     use super::*;
