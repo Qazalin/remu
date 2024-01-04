@@ -52,13 +52,13 @@ pub extern "C" fn hipModuleLaunchKernel(
         );
     }
 
-    let mut cpu = CPU::new();
+    let mut cpu = CPU::new("wave");
     let prg = utils::read_asm(&lib_bytes);
 
     let stack_ptr = cpu.allocator.alloc(kernel_args.len() as u32 * 8);
     kernel_args.iter().enumerate().for_each(|(i, x)| {
         cpu.allocator
-            .copyin(stack_ptr + i as u64 * 8, &x.to_le_bytes());
+            .write_bytes(stack_ptr + i as u64 * 8, &x.to_le_bytes());
     });
 
     for i in 0..grid_dim_x {
@@ -67,13 +67,11 @@ pub extern "C" fn hipModuleLaunchKernel(
         cpu.scalar_reg[15] = i;
         cpu.interpret(&prg);
     }
-
-    cpu.allocator.save();
 }
 
 #[no_mangle]
 pub extern "C" fn hipMalloc(ptr: *mut c_void, size: u32) {
-    let mut cpu = CPU::new();
+    let mut cpu = CPU::new("wave");
 
     unsafe {
         let data_ptr = ptr as *mut u64;
@@ -83,22 +81,20 @@ pub extern "C" fn hipMalloc(ptr: *mut c_void, size: u32) {
     if *DEBUG >= 1 {
         println!("[remu] hipMalloc({})", size);
     }
-
-    cpu.allocator.save();
 }
 
 #[no_mangle]
 pub extern "C" fn hipMemcpy(dest: *const c_void, src: *const c_void, size: u32, mode: u32) {
-    let mut cpu = CPU::new();
+    let mut cpu = CPU::new("wave");
 
     match mode {
         1 => {
             let bytes =
                 unsafe { std::slice::from_raw_parts(src as *const u8, size as usize) }.to_vec();
-            cpu.allocator.copyin(dest as u64, &bytes);
+            cpu.allocator.write_bytes(dest as u64, &bytes);
         }
         2 => {
-            let bytes = &cpu.allocator.memory[src as usize..src as usize + size as usize];
+            let bytes = &cpu.allocator.read_bytes(src as u64, size as usize);
             unsafe {
                 let dest = dest as *mut u8;
                 std::slice::from_raw_parts_mut(dest, bytes.len()).copy_from_slice(&bytes);
@@ -106,6 +102,4 @@ pub extern "C" fn hipMemcpy(dest: *const c_void, src: *const c_void, size: u32, 
         }
         _ => panic!("invalid mode"),
     }
-
-    cpu.allocator.save();
 }

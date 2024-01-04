@@ -1,56 +1,66 @@
 use crate::dtype::DType;
 use core::mem;
-use serde::{Deserialize, Serialize};
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::PathBuf;
 
-#[derive(Serialize, Deserialize)]
+const MAX_MEM_SIZE: usize = 1_000_000;
 pub struct BumpAllocator {
-    pub last: u64,
-    pub memory: Vec<u8>,
+    fp: PathBuf,
 }
 
 impl BumpAllocator {
-    pub fn new() -> Self {
-        if std::path::Path::new("/tmp/wave.bin").exists() {
-            let enc = std::fs::read("/tmp/wave.bin").unwrap();
-            let decoded: Self = bincode::deserialize(&enc[..]).unwrap();
-            return decoded;
+    pub fn new(wave_id: &str) -> Self {
+        let fp = PathBuf::from(format!("/tmp/{}.bin", wave_id));
+        if !fp.exists() {
+            File::create(&fp).unwrap();
         }
-        Self {
-            last: 0,
-            memory: vec![0; 24 * 1_073],
-        }
+        Self { fp }
     }
 
     pub fn alloc(&mut self, size: u32) -> u64 {
-        let last_allocated = self.last;
-        self.last += size as u64;
-        return last_allocated + size as u64;
-    }
-
-    pub fn copyin(&mut self, addr: u64, data: &[u8]) {
-        self.memory[addr as usize..addr as usize + data.len()].copy_from_slice(data);
-    }
-
-    /** "persist" memory and locations for the next library call */
-    pub fn save(&self) {
-        let enc = bincode::serialize(&self).unwrap();
-        std::fs::write("/tmp/wave.bin", &enc[..]).unwrap();
+        let mut file = File::open(&self.fp).unwrap();
+        let last = file.seek(SeekFrom::End(0)).unwrap();
+        self.write_bytes(last, &vec![0; size as usize]);
+        return last;
     }
 
     pub fn read<D: DType>(&self, addr: u64) -> D {
-        assert!(addr as usize + mem::size_of::<D>() <= self.memory.len());
+        let bytes = self.read_bytes(addr, mem::size_of::<D>());
         unsafe {
-            let ptr = self.memory.as_ptr().offset(addr as isize) as *const D;
+            let ptr = bytes.as_ptr() as *const D;
             *ptr
         }
     }
 
     pub fn write<D: DType>(&mut self, addr: u64, val: D) {
-        assert!(addr as usize + mem::size_of::<D>() <= self.memory.len());
+        let mut bytes = vec![0; mem::size_of::<D>()];
         unsafe {
-            let ptr = self.memory.as_mut_ptr().offset(addr as isize) as *mut D;
+            let ptr = bytes.as_mut_ptr() as *mut D;
             *ptr = val;
         }
+        self.write_bytes(addr, &bytes)
+    }
+
+    pub fn write_bytes(&mut self, addr: u64, bytes: &[u8]) {
+        assert!(bytes.len() <= MAX_MEM_SIZE);
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true) // NOTE: we dont use the builtin `append` mode since the API uses alloc
+            .open(&self.fp)
+            .unwrap();
+        file.seek(SeekFrom::Start(addr)).unwrap();
+        file.write_all(bytes).unwrap();
+    }
+
+    pub fn read_bytes(&self, addr: u64, sz: usize) -> Vec<u8> {
+        assert!(sz <= MAX_MEM_SIZE);
+        let mut file = File::open(&self.fp).unwrap();
+        let mut bytes = vec![0; sz];
+
+        file.seek(SeekFrom::Start(addr)).unwrap();
+        file.read_exact(&mut bytes).unwrap();
+        return bytes;
     }
 }
 
@@ -59,69 +69,62 @@ mod test_allocation {
     use super::*;
     #[test]
     fn test_bump_allocator() {
-        // remove tmp files
-        std::fs::remove_file("/tmp/wave.bin").unwrap_or(());
-        let mut allocator = BumpAllocator::new();
-        allocator.alloc(4);
-        assert_eq!(allocator.last, 4);
-        allocator.alloc(9);
-        assert_eq!(allocator.last, 13);
+        /* raw bytes allocation tests */
+        let mut allocator = BumpAllocator::new("test_bump_allocator");
+        let addr = allocator.alloc(4);
+        assert_eq!(addr, 0);
+        let addr = allocator.alloc(9);
+        assert_eq!(addr, 4);
     }
 
     #[test]
     fn test_persistant() {
-        // remove tmp files
-        std::fs::remove_file("/tmp/wave.bin").unwrap_or(());
-        let mut allocator = BumpAllocator::new();
-        allocator.alloc(4);
-        allocator.save();
-        let allocator = BumpAllocator::new();
-        assert_eq!(allocator.last, 4);
+        let mut allocator = BumpAllocator::new("test_persistant");
+        let addr = allocator.alloc(4);
+        assert_eq!(addr, 0);
+        let mut allocator = BumpAllocator::new("test_persistant");
+        let addr = allocator.alloc(4);
+        assert_eq!(addr, 4);
     }
 
     #[test]
-    fn test_copyin() {
-        // remove tmp files
-        std::fs::remove_file("/tmp/wave.bin").unwrap_or(());
-        let mut allocator = BumpAllocator::new();
-        allocator.alloc(4);
-        allocator.copyin(0, &[0x01, 0x02, 0x03, 0x04]);
-        assert_eq!(allocator.memory[0], 0x01);
-        assert_eq!(allocator.memory[1], 0x02);
-        assert_eq!(allocator.memory[2], 0x03);
-        assert_eq!(allocator.memory[3], 0x04);
+    fn test_write_bytes() {
+        let mut allocator = BumpAllocator::new("test_write_bytes");
+        let addr = allocator.alloc(4);
+        assert_eq!(allocator.read_bytes(0, 4), [0, 0, 0, 0]);
+        allocator.write_bytes(addr, &[0x01, 0x02, 0x03, 0x04]);
+        assert_eq!(allocator.read_bytes(0, 4), [0x01, 0x02, 0x03, 0x04]);
     }
 }
 
+#[cfg(test)]
 mod test_dtype {
     use super::*;
 
-    fn helper_test_mem<D: DType>(val: D) -> BumpAllocator {
-        let mut memory = BumpAllocator::new();
-        memory.write(0, val);
-        return memory;
-    }
-
     #[test]
     fn test_u8() {
+        /* dtypes tests */
+        let mut memory = BumpAllocator::new("test_dtype_u8");
         let val: u8 = 10;
-        let memory = helper_test_mem(val);
-        assert_eq!(memory.read::<u8>(0), val)
+        memory.write(0, val);
+        assert_eq!(memory.read::<u8>(0), val);
     }
 
     #[test]
     fn test_u16() {
+        let mut memory = BumpAllocator::new("test_dtype_u16");
         let val: u16 = 30000;
-        let memory = helper_test_mem(val);
+        memory.write(0, val);
         assert_eq!(memory.read::<u16>(0), val);
-        assert_eq!(memory.memory.get(0..2).unwrap(), vec![48, 117]);
+        assert_eq!(memory.read_bytes(0, 2), vec![48, 117]);
     }
 
     #[test]
     fn test_u32() {
+        let mut memory = BumpAllocator::new("test_dtype_u32");
         let val: u32 = 1234567890;
-        let memory = helper_test_mem(val);
+        memory.write(0, val);
         assert_eq!(memory.read::<u32>(0), val);
-        assert_eq!(memory.memory.get(0..4).unwrap(), vec![210, 2, 150, 73]);
+        assert_eq!(memory.read_bytes(0, 4), vec![210, 2, 150, 73]);
     }
 }

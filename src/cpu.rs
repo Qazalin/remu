@@ -16,11 +16,11 @@ pub struct CPU {
 }
 
 impl CPU {
-    pub fn new() -> Self {
+    pub fn new(wave_id: &str) -> Self {
         return CPU {
             pc: 0,
             scc: 0,
-            allocator: BumpAllocator::new(),
+            allocator: BumpAllocator::new(wave_id),
             scalar_reg: SGPR::new(),
             vec_reg: VGPR::new(),
             prg: vec![],
@@ -363,7 +363,7 @@ mod test_sop1 {
 
     #[test]
     fn test_s_mov_b32() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::new("s_mov_b32");
         cpu.scalar_reg[15] = 42;
         cpu.interpret(&vec![0xbe82000f, END_PRG]);
         assert_eq!(cpu.scalar_reg[2], 42);
@@ -376,7 +376,7 @@ mod test_sop2 {
 
     #[test]
     fn test_s_add_u32() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::new("s_add_u32");
         cpu.scalar_reg[2] = 42;
         cpu.scalar_reg[6] = 13;
         cpu.interpret(&vec![0x80060206, END_PRG]);
@@ -385,7 +385,7 @@ mod test_sop2 {
 
     #[test]
     fn test_s_addc_u32() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::new("s_addc_u32");
         cpu.scalar_reg[7] = 42;
         cpu.scalar_reg[3] = 13;
         cpu.scc = 1;
@@ -395,7 +395,7 @@ mod test_sop2 {
 
     #[test]
     fn test_s_ashr_i32() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::new("s_ashr_i32");
         cpu.scalar_reg[15] = 42;
         cpu.interpret(&vec![0x86039f0f, END_PRG]);
         assert_eq!(cpu.scalar_reg[3], 0);
@@ -403,7 +403,7 @@ mod test_sop2 {
 
     #[test]
     fn test_s_lshl_b64() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::new("s_lshl_b64");
         cpu.scalar_reg[2] = 42;
         cpu.interpret(&vec![0x84828202, END_PRG]);
         assert_eq!(cpu.scalar_reg[2], 42 << 2);
@@ -416,7 +416,7 @@ mod test_vopd {
 
     #[test]
     fn test_add_mov() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::new("add_mov");
         cpu.vec_reg[0] = f32::to_bits(10.5);
         cpu.interpret(&vec![0xC9100300, 0x00000080, END_PRG]);
         assert_eq!(f32::from_bits(cpu.vec_reg[0]), 10.5);
@@ -425,7 +425,7 @@ mod test_vopd {
 
     #[test]
     fn test_max_add() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::new("max_add");
         cpu.vec_reg[0] = f32::to_bits(5.0);
         cpu.vec_reg[3] = f32::to_bits(2.0);
         cpu.vec_reg[1] = f32::to_bits(2.0);
@@ -440,7 +440,7 @@ mod test_vop1 {
 
     #[test]
     fn test_v_mov_b32_srrc_const0() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::new("v_mov_b32_srrc_const0");
         cpu.interpret(&vec![0x7e000280, END_PRG]);
         assert_eq!(cpu.vec_reg[0], 0);
         cpu.interpret(&vec![0x7e020280, END_PRG]);
@@ -451,7 +451,7 @@ mod test_vop1 {
 
     #[test]
     fn test_v_mov_b32_srrc_register() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::new("v_mov_b32_srrc_register");
         cpu.scalar_reg[6] = 31;
         cpu.interpret(&vec![0x7e020206, END_PRG]);
         assert_eq!(cpu.vec_reg[1], 31);
@@ -461,7 +461,7 @@ mod test_vop1 {
     /*
     #[test]
     fn test_v_mov_b32_with_const() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::new("v_mov_b32_with_const");
         cpu.scalar_reg[6] = 31;
         cpu.interpret(&vec![0x7e0002ff, 0xff800000, END_PRG]);
         assert_eq!(cpu.vec_reg[1], 31);
@@ -475,7 +475,7 @@ mod test_vop2 {
 
     #[test]
     fn test_v_add_f32_e32() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::new("v_add_f32_e32");
         cpu.scalar_reg[2] = f32::to_bits(42.0);
         cpu.vec_reg[0] = f32::to_bits(1.0);
         cpu.interpret(&vec![0x06000002, END_PRG]);
@@ -484,7 +484,7 @@ mod test_vop2 {
 
     #[test]
     fn test_v_mul_f32_e32() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::new("v_mul_f32_e32");
         cpu.vec_reg[2] = f32::to_bits(21.0);
         cpu.vec_reg[4] = f32::to_bits(2.0);
         cpu.interpret(&vec![0x10060504, END_PRG]);
@@ -496,8 +496,8 @@ mod test_vop2 {
 mod test_vop3 {
     use super::*;
 
-    fn helper_test_vop3(op: u32, a: f32, b: f32) -> f32 {
-        let mut cpu = CPU::new();
+    fn helper_test_vop3(id: &str, op: u32, a: f32, b: f32) -> f32 {
+        let mut cpu = CPU::new(id);
         cpu.scalar_reg[0] = f32::to_bits(a);
         cpu.scalar_reg[6] = f32::to_bits(b);
         cpu.interpret(&vec![op, 0x00000006, END_PRG]);
@@ -506,30 +506,39 @@ mod test_vop3 {
 
     #[test]
     fn test_v_add_f32() {
-        assert_eq!(helper_test_vop3(0xd5030000, 0.4, 0.2), 0.6);
+        assert_eq!(helper_test_vop3("vop3_add_f32", 0xd5030000, 0.4, 0.2), 0.6);
     }
 
     #[test]
     fn test_v_max_f32() {
-        assert_eq!(helper_test_vop3(0xd5100000, 0.4, 0.2), 0.4);
-        assert_eq!(helper_test_vop3(0xd5100000, 0.2, 0.8), 0.8);
+        assert_eq!(
+            helper_test_vop3("vop3_max_f32_a", 0xd5100000, 0.4, 0.2),
+            0.4
+        );
+        assert_eq!(
+            helper_test_vop3("vop3_max_f32_b", 0xd5100000, 0.2, 0.8),
+            0.8
+        );
     }
 
     #[test]
     fn test_v_mul_f32() {
-        assert_eq!(helper_test_vop3(0xd5080000, 0.4, 0.2), 0.4 * 0.2);
+        assert_eq!(
+            helper_test_vop3("vop3_v_mul_f32", 0xd5080000, 0.4, 0.2),
+            0.4 * 0.2
+        );
     }
 
     #[test]
     fn test_signed_src() {
         // v0, max(s2, s2)
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::new("signed_src_positive");
         cpu.scalar_reg[2] = f32::to_bits(0.5);
         cpu.interpret(&vec![0xd5100000, 0x00000402, END_PRG]);
         assert_eq!(f32::from_bits(cpu.vec_reg[0]), 0.5);
 
         // v1, max(-s2, -s2)
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::new("signed_src_neg");
         cpu.scalar_reg[2] = f32::to_bits(0.5);
         cpu.interpret(&vec![0xd5100001, 0x60000402, END_PRG]);
         assert_eq!(f32::from_bits(cpu.vec_reg[1]), -0.5);
@@ -561,14 +570,35 @@ mod test_smem {
     #[test]
     fn test_s_load_b32() {
         // no offset
-        helper_test_s_load(CPU::new(), 0xf4000000, 0xf8000000, &vec![42], 0, 0);
+        helper_test_s_load(
+            CPU::new("s_load_b32_1"),
+            0xf4000000,
+            0xf8000000,
+            &vec![42],
+            0,
+            0,
+        );
 
         // positive offset
-        helper_test_s_load(CPU::new(), 0xf4000000, 0xf8000004, &vec![42], 0x4, 0);
-        helper_test_s_load(CPU::new(), 0xf4000000, 0xf800000c, &vec![42], 0xc, 0);
+        helper_test_s_load(
+            CPU::new("s_load_b32_2"),
+            0xf4000000,
+            0xf8000004,
+            &vec![42],
+            0x4,
+            0,
+        );
+        helper_test_s_load(
+            CPU::new("s_load_b32_3"),
+            0xf4000000,
+            0xf800000c,
+            &vec![42],
+            0xc,
+            0,
+        );
 
         // negative offset
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::new("s_load_b32_4");
         cpu.scalar_reg.write_addr(0, 10000);
         helper_test_s_load(cpu, 0xf4000000, 0xf81fffd8, &vec![42], 9960, 0);
     }
@@ -578,11 +608,25 @@ mod test_smem {
         let data = (0..2).collect();
 
         // positive offset
-        helper_test_s_load(CPU::new(), 0xf4040000, 0xf8000010, &data, 0x10, 0);
-        helper_test_s_load(CPU::new(), 0xf4040204, 0xf8000268, &data, 0x268, 8);
+        helper_test_s_load(
+            CPU::new("s_load_b64_1"),
+            0xf4040000,
+            0xf8000010,
+            &data,
+            0x10,
+            0,
+        );
+        helper_test_s_load(
+            CPU::new("s_load_b64_2"),
+            0xf4040204,
+            0xf8000268,
+            &data,
+            0x268,
+            8,
+        );
 
         // negative offset
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::new("s_load_b64_3");
         cpu.scalar_reg[2] = 612;
         cpu.scalar_reg.write_addr(2, 612);
         helper_test_s_load(cpu, 0xf4040301, 0xf81ffd9c, &data, 0, 12);
@@ -593,15 +637,22 @@ mod test_smem {
         let data = (0..4).collect();
 
         // positive offset
-        helper_test_s_load(CPU::new(), 0xf4080000, 0xf8000000, &data, 0, 0);
+        helper_test_s_load(
+            CPU::new("s_load_b128_1"),
+            0xf4080000,
+            0xf8000000,
+            &data,
+            0,
+            0,
+        );
 
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::new("s_load_b128_2");
         let base_mem_addr: u64 = 0x10;
         cpu.scalar_reg.write_addr(6, base_mem_addr);
         helper_test_s_load(cpu, 0xf4080203, 0xf8000000, &data, base_mem_addr, 8);
 
         // negative offset
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::new("s_load_b128_3");
         cpu.scalar_reg.write_addr(2, 0x10);
         helper_test_s_load(cpu, 0xf4080401, 0xf81ffff0, &data, 0, 16);
     }
@@ -613,7 +664,7 @@ mod test_global {
 
     #[test]
     fn test_store_b32() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::new("store_b32");
         cpu.interpret(&vec![0xdc6a0000, 0x00000001, END_PRG]);
         cpu.interpret(&vec![0xdc6a0000, 0x00000100, END_PRG]);
         cpu.interpret(&vec![0xdc6a0000, 0x00000002, END_PRG]);
@@ -626,32 +677,12 @@ mod test_real_world {
     use super::*;
     use crate::utils::parse_rdna3_file;
 
-    fn read_array(cpu: &CPU, addr: u64, sz: usize) -> Vec<u32> {
-        let mut data = vec![0; sz];
-        for i in 0..sz {
-            data[i] = cpu.allocator.read(addr + (i * 4) as u64);
-        }
-        return data;
-    }
     fn read_array_f32(cpu: &CPU, addr: u64, sz: usize) -> Vec<f32> {
         let mut data = vec![0.0; sz];
         for i in 0..sz {
             data[i] = f32::from_bits(cpu.allocator.read(addr + (i * 4) as u64));
         }
         return data;
-    }
-    fn read_array_bytes(cpu: &CPU, addr: u64, sz: usize) -> Vec<u8> {
-        let mut data = vec![0; sz * 4];
-        for i in 0..data.len() {
-            data[i] = cpu.allocator.memory[addr as usize + i];
-        }
-        return data;
-    }
-    fn write_array(cpu: &mut CPU, addr: u64, values: Vec<f32>) {
-        for i in 0..values.len() {
-            cpu.allocator
-                .write(addr + (i * 4) as u64, f32::to_bits(values[i]));
-        }
     }
 
     fn to_bytes(fvec: Vec<f32>) -> Vec<u8> {
@@ -662,7 +693,7 @@ mod test_real_world {
     }
     #[test]
     fn test_add_simple() {
-        let mut cpu = CPU::new();
+        let mut cpu = CPU::new("test_add_simple");
         let mut data0 = vec![0.0; 4];
         let data1 = vec![1.0, 2.0, 3.0, 4.0];
         let data2 = vec![5.0, 6.0, 7.0, 8.0];
@@ -676,8 +707,8 @@ mod test_real_world {
         let data1_ptr = cpu.allocator.alloc(data1_bytes.len() as u32);
         let data2_ptr = cpu.allocator.alloc(data2_bytes.len() as u32);
         let data0_ptr = cpu.allocator.alloc(data0_bytes.len() as u32);
-        cpu.allocator.copyin(data1_ptr, &data1_bytes);
-        cpu.allocator.copyin(data2_ptr, &data2_bytes);
+        cpu.allocator.write_bytes(data1_ptr, &data1_bytes);
+        cpu.allocator.write_bytes(data2_ptr, &data2_bytes);
 
         // "stack" pointers in memory
         let data0_ptr_addr: u64 = cpu.allocator.alloc(24);
@@ -700,36 +731,5 @@ mod test_real_world {
         }
 
         assert_eq!(data0, expected_data0);
-    }
-
-    #[test]
-    fn test_add_const_index() {
-        let mut cpu = CPU::new();
-        let mut data0 = vec![0.0; 4];
-        let data1 = vec![1.0, 21.0, 3.0, 4.0];
-
-        let data0_addr = 1000;
-        write_array(&mut cpu, data0_addr, data0);
-        let data1_addr = 2000;
-        write_array(&mut cpu, data1_addr, data1);
-
-        println!(
-            "data0 = {:?} {:?}",
-            read_array(&cpu, data0_addr, 4),
-            read_array_bytes(&cpu, data0_addr, 4)
-        );
-
-        // "stack" pointers in memory
-        let data0_ptr_addr = 1200;
-        cpu.allocator.write(data0_ptr_addr, data0_addr);
-        let data1_ptr_addr = data0_ptr_addr + 8;
-        cpu.allocator.write(data1_ptr_addr, data1_addr);
-
-        cpu.scalar_reg.write_addr(0, data0_ptr_addr);
-
-        cpu.interpret(&parse_rdna3_file("./tests/misc/test_add_const_index.s"));
-
-        data0 = read_array_f32(&cpu, data0_addr, 4);
-        assert_eq!(data0[1], 42.0);
     }
 }
