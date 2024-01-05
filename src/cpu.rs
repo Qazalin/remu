@@ -164,10 +164,11 @@ impl CPU {
                 );
             }
 
-            match op {
-                1 => self.vec_reg[vdst as usize] = src as u32,
+            self.vec_reg[vdst as usize] = match op {
+                1 => src as u32,
+                42 => (1.0 / f32::from_bits(src as u32)).to_bits(),
                 _ => todo!(),
-            }
+            };
         }
         // vopd
         else if instruction >> 26 == 0b110010 {
@@ -238,6 +239,10 @@ impl CPU {
             self.vec_reg[vdst as usize] = match op {
                 3 | 50 => s0 + s1,
                 8 => s0 * s1,
+                43 => {
+                    let d0 = f32::from_bits(self.vec_reg[vdst as usize]);
+                    s0 * s1 + d0
+                }
                 _ => todo!(),
             }
             .to_bits();
@@ -246,52 +251,88 @@ impl CPU {
         else if instruction >> 26 == 0b110101 {
             let instr = self.u64_instr();
 
-            let vdst = instr & 0xff;
-            let abs = (instr >> 8) & 0x7;
-            let opsel = (instr >> 11) & 0xf;
             let op = (instr >> 16) & 0x3ff;
+            match op {
+                764 => {
+                    let vdst = instr & 0xff;
+                    let sdst = (instr >> 8) & 0x7f;
+                    let src0 = self.resolve_src(((instr >> 32) & 0x1ff) as u32);
+                    let src1 = self.resolve_src(((instr >> 41) & 0x1ff) as u32);
+                    let src2 = self.resolve_src(((instr >> 50) & 0x1ff) as u32);
+                    let omod = (instr >> 59) & 0x3;
+                    let neg = (instr >> 61) & 0x7;
+                    if *DEBUG >= 1 {
+                        println!(
+                            "{} vdst={} sdst={} op={} src0={} src1={} src2={} omod={} neg={}",
+                            "VOP3SD".color("blue"),
+                            vdst,
+                            sdst,
+                            op,
+                            src0,
+                            src1,
+                            src2,
+                            omod,
+                            neg
+                        )
+                    }
 
-            let src0 = self.resolve_src(((instr >> 32) & 0x1ff) as u32);
-            let src1 = self.resolve_src(((instr >> 41) & 0x1ff) as u32);
-            let src2 = self.resolve_src(((instr >> 50) & 0x1ff) as u32);
+                    match op {
+                        764 => {
+                            let s0 = f32::from_bits(src0 as u32);
+                            let s1 = f32::from_bits(src1 as u32);
+                            let s2 = f32::from_bits(src2 as u32);
+                            // TODO no scaling ops for now
+                            match op {
+                                764 => {}
+                                _ => todo!(),
+                            };
+                        }
+                        _ => todo!(),
+                    }
+                }
+                _ => {
+                    let vdst = instr & 0xff;
+                    let abs = (instr >> 8) & 0x7;
+                    let opsel = (instr >> 11) & 0xf;
 
-            let omod = (instr >> 59) & 0x3;
-            let neg = (instr >> 61) & 0x7;
+                    let src0 = self.resolve_src(((instr >> 32) & 0x1ff) as u32);
+                    let src1 = self.resolve_src(((instr >> 41) & 0x1ff) as u32);
+                    let src2 = self.resolve_src(((instr >> 50) & 0x1ff) as u32);
 
-            if *DEBUG >= 1 {
-                println!(
-                    "{} vdst={} abs={} opsel={} op={} src0={} src1={} src2={} omod={} neg=0b{:03b}",
-                    "VOP3".color("blue"),
-                    vdst,
-                    abs,
-                    opsel,
-                    op,
-                    src0,
-                    src1,
-                    src2,
-                    omod,
-                    neg
-                );
+                    let omod = (instr >> 59) & 0x3;
+                    let neg = (instr >> 61) & 0x7;
+
+                    if *DEBUG >= 1 {
+                        println!("{} vdst={} abs={} opsel={} op={} src0={} src1={} src2={} omod={} neg=0b{:03b}", "VOP3".color("blue"), vdst, abs, opsel, op, src0, src1, src2, omod, neg);
+                    }
+
+                    let mut s0 = f32::from_bits(src0 as u32);
+                    let mut s1 = f32::from_bits(src1 as u32);
+                    let mut s2 = f32::from_bits(src2 as u32);
+
+                    // Negate input. TODO this could be done better
+                    if ((neg >> 0) & 1) == 1 {
+                        s0 = -s0;
+                    }
+                    if ((neg >> 1) & 1) == 1 {
+                        s1 = -s1;
+                    }
+                    if ((neg >> 2) & 1) == 1 {
+                        s2 = -s2;
+                    }
+
+                    self.vec_reg[vdst as usize] = match op {
+                        259 => s0 + s1,
+                        264 => s0 * s1,
+                        272 => f32::max(s0, s1),
+                        531 => s0 * s1 + s2,
+                        551 => s2 / s1,
+                        567 => s0 * s1 + s2, // TODO scc case
+                        _ => todo!(),
+                    }
+                    .to_bits();
+                }
             }
-
-            let mut s0 = f32::from_bits(src0 as u32);
-            let mut s1 = f32::from_bits(src1 as u32);
-
-            // Negate input. TODO this could be done better
-            if ((neg >> 0) & 1) == 1 {
-                s0 = -s0;
-            }
-            if ((neg >> 1) & 1) == 1 {
-                s1 = -s1;
-            }
-
-            self.vec_reg[vdst as usize] = match op {
-                259 => s0 + s1,
-                264 => s0 * s1,
-                272 => f32::max(s0, s1),
-                _ => todo!(),
-            }
-            .to_bits();
         }
         // global
         else if instruction >> 26 == 0b110111 {
@@ -346,7 +387,8 @@ impl CPU {
             VGPR_COUNT..=511 => self.vec_reg[(ssrc_bf - VGPR_COUNT) as usize] as i32,
             128 => 0,
             129..=192 => (ssrc_bf - 128) as i32,
-            _ => todo!(),
+            242 => (1.0_f32).to_bits() as i32,
+            _ => todo!("resolve_src={ssrc_bf}"),
         }
     }
     fn write_to_sdst(&mut self, sdst_bf: u32, val: u32) {
