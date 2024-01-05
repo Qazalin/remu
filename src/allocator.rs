@@ -67,10 +67,15 @@ impl BumpAllocator {
 #[cfg(test)]
 mod test_allocation {
     use super::*;
+
+    fn helper_test_fresh_allocator(wave_id: &str) -> BumpAllocator {
+        std::fs::remove_file(format!("/tmp/{}.bin", wave_id)).unwrap_or(());
+        BumpAllocator::new(wave_id)
+    }
+
     #[test]
     fn test_bump_allocator() {
-        /* raw bytes allocation tests */
-        let mut allocator = BumpAllocator::new("test_bump_allocator");
+        let mut allocator = helper_test_fresh_allocator("test_bump_allocator");
         let addr = allocator.alloc(4);
         assert_eq!(addr, 0);
         let addr = allocator.alloc(9);
@@ -79,7 +84,7 @@ mod test_allocation {
 
     #[test]
     fn test_persistant() {
-        let mut allocator = BumpAllocator::new("test_persistant");
+        let mut allocator = helper_test_fresh_allocator("test_persistant");
         let addr = allocator.alloc(4);
         assert_eq!(addr, 0);
         let mut allocator = BumpAllocator::new("test_persistant");
@@ -89,7 +94,7 @@ mod test_allocation {
 
     #[test]
     fn test_write_bytes() {
-        let mut allocator = BumpAllocator::new("test_write_bytes");
+        let mut allocator = helper_test_fresh_allocator("test_write_bytes");
         let addr = allocator.alloc(4);
         assert_eq!(allocator.read_bytes(0, 4), [0, 0, 0, 0]);
         allocator.write_bytes(addr, &[0x01, 0x02, 0x03, 0x04]);

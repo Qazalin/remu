@@ -1,5 +1,5 @@
 use crate::cpu::CPU;
-use crate::utils::DEBUG;
+use crate::utils::{Colorize, DEBUG};
 use std::os::raw::{c_char, c_void};
 mod allocator;
 mod cpu;
@@ -62,6 +62,9 @@ pub extern "C" fn hipModuleLaunchKernel(
     });
 
     for i in 0..grid_dim_x {
+        if *DEBUG >= 1 {
+            println!("{} dim={}", "blockIdx.x".color("jade"), i);
+        }
         cpu.scalar_reg.reset();
         cpu.scalar_reg.write_addr(0, stack_ptr);
         cpu.scalar_reg[15] = i;

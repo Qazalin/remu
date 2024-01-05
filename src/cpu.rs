@@ -71,9 +71,7 @@ impl CPU {
             // offset is a sign-extend immediate 21-bit constant
             let offset = twos_complement_21bit((instr >> 32) & 0x1fffff);
             let soffset = match instr & 0x7F {
-                0 => 0, //  set to "NULL" to not use (offset=0).
-                // the SGPR contains an unsigned byte offset (the 2 LSBs are ignored).
-                val => (self.resolve_src(val as u32) & -4) as u64,
+                _ => 0, // TODO soffset is not implemented
             };
 
             if *DEBUG >= 1 {
@@ -93,7 +91,7 @@ impl CPU {
             let effective_addr = (base_addr as i64 + offset + soffset as i64) as u64;
 
             match op {
-                0..=2 => (0..2_usize.pow(op as u32)).for_each(|i| {
+                0..=3 => (0..2_usize.pow(op as u32)).for_each(|i| {
                     self.scalar_reg[sdata + i] =
                         self.allocator.read(effective_addr + (4 * i as u64));
                 }),

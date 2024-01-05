@@ -103,18 +103,13 @@ pub trait Colorize {
 
 impl<'a> Colorize for &'a str {
     fn color(self, color: &str) -> String {
-        let intensity = if color == color.to_uppercase() { 60 } else { 0 };
-        let color_code = match color.to_lowercase().as_str() {
-            "black" => 0,
-            "red" => 1,
-            "green" => 2,
-            "yellow" => 3,
-            "blue" => 4,
-            "magenta" => 5,
-            "cyan" => 6,
-            _ => 7, // white
+        let ansi_code = match color {
+            "blue" => format!("\x1b[{};2;112;184;255m", 38),
+            "jade" => format!("\x1b[{};2;39;176;139m", 38),
+            "pink" => format!("\x1b[{};2;238;81;138m", 38),
+            _ => format!("\x1b[{};2;255;255;255m", 38), // default white
         };
-        format!("\x1b[{}m{}\x1b[0m", 0 + intensity + 30 + color_code, self)
+        format!("{}{}{}", ansi_code, self, "\x1b[0m")
     }
 }
 

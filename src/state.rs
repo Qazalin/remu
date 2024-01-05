@@ -34,7 +34,7 @@ impl Index<usize> for SGPR {
 
     fn index(&self, index: usize) -> &Self::Output {
         if *DEBUG >= 3 || Some(index as i32) == *SGPR_INDEX {
-            println!("{} read {}", "[SGPR]".color("magenta"), index);
+            println!("{} read {}", "[SGPR]".color("pink"), index);
         }
         &self.values[index]
     }
@@ -43,7 +43,7 @@ impl Index<usize> for SGPR {
 impl IndexMut<usize> for SGPR {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         if *DEBUG >= 3 || Some(index as i32) == *SGPR_INDEX {
-            println!("{} write {}", "[SGPR]".color("magenta"), index);
+            println!("{} write {}", "[SGPR]".color("pink"), index);
         }
         &mut self.values[index]
     }
