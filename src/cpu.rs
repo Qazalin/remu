@@ -239,6 +239,7 @@ impl CPU {
             self.vec_reg[vdst as usize] = match op {
                 3 | 50 => s0 + s1,
                 8 => s0 * s1,
+                16 => f32::max(s0, s1),
                 43 => {
                     let d0 = f32::from_bits(self.vec_reg[vdst as usize]);
                     s0 * s1 + d0
@@ -359,7 +360,7 @@ impl CPU {
             assert_eq!(seg, 2, "flat and scratch arent supported");
 
             let effective_addr = match self.resolve_src(saddr as u32) {
-                0 | 0x7F => self.vec_reg.read_addr(addr as usize).wrapping_add(offset), // SADDR is NULL or 0x7f: specifies an address
+                0x7F => self.vec_reg.read_addr(addr as usize).wrapping_add(offset), // SADDR is NULL or 0x7f: specifies an address
                 _ => {
                     let scalar_addr = self.scalar_reg.read_addr(saddr as usize);
                     let vgpr_offset = self.vec_reg[addr as usize];
@@ -381,13 +382,17 @@ impl CPU {
     }
 
     /* ALU utils */
-    fn resolve_src(&self, ssrc_bf: u32) -> i32 {
+    fn resolve_src(&mut self, ssrc_bf: u32) -> i32 {
         match ssrc_bf {
             0..=SGPR_COUNT => self.scalar_reg[ssrc_bf as usize] as i32,
             VGPR_COUNT..=511 => self.vec_reg[(ssrc_bf - VGPR_COUNT) as usize] as i32,
             128 => 0,
             129..=192 => (ssrc_bf - 128) as i32,
             242 => (1.0_f32).to_bits() as i32,
+            255 => {
+                self.pc += 1;
+                self.prg[self.pc as usize - 1] as i32
+            }
             _ => todo!("resolve_src={ssrc_bf}"),
         }
     }
