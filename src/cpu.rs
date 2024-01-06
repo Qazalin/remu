@@ -48,7 +48,7 @@ impl CPU {
                 continue;
             }
 
-            if *DEBUG >= 2 {
+            if *DEBUG >= 4 {
                 println!("instruction={:08X}", instruction);
             }
             self.exec(instruction);
@@ -148,6 +148,10 @@ impl CPU {
                 4 => (ssrc0 < ssrc1) as u32,
                 10 => (ssrc0 < ssrc1) as u32,
                 _ => todo!(),
+            };
+
+            if *DEBUG >= 2 {
+                println!("{} {}", "SCC".color("pink"), self.scc);
             }
         }
         // sop2
@@ -288,6 +292,9 @@ impl CPU {
                 32 => {
                     let temp = ssrc0 as u64 + vsrc1 as u64 + self.vcc_lo as u64;
                     self.vcc_lo = if temp >= 0x100000000 { 1 } else { 0 };
+                    if *DEBUG >= 2 {
+                        println!("{} {}", "VCC".color("pink"), self.vcc_lo);
+                    }
                     temp as u32
                 }
                 _ => todo!(),
@@ -454,7 +461,12 @@ impl CPU {
     fn write_to_sdst(&mut self, sdst_bf: u32, val: u32) {
         match sdst_bf {
             0..=SGPR_COUNT => self.scalar_reg[sdst_bf as usize] = val,
-            106 => self.vcc_lo = val,
+            106 => {
+                self.vcc_lo = val;
+                if *DEBUG >= 2 {
+                    println!("{} {}", "VCC".color("pink"), self.vcc_lo);
+                }
+            }
             _ => todo!("write to sdst {}", sdst_bf),
         }
     }
