@@ -43,7 +43,7 @@ impl CPU {
             if instruction == END_PRG {
                 break;
             }
-            if NOOPS.contains(&instruction) {
+            if NOOPS.contains(&instruction) || instruction >> 20 == 0xbf8 {
                 continue;
             }
 
@@ -181,6 +181,7 @@ impl CPU {
                 4 => (ssrc0 as u64) + (ssrc1 as u64) + (self.scc as u64),
                 9 => (ssrc0 as u64) << (ssrc1 as u64 & 0x1F),
                 12 => (ssrc0 >> (ssrc1 & 0x1F)) as u64,
+                44 => ((ssrc0 as i32) * (ssrc1 as i32)) as u64,
                 48 => {
                     if self.scc != 0 {
                         ssrc0 as u64
@@ -284,10 +285,7 @@ impl CPU {
                 3 | 50 => (s0 + s1).to_bits(),
                 8 => (s0 * s1).to_bits(),
                 16 => f32::max(s0, s1).to_bits(),
-                43 => {
-                    let d0 = f32::from_bits(self.vec_reg[vdst as usize]);
-                    (s0 * s1 + d0).to_bits()
-                }
+                26 => vsrc1 >> (ssrc0 as u32),
                 32 => {
                     let temp = ssrc0 as u64 + vsrc1 as u64 + self.vcc_lo as u64;
                     self.vcc_lo = if temp >= 0x100000000 { 1 } else { 0 };
@@ -295,6 +293,10 @@ impl CPU {
                         println!("{} {}", "VCC".color("pink"), self.vcc_lo);
                     }
                     temp as u32
+                }
+                43 => {
+                    let d0 = f32::from_bits(self.vec_reg[vdst as usize]);
+                    (s0 * s1 + d0).to_bits()
                 }
                 _ => todo!(),
             };
@@ -305,7 +307,7 @@ impl CPU {
 
             let op = (instr >> 16) & 0x3ff;
             match op {
-                764 => {
+                764|768 => {
                     let vdst = instr & 0xff;
                     let sdst = (instr >> 8) & 0x7f;
                     let src0 = self.resolve_src(((instr >> 32) & 0x1ff) as u32);
@@ -330,6 +332,7 @@ impl CPU {
 
                     match op {
                         764 => {} // NOTE: div scaling isn't required
+                        768 => self.vec_reg[vdst as usize] = src0 as u32 + src1 as u32,
                         _ => todo!(),
                     }
                 }
@@ -376,6 +379,13 @@ impl CPU {
                             } else {
                                 s0.to_bits()
                             }
+                        }
+                        523 => (src0 as u32 * src1 as u32) + src2 as u32,
+                        828 => {
+                            let vsrc1_lo = ((instr >> 41) & 0x1ff) - VGPR_COUNT as u64;
+                            let vsrc1_val = self.vec_reg.read_addr(vsrc1_lo as usize);
+                            let ret = vsrc1_val << src0 as u32;
+                            ret as u32
                         }
                         _ => todo!(),
                     };
