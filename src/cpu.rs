@@ -5,7 +5,7 @@ use crate::utils::{twos_complement_21bit, Colorize, DEBUG};
 const SGPR_COUNT: u32 = 105;
 const VGPR_COUNT: u32 = 256;
 pub const END_PRG: u32 = 0xbfb00000;
-const NOOPS: [u32; 10] = [0xbf870009, 0xbfb60003, 0xbf89fc07, 0xbf800000, 0xbf8704a9, 0xbf870141, 0xbf850001, 0xbf8700b1, 0xbf870091, 0xbf870001];
+const NOOPS: [u32; 1] = [0xbfb60003];
 
 pub struct CPU {
     pc: u64,
@@ -328,16 +328,7 @@ impl CPU {
                     }
 
                     match op {
-                        764 => {
-                            let s0 = f32::from_bits(src0 as u32);
-                            let s1 = f32::from_bits(src1 as u32);
-                            let s2 = f32::from_bits(src2 as u32);
-                            // TODO no scaling ops for now
-                            match op {
-                                764 => {}
-                                _ => todo!(),
-                            };
-                        }
+                        764 => {} // NOTE: div scaling isn't required
                         _ => todo!(),
                     }
                 }
@@ -373,22 +364,20 @@ impl CPU {
                     }
 
                     self.vec_reg[vdst as usize] = match op {
-                        259 => s0 + s1,
-                        264 => s0 * s1,
-                        272 => f32::max(s0, s1),
-                        531 => s0 * s1 + s2,
-                        551 => s2 / s1,
-                        567 => s0 * s1 + s2, // TODO scc case
+                        259 => (s0 + s1).to_bits(),
+                        264 => (s0 * s1).to_bits(),
+                        272 => f32::max(s0, s1).to_bits(),
+                        531 | 567 => (s0 * s1 + s2).to_bits(),
+                        551 => (s2 / s1).to_bits(),
                         257 => {
                             if self.vcc_lo != 0 {
-                                s1
+                                s1.to_bits()
                             } else {
-                                s0
+                                s0.to_bits()
                             }
                         }
                         _ => todo!(),
-                    }
-                    .to_bits();
+                    };
                 }
             }
         }
