@@ -307,7 +307,7 @@ impl CPU {
 
             let op = (instr >> 16) & 0x3ff;
             match op {
-                764|768 => {
+                764 | 768 => {
                     let vdst = instr & 0xff;
                     let sdst = (instr >> 8) & 0x7f;
                     let src0 = self.resolve_src(((instr >> 32) & 0x1ff) as u32);
@@ -381,6 +381,7 @@ impl CPU {
                             }
                         }
                         523 => (src0 as u32 * src1 as u32) + src2 as u32,
+                        582 => ((src0 as u32) << (src1 as u32)) + src2 as u32,
                         828 => {
                             let vsrc1_lo = ((instr >> 41) & 0x1ff) - VGPR_COUNT as u64;
                             let vsrc1_val = self.vec_reg.read_addr(vsrc1_lo as usize);
@@ -430,15 +431,15 @@ impl CPU {
                 18 => {
                     self.vec_reg[vdst as usize] = self.allocator.read::<u16>(effective_addr) as u32
                 }
-                22 => (0..3).for_each(|i| {
-                    self.vec_reg[vdst as usize + i] =
+                22 | 23 => (0..op - 19).for_each(|i| {
+                    self.vec_reg[(vdst + i) as usize] =
                         self.allocator.read(effective_addr + (4 * i as u64));
                 }),
                 // store
-                28 => (0..3).for_each(|i| {
+                28 | 29 => (0..op - 25).for_each(|i| {
                     self.allocator.write(
                         effective_addr + (4 * i as u64),
-                        self.vec_reg[data as usize + i],
+                        self.vec_reg[(data + i) as usize],
                     )
                 }),
                 26 | 25 => self
@@ -858,6 +859,45 @@ mod test_global {
         assert_eq!(cpu.vec_reg[0], val0);
         assert_eq!(cpu.vec_reg[1], val1);
         assert_eq!(cpu.vec_reg[2], val2);
+    }
+
+    #[test]
+    fn test_store_b128() {
+        let mut cpu = CPU::new("test_store_b128");
+        let val0: u32 = 10;
+        let val1: u32 = 20;
+        let val2: u32 = 30;
+        let val3: u32 = 40;
+        let base = 100;
+        cpu.vec_reg.write_addr(4, base);
+        cpu.vec_reg[0] = val0;
+        cpu.vec_reg[1] = val1;
+        cpu.vec_reg[2] = val2;
+        cpu.vec_reg[3] = val3;
+        cpu.interpret(&vec![0xDC760000, 0x007C0004, END_PRG]);
+        assert_eq!(cpu.allocator.read::<u32>(base), val0);
+        assert_eq!(cpu.allocator.read::<u32>(base + 4), val1);
+        assert_eq!(cpu.allocator.read::<u32>(base + 8), val2);
+        assert_eq!(cpu.allocator.read::<u32>(base + 12), val3);
+    }
+    #[test]
+    fn test_load_b128() {
+        let mut cpu = CPU::new("test_load_b128");
+        let val0: u32 = 10;
+        let val1: u32 = 20;
+        let val2: u32 = 30;
+        let val3: u32 = 40;
+        let base = 100;
+        cpu.allocator.write(base, val0);
+        cpu.allocator.write(base + 4, val1);
+        cpu.allocator.write(base + 8, val2);
+        cpu.allocator.write(base + 12, val3);
+        cpu.vec_reg.write_addr(4, base);
+        cpu.interpret(&vec![0xdc5e0000, 0x047c0004, END_PRG]);
+        assert_eq!(cpu.vec_reg[4], val0);
+        assert_eq!(cpu.vec_reg[5], val1);
+        assert_eq!(cpu.vec_reg[6], val2);
+        assert_eq!(cpu.vec_reg[7], val3);
     }
 }
 
