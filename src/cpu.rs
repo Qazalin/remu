@@ -5,8 +5,8 @@ use crate::utils::{twos_complement_21bit, Colorize, DEBUG};
 const SGPR_COUNT: u32 = 105;
 const VGPR_COUNT: u32 = 256;
 pub const END_PRG: u32 = 0xbfb00000;
-const NOOPS: [u32; 6] = [
-    0xbf870009, 0xbfb60003, 0xbf89fc07, 0xbf800000, 0xbf8704a9, 0xbf870141,
+const NOOPS: [u32; 8] = [
+    0xbf870009, 0xbfb60003, 0xbf89fc07, 0xbf800000, 0xbf8704a9, 0xbf870141, 0xbf850001, 0xbf8700b1,
 ];
 
 pub struct CPU {
@@ -15,7 +15,7 @@ pub struct CPU {
     pub scalar_reg: SGPR,
     pub vec_reg: VGPR,
     scc: u32,
-    vcc: u64,
+    vcc_lo: u32,
     prg: Vec<u32>,
 }
 
@@ -24,7 +24,7 @@ impl CPU {
         return CPU {
             pc: 0,
             scc: 0,
-            vcc: 0,
+            vcc_lo: 0,
             allocator: BumpAllocator::new(wave_id),
             scalar_reg: SGPR::new(),
             vec_reg: VGPR::new(),
@@ -34,7 +34,7 @@ impl CPU {
 
     pub fn interpret(&mut self, prg: &Vec<u32>) {
         self.pc = 0;
-        self.vcc = 0;
+        self.vcc_lo = 0;
         self.prg = prg.to_vec();
 
         loop {
@@ -281,7 +281,7 @@ impl CPU {
                     let d0 = f32::from_bits(self.vec_reg[vdst as usize]);
                     s0 * s1 + d0
                 }
-                32 => s0 + s1, // TODO set scc and increment by vcc
+                32 => s0 + s1, // TODO set scc and increment by vcc_lo
                 _ => todo!(),
             }
             .to_bits();
@@ -368,8 +368,7 @@ impl CPU {
                         551 => s2 / s1,
                         567 => s0 * s1 + s2, // TODO scc case
                         257 => {
-                            if (self.vcc & 1) != 0 {
-                                // TODO laneId
+                            if self.vcc_lo != 0 {
                                 s1
                             } else {
                                 s0
@@ -436,7 +435,7 @@ impl CPU {
             VGPR_COUNT..=511 => self.vec_reg[(ssrc_bf - VGPR_COUNT) as usize] as i32,
             128 => 0,
             129..=192 => (ssrc_bf - 128) as i32,
-            193..=208 => (ssrc_bf - 128) as i32 * -1,
+            193..=208 => (ssrc_bf - 192) as i32 * -1,
             242 => (1.0_f32).to_bits() as i32,
             255 => {
                 self.pc += 1;
@@ -448,7 +447,7 @@ impl CPU {
     fn write_to_sdst(&mut self, sdst_bf: u32, val: u32) {
         match sdst_bf {
             0..=SGPR_COUNT => self.scalar_reg[sdst_bf as usize] = val,
-            106 => self.vcc = (self.vcc & 0xffffffff00000000) | (val & 0xffffffff) as u64,
+            106 => self.vcc_lo = val,
             _ => todo!("write to sdst {}", sdst_bf),
         }
     }
@@ -469,14 +468,21 @@ mod test_alu_utils {
     #[test]
     fn test_write_to_sdst_vcclo() {
         let mut cpu = CPU::new("test_write_to_sdst_sgpr");
-        cpu.vcc = 0b1001000110100010101100111100010011010101111001101111011110000;
         let val = 0b1011101011011011111011101111;
-
         cpu.write_to_sdst(106, val);
-        assert_eq!(
-            cpu.vcc,
-            0b1001000110100010101100111100000001011101011011011111011101111
-        );
+        assert_eq!(cpu.vcc_lo, val);
+    }
+
+    #[test]
+    fn test_resolve_src() {
+        let mut cpu = CPU::new("test_resolve_src_negative_const");
+        assert_eq!(cpu.resolve_src(129), 1);
+        assert_eq!(cpu.resolve_src(192), 64);
+        assert_eq!(cpu.resolve_src(193), -1);
+        assert_eq!(cpu.resolve_src(208), -16);
+
+        cpu.vec_reg[0] = 10;
+        assert_eq!(cpu.resolve_src(256), 10);
     }
 }
 mod test_sop1 {
