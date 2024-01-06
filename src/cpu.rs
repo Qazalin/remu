@@ -168,8 +168,12 @@ impl CPU {
                 );
             }
 
-            let tmp = match op {
-                0 => (ssrc0 as u64) + (ssrc1 as u64),
+            let ret = match op {
+                0 => {
+                    let temp = (ssrc0 as u64) + (ssrc1 as u64);
+                    self.scc = if temp >= 0x100000000 { 1 } else { 0 };
+                    temp
+                }
                 2 => ((ssrc0 as i32) + (ssrc1 as i32)) as u64,
                 4 => (ssrc0 as u64) + (ssrc1 as u64) + (self.scc as u64),
                 9 => (ssrc0 as u64) << (ssrc1 as u64 & 0x1F),
@@ -183,7 +187,7 @@ impl CPU {
                 }
                 _ => todo!("sop2 opcode {}", op),
             };
-            self.write_to_sdst(sdst, tmp as u32);
+            self.write_to_sdst(sdst, ret as u32);
         }
         // vop1
         else if instruction >> 25 == 0b0111111 {
@@ -274,17 +278,20 @@ impl CPU {
             let s1 = f32::from_bits(vsrc1);
 
             self.vec_reg[vdst as usize] = match op {
-                3 | 50 => s0 + s1,
-                8 => s0 * s1,
-                16 => f32::max(s0, s1),
+                3 | 50 => (s0 + s1).to_bits(),
+                8 => (s0 * s1).to_bits(),
+                16 => f32::max(s0, s1).to_bits(),
                 43 => {
                     let d0 = f32::from_bits(self.vec_reg[vdst as usize]);
-                    s0 * s1 + d0
+                    (s0 * s1 + d0).to_bits()
                 }
-                32 => s0 + s1, // TODO set scc and increment by vcc_lo
+                32 => {
+                    let temp = ssrc0 as u64 + vsrc1 as u64 + self.vcc_lo as u64;
+                    self.vcc_lo = if temp >= 0x100000000 { 1 } else { 0 };
+                    temp as u32
+                }
                 _ => todo!(),
-            }
-            .to_bits();
+            };
         }
         // vop3
         else if instruction >> 26 == 0b110101 {
