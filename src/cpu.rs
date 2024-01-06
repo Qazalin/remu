@@ -4,6 +4,7 @@ use crate::utils::{twos_complement_21bit, Colorize, DEBUG};
 
 const SGPR_COUNT: u32 = 105;
 const VGPR_COUNT: u32 = 256;
+const NULL_SRC: u32 = 124;
 pub const END_PRG: u32 = 0xbfb00000;
 const NOOPS: [u32; 1] = [0xbfb60003];
 
@@ -405,8 +406,8 @@ impl CPU {
             }
             assert_eq!(seg, 2, "flat and scratch arent supported");
 
-            let effective_addr = match self.resolve_src(saddr as u32) {
-                0x7F => self.vec_reg.read_addr(addr as usize).wrapping_add(offset), // SADDR is NULL or 0x7f: specifies an address
+            let effective_addr = match self.resolve_src(saddr as u32) as u32 {
+                0x7F | NULL_SRC => self.vec_reg.read_addr(addr as usize).wrapping_add(offset), // SADDR is NULL or 0x7f: specifies an address
                 _ => {
                     let scalar_addr = self.scalar_reg.read_addr(saddr as usize);
                     let vgpr_offset = self.vec_reg[addr as usize];
@@ -435,6 +436,7 @@ impl CPU {
             0..=SGPR_COUNT => self.scalar_reg[ssrc_bf as usize] as i32,
             VGPR_COUNT..=511 => self.vec_reg[(ssrc_bf - VGPR_COUNT) as usize] as i32,
             128 => 0,
+            124 => NULL_SRC as i32,
             129..=192 => (ssrc_bf - 128) as i32,
             193..=208 => (ssrc_bf - 192) as i32 * -1,
             242 => (1.0_f32).to_bits() as i32,
