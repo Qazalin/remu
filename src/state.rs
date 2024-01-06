@@ -49,6 +49,7 @@ impl IndexMut<usize> for SGPR {
     }
 }
 
+    // TODO a lot of logic can be shared with the above
 const VGPR_COUNT: usize = 256;
 pub struct VGPR {
     values: [u32; VGPR_COUNT],
@@ -59,7 +60,6 @@ impl VGPR {
             values: [0; VGPR_COUNT],
         }
     }
-    // TODO this is copied from SGPR
     /** read a 64bit memory address from two 32bit registers */
     pub fn read_addr(&self, idx: usize) -> u64 {
         let addr_lsb = self.values[idx];
@@ -70,6 +70,10 @@ impl VGPR {
     pub fn write_addr(&mut self, idx: usize, addr: u64) {
         self.values[idx as usize] = (addr & 0xffffffff) as u32;
         self.values[idx as usize + 1] = ((addr & (0xffffffff << 32)) >> 32) as u32;
+    }
+
+    pub fn reset(&mut self) {
+        self.values = [0; VGPR_COUNT]
     }
 }
 

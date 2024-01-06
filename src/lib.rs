@@ -62,13 +62,25 @@ pub extern "C" fn hipModuleLaunchKernel(
     });
 
     for i in 0..grid_dim_x {
-        if *DEBUG >= 1 {
-            println!("{} dim={}", "blockIdx.x".color("jade"), i);
+        for j in 0..block_dim_x {
+            if *DEBUG >= 1 {
+                println!(
+                    "{}={}, {}={}",
+                    "blockIdx.x".color("jade"),
+                    i,
+                    "threadIdx.x".color("jade"),
+                    j
+                );
+            }
+            cpu.scalar_reg.reset();
+            cpu.vec_reg.reset();
+
+            cpu.scalar_reg.write_addr(0, stack_ptr);
+            cpu.scalar_reg[15] = i;
+            cpu.vec_reg[0] = j;
+
+            cpu.interpret(&prg);
         }
-        cpu.scalar_reg.reset();
-        cpu.scalar_reg.write_addr(0, stack_ptr);
-        cpu.scalar_reg[15] = i;
-        cpu.interpret(&prg);
     }
 }
 
