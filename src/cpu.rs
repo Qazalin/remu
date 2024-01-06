@@ -428,23 +428,17 @@ impl CPU {
 
             match op {
                 // load
-                18 => {
-                    self.vec_reg[vdst as usize] = self.allocator.read::<u16>(effective_addr) as u32
-                }
-                22 | 23 => (0..op - 19).for_each(|i| {
+                20..=23 => (0..op - 19).for_each(|i| {
                     self.vec_reg[(vdst + i) as usize] =
                         self.allocator.read(effective_addr + (4 * i as u64));
                 }),
                 // store
-                28 | 29 => (0..op - 25).for_each(|i| {
+                26..=29 => (0..op - 25).for_each(|i| {
                     self.allocator.write(
                         effective_addr + (4 * i as u64),
                         self.vec_reg[(data + i) as usize],
                     )
                 }),
-                26 | 25 => self
-                    .allocator
-                    .write(effective_addr, self.vec_reg[data as usize]),
                 _ => todo!(),
             }
         } else {
