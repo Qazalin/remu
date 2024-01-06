@@ -5,9 +5,7 @@ use crate::utils::{twos_complement_21bit, Colorize, DEBUG};
 const SGPR_COUNT: u32 = 105;
 const VGPR_COUNT: u32 = 256;
 pub const END_PRG: u32 = 0xbfb00000;
-const NOOPS: [u32; 8] = [
-    0xbf870009, 0xbfb60003, 0xbf89fc07, 0xbf800000, 0xbf8704a9, 0xbf870141, 0xbf850001, 0xbf8700b1,
-];
+const NOOPS: [u32; 10] = [0xbf870009, 0xbfb60003, 0xbf89fc07, 0xbf800000, 0xbf8704a9, 0xbf870141, 0xbf850001, 0xbf8700b1, 0xbf870091, 0xbf870001];
 
 pub struct CPU {
     pc: u64,
