@@ -15,6 +15,7 @@ pub struct CPU {
     pub vec_reg: VGPR,
     scc: u32,
     vcc_lo: u32,
+    exec_lo: u32,
     prg: Vec<u32>,
 }
 
@@ -24,6 +25,7 @@ impl CPU {
             pc: 0,
             scc: 0,
             vcc_lo: 0,
+            exec_lo: 0,
             allocator: BumpAllocator::new(wave_id),
             scalar_reg: SGPR::new(),
             vec_reg: VGPR::new(),
@@ -34,6 +36,7 @@ impl CPU {
     pub fn interpret(&mut self, prg: &Vec<u32>) {
         self.pc = 0;
         self.vcc_lo = 0;
+        self.exec_lo = 0;
         self.prg = prg.to_vec();
 
         loop {
@@ -47,9 +50,6 @@ impl CPU {
                 continue;
             }
 
-            if *DEBUG >= 4 {
-                println!("instruction={:08X}", instruction);
-            }
             self.exec(instruction);
         }
     }
@@ -121,10 +121,12 @@ impl CPU {
                 );
             }
 
-            match op {
-                0 => self.write_to_sdst(sdst, ssrc0),
+            let ret = match op {
+                0 => ssrc0,
+                30 => !ssrc0,
                 _ => todo!(),
-            }
+            };
+            self.write_to_sdst(sdst, ret);
         }
         // sopc
         else if (instruction >> 23) & 0x3ff == 0b101111110 {
@@ -180,6 +182,10 @@ impl CPU {
                 2 => ((ssrc0 as i32) + (ssrc1 as i32)) as u64,
                 4 => (ssrc0 as u64) + (ssrc1 as u64) + (self.scc as u64),
                 9 => (ssrc0 as u64) << (ssrc1 as u64 & 0x1F),
+                8 => {
+                    let temp = (ssrc0 as u32) << (ssrc1 as u32);
+                    temp as u64
+                }
                 12 => (ssrc0 >> (ssrc1 & 0x1F)) as u64,
                 44 => ((ssrc0 as i32) * (ssrc1 as i32)) as u64,
                 48 => {
@@ -309,6 +315,7 @@ impl CPU {
             self.vec_reg[vdst as usize] = match op {
                 3 | 50 => (s0 + s1).to_bits(),
                 8 => (s0 * s1).to_bits(),
+                9 => ((ssrc0 as i32) * (vsrc1 as i32)) as u32,
                 16 => f32::max(s0, s1).to_bits(),
                 24 => vsrc1 << (ssrc0 as u32),
                 25 => vsrc1 >> (ssrc0 as u32),
@@ -322,7 +329,9 @@ impl CPU {
                     }
                     temp as u32
                 }
+                37 => ssrc0 as u32 + vsrc1,
                 38 => ssrc0 as u32 - vsrc1,
+                39 => vsrc1 as u32 - ssrc0 as u32,
                 43 => {
                     let d0 = f32::from_bits(self.vec_reg[vdst as usize]);
                     (s0 * s1 + d0).to_bits()
@@ -413,6 +422,7 @@ impl CPU {
                                 s0.to_bits()
                             }
                         }
+                        522 => ((src0 as i32) * (src1 as i32) + (src2 as i32)) as u32,
                         523 => (src0 as u32 * src1 as u32) + src2 as u32,
                         582 => ((src0 as u32) << (src1 as u32)) + src2 as u32,
                         598 => ((src0 as u32) << (src1 as u32)) | src2 as u32,
@@ -476,7 +486,7 @@ impl CPU {
                 _ => todo!(),
             }
         } else {
-            todo!()
+            todo!("instruction={:08X}", instruction)
         }
     }
 
@@ -485,6 +495,8 @@ impl CPU {
         match ssrc_bf {
             0..=SGPR_COUNT => self.scalar_reg[ssrc_bf as usize] as i32,
             VGPR_COUNT..=511 => self.vec_reg[(ssrc_bf - VGPR_COUNT) as usize] as i32,
+            106 => self.vcc_lo as i32,
+            126 => self.exec_lo as i32,
             128 => 0,
             124 => NULL_SRC as i32,
             129..=192 => (ssrc_bf - 128) as i32,
