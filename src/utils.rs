@@ -24,7 +24,7 @@ pub fn parse_rdna3_file(file_path: &str) -> Vec<u32> {
 }
 
 fn parse_rdna3(content: &str) -> Vec<u32> {
-    if *DEBUG >= 1 {
+    if *DEBUG >= 4 {
         println!(
             "{}",
             content

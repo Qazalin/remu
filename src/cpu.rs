@@ -285,6 +285,7 @@ impl CPU {
                 3 | 50 => (s0 + s1).to_bits(),
                 8 => (s0 * s1).to_bits(),
                 16 => f32::max(s0, s1).to_bits(),
+                24 => vsrc1 << (ssrc0 as u32),
                 26 => vsrc1 >> (ssrc0 as u32),
                 32 => {
                     let temp = ssrc0 as u64 + vsrc1 as u64 + self.vcc_lo as u64;
@@ -307,7 +308,7 @@ impl CPU {
 
             let op = (instr >> 16) & 0x3ff;
             match op {
-                764 | 768 => {
+                764 | 766 | 768 => {
                     let vdst = instr & 0xff;
                     let sdst = (instr >> 8) & 0x7f;
                     let src0 = self.resolve_src(((instr >> 32) & 0x1ff) as u32);
@@ -332,6 +333,10 @@ impl CPU {
 
                     match op {
                         764 => {} // NOTE: div scaling isn't required
+                        766 => {
+                            let temp = (src0 as u64 * src1 as u64) + src2 as u64;
+                            self.vec_reg[vdst as usize] = temp as u32;
+                        }
                         768 => self.vec_reg[vdst as usize] = src0 as u32 + src1 as u32,
                         _ => todo!(),
                     }
@@ -382,11 +387,12 @@ impl CPU {
                         }
                         523 => (src0 as u32 * src1 as u32) + src2 as u32,
                         582 => ((src0 as u32) << (src1 as u32)) + src2 as u32,
+                        598 => ((src0 as u32) << (src1 as u32)) | src2 as u32,
                         828 => {
                             let vsrc1_lo = ((instr >> 41) & 0x1ff) - VGPR_COUNT as u64;
-                            let vsrc1_val = self.vec_reg.read_addr(vsrc1_lo as usize);
-                            let ret = vsrc1_val << src0 as u32;
-                            ret as u32
+                            let vsrc1_val_lo = self.vec_reg[vsrc1_lo as usize];
+                            self.vec_reg[vdst as usize + 1] = self.vec_reg[vsrc1_lo as usize + 1];
+                            vsrc1_val_lo << src0 as u32
                         }
                         _ => todo!(),
                     };
@@ -478,7 +484,6 @@ impl CPU {
 }
 
 #[cfg(test)]
-
 mod test_alu_utils {
     use super::*;
 
@@ -509,6 +514,8 @@ mod test_alu_utils {
         assert_eq!(cpu.resolve_src(256), 10);
     }
 }
+
+#[cfg(test)]
 mod test_sop1 {
     use super::*;
 
@@ -607,17 +614,6 @@ mod test_vop1 {
         cpu.interpret(&vec![0x7e020206, END_PRG]);
         assert_eq!(cpu.vec_reg[1], 31);
     }
-
-    // TODO
-    /*
-    #[test]
-    fn test_v_mov_b32_with_const() {
-        let mut cpu = CPU::new("v_mov_b32_with_const");
-        cpu.scalar_reg[6] = 31;
-        cpu.interpret(&vec![0x7e0002ff, 0xff800000, END_PRG]);
-        assert_eq!(cpu.vec_reg[1], 31);
-    }
-    */
 }
 
 #[cfg(test)]
