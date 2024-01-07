@@ -260,6 +260,31 @@ impl CPU {
                     .to_bits();
                 });
         }
+        // vopc
+        else if instruction >> 25 == 0b0111110 {
+            let src0 = self.resolve_src(instruction & 0x1ff);
+            let vsrc1 = (instruction >> 9) & 0xff;
+            let op = (instruction >> 17) & 0xff;
+
+            if *DEBUG >= 1 {
+                println!(
+                    "{} src0={} vsrc1={} op={}",
+                    "VOPC".color("blue"),
+                    src0,
+                    vsrc1,
+                    op
+                );
+            }
+
+            self.vcc_lo = match op {
+                68 => (src0 as i32 > self.vec_reg[vsrc1 as usize] as i32) as u32,
+                _ => todo!(),
+            };
+
+            if *DEBUG >= 2 {
+                println!("{} {}", "VCC".color("pink"), self.vcc_lo);
+            }
+        }
         // vop2
         else if instruction >> 31 == 0b0 {
             let ssrc0 = self.resolve_src(instruction & 0x1FF);
@@ -286,7 +311,9 @@ impl CPU {
                 8 => (s0 * s1).to_bits(),
                 16 => f32::max(s0, s1).to_bits(),
                 24 => vsrc1 << (ssrc0 as u32),
+                25 => vsrc1 >> (ssrc0 as u32),
                 26 => vsrc1 >> (ssrc0 as u32),
+                28 => (ssrc0 as u32) | (vsrc1 as u32),
                 32 => {
                     let temp = ssrc0 as u64 + vsrc1 as u64 + self.vcc_lo as u64;
                     self.vcc_lo = if temp >= 0x100000000 { 1 } else { 0 };
@@ -295,6 +322,7 @@ impl CPU {
                     }
                     temp as u32
                 }
+                38 => ssrc0 as u32 - vsrc1,
                 43 => {
                     let d0 = f32::from_bits(self.vec_reg[vdst as usize]);
                     (s0 * s1 + d0).to_bits()
@@ -616,6 +644,23 @@ mod test_vop1 {
     }
 }
 
+#[cfg(test)]
+mod test_vopc {
+    use super::*;
+
+    #[test]
+    fn test_v_cmp_gt_i32() {
+        let mut cpu = CPU::new("test_v_cmp_gt_i32");
+
+        cpu.vec_reg[1] = (4_i32 * -1) as u32;
+        cpu.interpret(&vec![0x7c8802c1, END_PRG]);
+        assert_eq!(cpu.vcc_lo, 1);
+
+        cpu.vec_reg[1] = 4;
+        cpu.interpret(&vec![0x7c8802c1, END_PRG]);
+        assert_eq!(cpu.vcc_lo, 0);
+    }
+}
 #[cfg(test)]
 mod test_vop2 {
     use super::*;
