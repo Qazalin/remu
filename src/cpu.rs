@@ -1,5 +1,5 @@
 use crate::allocator::BumpAllocator;
-use crate::state::{SGPR, VGPR};
+use crate::state::RegisterGroup;
 use crate::utils::{twos_complement_21bit, Colorize, DEBUG};
 
 const SGPR_COUNT: u32 = 105;
@@ -12,8 +12,8 @@ pub struct CPU {
     pc: u64,
     pub gds: BumpAllocator,
     pub lds: BumpAllocator,
-    pub scalar_reg: SGPR,
-    pub vec_reg: VGPR,
+    pub scalar_reg: RegisterGroup,
+    pub vec_reg: RegisterGroup,
     scc: u32,
     vcc_lo: u32,
     exec_lo: u32,
@@ -29,8 +29,8 @@ impl CPU {
             exec_lo: 0,
             gds,
             lds,
-            scalar_reg: SGPR::new(),
-            vec_reg: VGPR::new(),
+            scalar_reg: RegisterGroup::new(105, "SGPR"),
+            vec_reg: RegisterGroup::new(256, "VGPR"),
             prg: vec![],
         };
     }
