@@ -4,6 +4,9 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 use std::{env, fs, str};
 
+const END_PRG: u32 = 0xbfb00000;
+const WAIT_CNT_0: u32 = 0xBF89FC07;
+
 pub static DEBUG: Lazy<i32> = Lazy::new(|| {
     env::var("REMU_DEBUG")
         .unwrap_or_default()
@@ -46,6 +49,21 @@ fn parse_rdna3(content: &str) -> Vec<u32> {
         .map(|x| u32::from_str_radix(x, 16).unwrap())
         .collect::<Vec<u32>>();
     return instructions;
+}
+
+pub fn split_asm_by_thread_syncs(instructions: &Vec<u32>) -> Vec<Vec<u32>> {
+    let mut parts: Vec<Vec<u32>> = vec![];
+    let mut last_idx = 0;
+    instructions.iter().enumerate().for_each(|(i, x)| {
+        if x == &WAIT_CNT_0 && instructions[i - 1] == WAIT_CNT_0 {
+            let mut part = instructions[last_idx..=i - 2].to_vec();
+            last_idx = i + 1;
+            part.extend(vec![END_PRG]);
+            parts.push(part);
+        }
+    });
+    parts.push(instructions[last_idx..instructions.len()].to_vec());
+    parts
 }
 
 /** We use this for the smem immediate 21-bit constant OFFSET */
@@ -94,6 +112,32 @@ Disassembly of section .text:
         assert_eq!(twos_complement_21bit(0b111111111111111111111), -1);
         assert_eq!(twos_complement_21bit(0b111000000000000000000), -262144);
         assert_eq!(twos_complement_21bit(0b000111111111111111111), 262143);
+    }
+
+        #[test]
+    fn test_split_asm_by_thread_syncs() {
+        let mut p1: Vec<u32> = vec![1, 2, 3, 4];
+        let mut p2: Vec<u32> = vec![5, 6, WAIT_CNT_0, 4];
+        let mut p3: Vec<u32> = vec![2, 4, 6];
+
+        let instructions = vec![
+            p1.clone(),
+            vec![WAIT_CNT_0, WAIT_CNT_0],
+            p2.clone(),
+            vec![WAIT_CNT_0, WAIT_CNT_0],
+            p3.clone(),
+            vec![END_PRG],
+        ]
+        .concat();
+        let parts = split_asm_by_thread_syncs(&instructions);
+
+        p1.push(END_PRG);
+        p2.push(END_PRG);
+        p3.push(END_PRG);
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[0], p1);
+        assert_eq!(parts[1], p2);
+        assert_eq!(parts[2], p3);
     }
 }
 

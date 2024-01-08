@@ -1,6 +1,7 @@
 use crate::allocator::BumpAllocator;
 use crate::cpu::CPU;
 use crate::utils::{Colorize, DEBUG};
+use std::collections::HashMap;
 use std::os::raw::{c_char, c_void};
 mod allocator;
 mod cpu;
@@ -54,29 +55,39 @@ pub extern "C" fn hipModuleLaunchKernel(
         gds.write_bytes(stack_ptr + i as u64 * 8, &x.to_le_bytes());
     });
 
-    let prg = utils::read_asm(&lib_bytes);
+    let prg = utils::split_asm_by_thread_syncs(&utils::read_asm(&lib_bytes));
     for i in 0..grid_dim_x {
-        let gds = BumpAllocator::new(WAVE_ID);
-        let lds = BumpAllocator::new(&format!("{WAVE_ID}_lds{i}"));
-        let mut cpu = CPU::new(gds, lds);
-        for j in 0..block_dim_x {
-            if *DEBUG >= 1 {
-                println!(
-                    "{}={}, {}={}",
-                    "blockIdx.x".color("jade"),
-                    i,
-                    "threadIdx.x".color("jade"),
-                    j
-                );
+        let mut thread_registers = HashMap::<u32, [Vec<u32>; 2]>::new();
+        for prg in prg.iter() {
+            for j in 0..block_dim_x {
+                let lds = BumpAllocator::new(&format!("{WAVE_ID}_lds{i}"));
+                let gds = BumpAllocator::new(WAVE_ID);
+                let mut cpu = CPU::new(gds, lds);
+                if *DEBUG >= 1 {
+                    println!(
+                        "{}={}, {}={}",
+                        "blockIdx.x".color("jade"),
+                        i,
+                        "threadIdx.x".color("jade"),
+                        j
+                    );
+                }
+
+                match thread_registers.get(&j) {
+                    Some(val) => {
+                        cpu.scalar_reg.values = val[0].clone();
+                        cpu.vec_reg.values = val[1].clone();
+                    }
+                    None => {
+                        cpu.scalar_reg.write_addr(0, stack_ptr);
+                        cpu.scalar_reg[15] = i;
+                        cpu.vec_reg[0] = j;
+                    }
+                }
+
+                cpu.interpret(&prg);
+                thread_registers.insert(j, [cpu.scalar_reg.values, cpu.vec_reg.values]);
             }
-            cpu.scalar_reg.reset();
-            cpu.vec_reg.reset();
-
-            cpu.scalar_reg.write_addr(0, stack_ptr);
-            cpu.scalar_reg[15] = i;
-            cpu.vec_reg[0] = j;
-
-            cpu.interpret(&prg);
         }
     }
 }

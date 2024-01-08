@@ -3,7 +3,7 @@ use crate::utils::{Colorize, DEBUG, SGPR_INDEX};
 use std::ops::{Index, IndexMut};
 
 pub struct RegisterGroup {
-    values: Vec<u32>,
+    pub values: Vec<u32>,
     name: &'static str,
     count: usize,
 }
