@@ -1,3 +1,4 @@
+use crate::allocator::BumpAllocator;
 use crate::cpu::CPU;
 use crate::utils::{Colorize, DEBUG};
 use std::os::raw::{c_char, c_void};
@@ -6,6 +7,8 @@ mod cpu;
 mod dtype;
 mod state;
 mod utils;
+
+const WAVE_ID: &str = "wave_id";
 
 #[no_mangle]
 pub extern "C" fn hipModuleLaunchKernel(
@@ -45,17 +48,17 @@ pub extern "C" fn hipModuleLaunchKernel(
         );
     }
 
-    let mut cpu = CPU::new("wave");
-    let prg = utils::read_asm(&lib_bytes);
-
-    let stack_ptr = cpu.allocator.alloc(kernel_args.len() as u32 * 8);
+    let mut gds = BumpAllocator::new(WAVE_ID);
+    let stack_ptr = gds.alloc(kernel_args.len() as u32 * 8);
     kernel_args.iter().enumerate().for_each(|(i, x)| {
-        cpu.allocator
-            .write_bytes(stack_ptr + i as u64 * 8, &x.to_le_bytes());
+        gds.write_bytes(stack_ptr + i as u64 * 8, &x.to_le_bytes());
     });
 
+    let prg = utils::read_asm(&lib_bytes);
     for i in 0..grid_dim_x {
         for j in 0..block_dim_x {
+            let gds = BumpAllocator::new(WAVE_ID);
+            let mut cpu = CPU::new(gds);
             if *DEBUG >= 1 {
                 println!(
                     "{}={}, {}={}",
@@ -79,11 +82,11 @@ pub extern "C" fn hipModuleLaunchKernel(
 
 #[no_mangle]
 pub extern "C" fn hipMalloc(ptr: *mut c_void, size: u32) {
-    let mut cpu = CPU::new("wave");
+    let mut gds = BumpAllocator::new(WAVE_ID);
 
     unsafe {
         let data_ptr = ptr as *mut u64;
-        *data_ptr = cpu.allocator.alloc(size);
+        *data_ptr = gds.alloc(size);
     }
 
     if *DEBUG >= 1 {
@@ -93,16 +96,16 @@ pub extern "C" fn hipMalloc(ptr: *mut c_void, size: u32) {
 
 #[no_mangle]
 pub extern "C" fn hipMemcpy(dest: *const c_void, src: *const c_void, size: u32, mode: u32) {
-    let mut cpu = CPU::new("wave");
+    let mut gds = BumpAllocator::new(WAVE_ID);
 
     match mode {
         1 => {
             let bytes =
                 unsafe { std::slice::from_raw_parts(src as *const u8, size as usize) }.to_vec();
-            cpu.allocator.write_bytes(dest as u64, &bytes);
+            gds.write_bytes(dest as u64, &bytes);
         }
         2 => {
-            let bytes = &cpu.allocator.read_bytes(src as u64, size as usize);
+            let bytes = &gds.read_bytes(src as u64, size as usize);
             unsafe {
                 let dest = dest as *mut u8;
                 std::slice::from_raw_parts_mut(dest, bytes.len()).copy_from_slice(&bytes);
