@@ -156,6 +156,24 @@ impl CPU {
                 println!("{} {}", "SCC".color("pink"), self.scc);
             }
         }
+        // sopp
+        else if instruction >> 23 == 0b101111111 {
+            let simm16 = instruction & 0xffff;
+            let op = (instruction >> 16) & 0x7f;
+
+            if *DEBUG >= 1 {
+                println!("{} simm16={} op={}", "SOPP".color("blue"), simm16, op);
+            }
+
+            match op {
+                37 => {
+                    if self.exec_lo == 0 {
+                        self.pc += simm16 as u64
+                    }
+                }
+                _ => todo!(),
+            }
+        }
         // sop2
         else if instruction >> 30 == 0b10 {
             let ssrc0 = self.resolve_src(instruction & 0xFF);
@@ -283,14 +301,21 @@ impl CPU {
                 );
             }
 
-            self.vcc_lo = match op {
-                68 => (src0 as i32 > self.vec_reg[vsrc1 as usize] as i32) as u32,
+            match op {
+                68 => {
+                    self.vcc_lo = (src0 as i32 > self.vec_reg[vsrc1 as usize] as i32) as u32;
+                    if *DEBUG >= 2 {
+                        println!("{} {}", "VCC".color("pink"), self.vcc_lo);
+                    }
+                }
+                202 => {
+                    self.exec_lo = ((src0 as u32) == vsrc1) as u32;
+                    if *DEBUG >= 2 {
+                        println!("{} {}", "EXEC_LO".color("pink"), self.exec_lo);
+                    }
+                }
                 _ => todo!(),
             };
-
-            if *DEBUG >= 2 {
-                println!("{} {}", "VCC".color("pink"), self.vcc_lo);
-            }
         }
         // vop2
         else if instruction >> 31 == 0b0 {
@@ -502,12 +527,14 @@ impl CPU {
             }
 
             let effective_addr = match self.resolve_src(saddr as u32) as u32 {
-                0x7F | NULL_SRC => self.vec_reg.read_addr(addr as usize).wrapping_add(offset), // SADDR is NULL or 0x7f: specifies an address
+                0x7F | _ if saddr as u32 == NULL_SRC => {
+                    self.vec_reg.read_addr(addr as usize).wrapping_add(offset)
+                }
                 _ => {
                     let scalar_addr = self.scalar_reg.read_addr(saddr as usize);
                     let vgpr_offset = self.vec_reg[addr as usize];
                     scalar_addr + vgpr_offset as u64 + offset
-                } // SADDR is not NULL or 0x7f: specifies an offset.
+                }
             };
 
             match op {
