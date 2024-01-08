@@ -56,9 +56,10 @@ pub extern "C" fn hipModuleLaunchKernel(
 
     let prg = utils::read_asm(&lib_bytes);
     for i in 0..grid_dim_x {
+        let gds = BumpAllocator::new(WAVE_ID);
+        let lds = BumpAllocator::new(&format!("{WAVE_ID}_lds{i}"));
+        let mut cpu = CPU::new(gds, lds);
         for j in 0..block_dim_x {
-            let gds = BumpAllocator::new(WAVE_ID);
-            let mut cpu = CPU::new(gds);
             if *DEBUG >= 1 {
                 println!(
                     "{}={}, {}={}",

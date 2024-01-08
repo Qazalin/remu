@@ -11,6 +11,7 @@ const NOOPS: [u32; 1] = [0xbfb60003];
 pub struct CPU {
     pc: u64,
     pub gds: BumpAllocator,
+    pub lds: BumpAllocator,
     pub scalar_reg: SGPR,
     pub vec_reg: VGPR,
     scc: u32,
@@ -20,13 +21,14 @@ pub struct CPU {
 }
 
 impl CPU {
-    pub fn new(gds: BumpAllocator) -> Self {
+    pub fn new(gds: BumpAllocator, lds: BumpAllocator) -> Self {
         return CPU {
             pc: 0,
             scc: 0,
             vcc_lo: 0,
             exec_lo: 0,
             gds,
+            lds,
             scalar_reg: SGPR::new(),
             vec_reg: VGPR::new(),
             prg: vec![],
@@ -436,11 +438,51 @@ impl CPU {
                 }
             }
         }
+        // lds
+        else if instruction >> 26 == 0b110110 {
+            let instr = self.u64_instr();
+            let offset0 = instr & 0xff;
+            let offset1 = (instr >> 8) & 0xff;
+            let op = (instr >> 18) & 0xff;
+            let addr = (instr >> 32) & 0xff;
+            let data0 = (instr >> 40) & 0xff;
+            let data1 = (instr >> 48) & 0xff;
+            let vdst = (instr >> 56) & 0xff;
+
+            if *DEBUG >= 1 {
+                println!(
+                    "{} offset0={} offset1={} op={} addr={} data0={} data1={} vdst={}",
+                    "LDS".color("blue"),
+                    offset0,
+                    offset1,
+                    op,
+                    addr,
+                    data0,
+                    data1,
+                    vdst
+                );
+            }
+            let effective_addr = self.vec_reg[addr as usize] as u64 + offset0;
+            match op {
+                // load
+                255 => {
+                    self.vec_reg[vdst as usize] = self.lds.read(effective_addr);
+                    self.vec_reg[vdst as usize + 1] = self.lds.read(effective_addr + 4);
+                    self.vec_reg[vdst as usize + 2] = self.lds.read(effective_addr + 8);
+                    self.vec_reg[vdst as usize + 3] = self.lds.read(effective_addr + 12);
+                }
+                // store
+                13 => {
+                    let data = self.vec_reg[data0 as usize];
+                    self.lds.write(effective_addr, data);
+                }
+                _ => todo!(),
+            }
+        }
         // global
         else if instruction >> 26 == 0b110111 {
             let instr = self.u64_instr();
             let offset = instr & 0x1fff;
-            let seg = (instr >> 16) & 0x3;
             let op = (instr >> 18) & 0x7f;
             let addr = (instr >> 32) & 0xff;
             let data = (instr >> 40) & 0xff;
@@ -458,7 +500,6 @@ impl CPU {
                     offset
                 );
             }
-            assert_eq!(seg, 2, "flat and scratch arent supported");
 
             let effective_addr = match self.resolve_src(saddr as u32) as u32 {
                 0x7F | NULL_SRC => self.vec_reg.read_addr(addr as usize).wrapping_add(offset), // SADDR is NULL or 0x7f: specifies an address
@@ -522,9 +563,10 @@ impl CPU {
     }
 }
 
-pub fn helper_test_cpu(wave_id: &str) -> CPU {
+pub fn _helper_test_cpu(wave_id: &str) -> CPU {
     let gds = BumpAllocator::new(wave_id);
-    CPU::new(gds)
+    let lds = BumpAllocator::new(&format!("{wave_id}_lds"));
+    CPU::new(gds, lds)
 }
 #[cfg(test)]
 mod test_alu_utils {
@@ -532,14 +574,14 @@ mod test_alu_utils {
 
     #[test]
     fn test_write_to_sdst_sgpr() {
-        let mut cpu = helper_test_cpu("test_write_to_sdst_sgpr");
+        let mut cpu = _helper_test_cpu("test_write_to_sdst_sgpr");
         cpu.write_to_sdst(10, 200);
         assert_eq!(cpu.scalar_reg[10], 200);
     }
 
     #[test]
     fn test_write_to_sdst_vcclo() {
-        let mut cpu = helper_test_cpu("test_write_to_sdst_sgpr");
+        let mut cpu = _helper_test_cpu("test_write_to_sdst_sgpr");
         let val = 0b1011101011011011111011101111;
         cpu.write_to_sdst(106, val);
         assert_eq!(cpu.vcc_lo, val);
@@ -547,7 +589,7 @@ mod test_alu_utils {
 
     #[test]
     fn test_resolve_src() {
-        let mut cpu = helper_test_cpu("test_resolve_src_negative_const");
+        let mut cpu = _helper_test_cpu("test_resolve_src_negative_const");
         assert_eq!(cpu.resolve_src(129), 1);
         assert_eq!(cpu.resolve_src(192), 64);
         assert_eq!(cpu.resolve_src(193), -1);
@@ -564,7 +606,7 @@ mod test_sop1 {
 
     #[test]
     fn test_s_mov_b32() {
-        let mut cpu = helper_test_cpu("s_mov_b32");
+        let mut cpu = _helper_test_cpu("s_mov_b32");
         cpu.scalar_reg[15] = 42;
         cpu.interpret(&vec![0xbe82000f, END_PRG]);
         assert_eq!(cpu.scalar_reg[2], 42);
@@ -577,7 +619,7 @@ mod test_sop2 {
 
     #[test]
     fn test_s_add_u32() {
-        let mut cpu = helper_test_cpu("s_add_u32");
+        let mut cpu = _helper_test_cpu("s_add_u32");
         cpu.scalar_reg[2] = 42;
         cpu.scalar_reg[6] = 13;
         cpu.interpret(&vec![0x80060206, END_PRG]);
@@ -586,7 +628,7 @@ mod test_sop2 {
 
     #[test]
     fn test_s_addc_u32() {
-        let mut cpu = helper_test_cpu("s_addc_u32");
+        let mut cpu = _helper_test_cpu("s_addc_u32");
         cpu.scalar_reg[7] = 42;
         cpu.scalar_reg[3] = 13;
         cpu.scc = 1;
@@ -596,7 +638,7 @@ mod test_sop2 {
 
     #[test]
     fn test_s_ashr_i32() {
-        let mut cpu = helper_test_cpu("s_ashr_i32");
+        let mut cpu = _helper_test_cpu("s_ashr_i32");
         cpu.scalar_reg[15] = 42;
         cpu.interpret(&vec![0x86039f0f, END_PRG]);
         assert_eq!(cpu.scalar_reg[3], 0);
@@ -604,7 +646,7 @@ mod test_sop2 {
 
     #[test]
     fn test_s_lshl_b64() {
-        let mut cpu = helper_test_cpu("s_lshl_b64");
+        let mut cpu = _helper_test_cpu("s_lshl_b64");
         cpu.scalar_reg[2] = 42;
         cpu.interpret(&vec![0x84828202, END_PRG]);
         assert_eq!(cpu.scalar_reg[2], 42 << 2);
@@ -617,7 +659,7 @@ mod test_vopd {
 
     #[test]
     fn test_add_mov() {
-        let mut cpu = helper_test_cpu("add_mov");
+        let mut cpu = _helper_test_cpu("add_mov");
         cpu.vec_reg[0] = f32::to_bits(10.5);
         cpu.interpret(&vec![0xC9100300, 0x00000080, END_PRG]);
         assert_eq!(f32::from_bits(cpu.vec_reg[0]), 10.5);
@@ -626,7 +668,7 @@ mod test_vopd {
 
     #[test]
     fn test_max_add() {
-        let mut cpu = helper_test_cpu("max_add");
+        let mut cpu = _helper_test_cpu("max_add");
         cpu.vec_reg[0] = f32::to_bits(5.0);
         cpu.vec_reg[3] = f32::to_bits(2.0);
         cpu.vec_reg[1] = f32::to_bits(2.0);
@@ -641,7 +683,7 @@ mod test_vop1 {
 
     #[test]
     fn test_v_mov_b32_srrc_const0() {
-        let mut cpu = helper_test_cpu("v_mov_b32_srrc_const0");
+        let mut cpu = _helper_test_cpu("v_mov_b32_srrc_const0");
         cpu.interpret(&vec![0x7e000280, END_PRG]);
         assert_eq!(cpu.vec_reg[0], 0);
         cpu.interpret(&vec![0x7e020280, END_PRG]);
@@ -652,7 +694,7 @@ mod test_vop1 {
 
     #[test]
     fn test_v_mov_b32_srrc_register() {
-        let mut cpu = helper_test_cpu("v_mov_b32_srrc_register");
+        let mut cpu = _helper_test_cpu("v_mov_b32_srrc_register");
         cpu.scalar_reg[6] = 31;
         cpu.interpret(&vec![0x7e020206, END_PRG]);
         assert_eq!(cpu.vec_reg[1], 31);
@@ -665,7 +707,7 @@ mod test_vopc {
 
     #[test]
     fn test_v_cmp_gt_i32() {
-        let mut cpu = helper_test_cpu("test_v_cmp_gt_i32");
+        let mut cpu = _helper_test_cpu("test_v_cmp_gt_i32");
 
         cpu.vec_reg[1] = (4_i32 * -1) as u32;
         cpu.interpret(&vec![0x7c8802c1, END_PRG]);
@@ -682,7 +724,7 @@ mod test_vop2 {
 
     #[test]
     fn test_v_add_f32_e32() {
-        let mut cpu = helper_test_cpu("v_add_f32_e32");
+        let mut cpu = _helper_test_cpu("v_add_f32_e32");
         cpu.scalar_reg[2] = f32::to_bits(42.0);
         cpu.vec_reg[0] = f32::to_bits(1.0);
         cpu.interpret(&vec![0x06000002, END_PRG]);
@@ -691,7 +733,7 @@ mod test_vop2 {
 
     #[test]
     fn test_v_mul_f32_e32() {
-        let mut cpu = helper_test_cpu("v_mul_f32_e32");
+        let mut cpu = _helper_test_cpu("v_mul_f32_e32");
         cpu.vec_reg[2] = f32::to_bits(21.0);
         cpu.vec_reg[4] = f32::to_bits(2.0);
         cpu.interpret(&vec![0x10060504, END_PRG]);
@@ -704,7 +746,7 @@ mod test_vop3 {
     use super::*;
 
     fn helper_test_vop3(id: &str, op: u32, a: f32, b: f32) -> f32 {
-        let mut cpu = helper_test_cpu(id);
+        let mut cpu = _helper_test_cpu(id);
         cpu.scalar_reg[0] = f32::to_bits(a);
         cpu.scalar_reg[6] = f32::to_bits(b);
         cpu.interpret(&vec![op, 0x00000006, END_PRG]);
@@ -739,13 +781,13 @@ mod test_vop3 {
     #[test]
     fn test_signed_src() {
         // v0, max(s2, s2)
-        let mut cpu = helper_test_cpu("signed_src_positive");
+        let mut cpu = _helper_test_cpu("signed_src_positive");
         cpu.scalar_reg[2] = f32::to_bits(0.5);
         cpu.interpret(&vec![0xd5100000, 0x00000402, END_PRG]);
         assert_eq!(f32::from_bits(cpu.vec_reg[0]), 0.5);
 
         // v1, max(-s2, -s2)
-        let mut cpu = helper_test_cpu("signed_src_neg");
+        let mut cpu = _helper_test_cpu("signed_src_neg");
         cpu.scalar_reg[2] = f32::to_bits(0.5);
         cpu.interpret(&vec![0xd5100001, 0x60000402, END_PRG]);
         assert_eq!(f32::from_bits(cpu.vec_reg[1]), -0.5);
@@ -777,7 +819,7 @@ mod test_smem {
     fn test_s_load_b32() {
         // no offset
         helper_test_s_load(
-            helper_test_cpu("s_load_b32_1"),
+            _helper_test_cpu("s_load_b32_1"),
             0xf4000000,
             0xf8000000,
             &vec![42],
@@ -787,7 +829,7 @@ mod test_smem {
 
         // positive offset
         helper_test_s_load(
-            helper_test_cpu("s_load_b32_2"),
+            _helper_test_cpu("s_load_b32_2"),
             0xf4000000,
             0xf8000004,
             &vec![42],
@@ -795,7 +837,7 @@ mod test_smem {
             0,
         );
         helper_test_s_load(
-            helper_test_cpu("s_load_b32_3"),
+            _helper_test_cpu("s_load_b32_3"),
             0xf4000000,
             0xf800000c,
             &vec![42],
@@ -804,7 +846,7 @@ mod test_smem {
         );
 
         // negative offset
-        let mut cpu = helper_test_cpu("s_load_b32_4");
+        let mut cpu = _helper_test_cpu("s_load_b32_4");
         cpu.scalar_reg.write_addr(0, 10000);
         helper_test_s_load(cpu, 0xf4000000, 0xf81fffd8, &vec![42], 9960, 0);
     }
@@ -815,7 +857,7 @@ mod test_smem {
 
         // positive offset
         helper_test_s_load(
-            helper_test_cpu("s_load_b64_1"),
+            _helper_test_cpu("s_load_b64_1"),
             0xf4040000,
             0xf8000010,
             &data,
@@ -823,7 +865,7 @@ mod test_smem {
             0,
         );
         helper_test_s_load(
-            helper_test_cpu("s_load_b64_2"),
+            _helper_test_cpu("s_load_b64_2"),
             0xf4040204,
             0xf8000268,
             &data,
@@ -832,7 +874,7 @@ mod test_smem {
         );
 
         // negative offset
-        let mut cpu = helper_test_cpu("s_load_b64_3");
+        let mut cpu = _helper_test_cpu("s_load_b64_3");
         cpu.scalar_reg[2] = 612;
         cpu.scalar_reg.write_addr(2, 612);
         helper_test_s_load(cpu, 0xf4040301, 0xf81ffd9c, &data, 0, 12);
@@ -844,7 +886,7 @@ mod test_smem {
 
         // positive offset
         helper_test_s_load(
-            helper_test_cpu("s_load_b128_1"),
+            _helper_test_cpu("s_load_b128_1"),
             0xf4080000,
             0xf8000000,
             &data,
@@ -852,13 +894,13 @@ mod test_smem {
             0,
         );
 
-        let mut cpu = helper_test_cpu("s_load_b128_2");
+        let mut cpu = _helper_test_cpu("s_load_b128_2");
         let base_mem_addr: u64 = 0x10;
         cpu.scalar_reg.write_addr(6, base_mem_addr);
         helper_test_s_load(cpu, 0xf4080203, 0xf8000000, &data, base_mem_addr, 8);
 
         // negative offset
-        let mut cpu = helper_test_cpu("s_load_b128_3");
+        let mut cpu = _helper_test_cpu("s_load_b128_3");
         cpu.scalar_reg.write_addr(2, 0x10);
         helper_test_s_load(cpu, 0xf4080401, 0xf81ffff0, &data, 0, 16);
     }
@@ -870,7 +912,7 @@ mod test_global {
 
     #[test]
     fn test_store_b32() {
-        let mut cpu = helper_test_cpu("store_b32");
+        let mut cpu = _helper_test_cpu("store_b32");
         cpu.interpret(&vec![0xdc6a0000, 0x00000001, END_PRG]);
         cpu.interpret(&vec![0xdc6a0000, 0x00000100, END_PRG]);
         cpu.interpret(&vec![0xdc6a0000, 0x00000002, END_PRG]);
@@ -879,7 +921,7 @@ mod test_global {
 
     #[test]
     fn test_store_b96() {
-        let mut cpu = helper_test_cpu("test_store_b96");
+        let mut cpu = _helper_test_cpu("test_store_b96");
         let val0: u32 = 10;
         let val1: u32 = 20;
         let val2: u32 = 30;
@@ -895,7 +937,7 @@ mod test_global {
     }
     #[test]
     fn test_load_b96() {
-        let mut cpu = helper_test_cpu("test_load_b96");
+        let mut cpu = _helper_test_cpu("test_load_b96");
         let val0: u32 = 10;
         let val1: u32 = 20;
         let val2: u32 = 30;
@@ -912,7 +954,7 @@ mod test_global {
 
     #[test]
     fn test_store_b128() {
-        let mut cpu = helper_test_cpu("test_store_b128");
+        let mut cpu = _helper_test_cpu("test_store_b128");
         let val0: u32 = 10;
         let val1: u32 = 20;
         let val2: u32 = 30;
@@ -931,7 +973,7 @@ mod test_global {
     }
     #[test]
     fn test_load_b128() {
-        let mut cpu = helper_test_cpu("test_load_b128");
+        let mut cpu = _helper_test_cpu("test_load_b128");
         let val0: u32 = 10;
         let val1: u32 = 20;
         let val2: u32 = 30;
@@ -971,7 +1013,7 @@ mod test_real_world {
     }
     #[test]
     fn test_add_simple() {
-        let mut cpu = helper_test_cpu("test_add_simple");
+        let mut cpu = _helper_test_cpu("test_add_simple");
         let mut data0 = vec![0.0; 4];
         let data1 = vec![1.0, 2.0, 3.0, 4.0];
         let data2 = vec![5.0, 6.0, 7.0, 8.0];
