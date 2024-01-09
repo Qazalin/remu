@@ -148,6 +148,7 @@ impl CPU {
             self.scc = match op {
                 2 => (ssrc0 > ssrc1) as u32,
                 4 => (ssrc0 < ssrc1) as u32,
+                6 => (ssrc0 == ssrc1) as u32,
                 10 => (ssrc0 < ssrc1) as u32,
                 _ => todo!(),
             };
@@ -199,6 +200,7 @@ impl CPU {
                     temp
                 }
                 2 => ((ssrc0 as i32) + (ssrc1 as i32)) as u64,
+                3 => ((ssrc0 as i32) - (ssrc1 as i32)) as u64,
                 4 => (ssrc0 as u64) + (ssrc1 as u64) + (self.scc as u64),
                 9 => (ssrc0 as u64) << (ssrc1 as u64 & 0x1F),
                 8 => {
@@ -206,6 +208,14 @@ impl CPU {
                     temp as u64
                 }
                 12 => (ssrc0 >> (ssrc1 & 0x1F)) as u64,
+                20 => {
+                    self.scc = (ssrc0 > ssrc1) as u32;
+                    if self.scc == 1 {
+                        ssrc0 as u64
+                    } else {
+                        ssrc1 as u64
+                    }
+                }
                 44 => ((ssrc0 as i32) * (ssrc1 as i32)) as u64,
                 48 => {
                     if self.scc != 0 {
@@ -277,9 +287,10 @@ impl CPU {
                     let s0 = f32::from_bits(i[1] as u32);
                     let s1 = f32::from_bits(i[2] as u32);
                     self.vec_reg[i[3] as usize] = match i[0] {
-                        10 => f32::max(s0, s1),
                         4 => s0 + s1,
                         8 => s0,
+                        10 => f32::max(s0, s1),
+                        18 => f32::from_bits(i[1] as u32 & i[2] as u32),
                         _ => todo!(),
                     }
                     .to_bits();
@@ -442,7 +453,7 @@ impl CPU {
                         531 | 567 => (s0 * s1 + s2).to_bits(),
                         551 => (s2 / s1).to_bits(),
                         257 => {
-                            if self.vcc_lo != 0 {
+                            if src2 != 0 {
                                 s1.to_bits()
                             } else {
                                 s0.to_bits()
@@ -818,6 +829,27 @@ mod test_vop3 {
         cpu.scalar_reg[2] = f32::to_bits(0.5);
         cpu.interpret(&vec![0xd5100001, 0x60000402, END_PRG]);
         assert_eq!(f32::from_bits(cpu.vec_reg[1]), -0.5);
+    }
+
+    #[test]
+    fn test_cnd_mask_cond_src_sgpr() {
+        let mut cpu = _helper_test_cpu("test_cnd_mask_cond_src_sgpr");
+        cpu.scalar_reg[3] = 30;
+        cpu.interpret(&vec![0xD5010000, 0x000D0280, END_PRG]);
+        assert_eq!(cpu.vec_reg[0], 1);
+
+        cpu.scalar_reg[3] = 0;
+        cpu.interpret(&vec![0xD5010000, 0x000D0280, END_PRG]);
+        assert_eq!(cpu.vec_reg[0], 0);
+    }
+
+    #[test]
+    fn test_cnd_mask_cond_src_vcclo() {
+        let mut cpu = _helper_test_cpu("test_cnd_mask_cond_src_vcclo");
+        cpu.vec_reg[2] = 20;
+        cpu.vec_reg[0] = 100;
+        cpu.interpret(&vec![0xD5010002, 0x41AA0102, END_PRG]);
+        assert_eq!(cpu.vec_reg[2], 20);
     }
 }
 
