@@ -6,12 +6,14 @@ if git status | grep 'not staged' > /dev/null 2>&1; then
     scp -P 44 t.py qazal@72.220.147.45:/home/qazal/tinygrad/t.py > /dev/null 2>&1
     ssh -t -p 44 qazal@72.220.147.45 <<EOF > /dev/null 2>&1
     cd /home/qazal/tinygrad
+    rm -rf asms.json
+    echo "{}" > asms.json
     source venv/bin/activate && HIP=1 FORWARD_ONLY=1 CACHELEVEL=0 python3 t.py
     exit
 EOF
     scp -P 44 qazal@72.220.147.45:/home/qazal/tinygrad/asms.json /tmp/asms.json
     git add .
-    python3 ~/code/tools/c/sound.py
+    python3 ~/code/tools/box/sound.py
 fi
 
 cd ~/code/tinygrad/remu
