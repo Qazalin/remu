@@ -1,5 +1,8 @@
 #![allow(unused)]
 use once_cell::sync::Lazy;
+use serde_json::Value;
+use std::collections::HashMap;
+use std::io::{self, Read};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 use std::{env, fs, str};
@@ -114,7 +117,7 @@ Disassembly of section .text:
         assert_eq!(twos_complement_21bit(0b000111111111111111111), 262143);
     }
 
-        #[test]
+    #[test]
     fn test_split_asm_by_thread_syncs() {
         let mut p1: Vec<u32> = vec![1, 2, 3, 4];
         let mut p2: Vec<u32> = vec![5, 6, WAIT_CNT_0, 4];
@@ -158,28 +161,34 @@ impl<'a> Colorize for &'a str {
 }
 
 pub fn read_asm(lib: &Vec<u8>) -> Vec<u32> {
-    let asm = fs::read_to_string("/tmp/compiled.s").unwrap();
+    let asm_map = read_json_to_hashmap("/tmp/asms.json").unwrap();
+    let code = String::from_utf8(lib.to_vec()).unwrap();
+    let asm = asm_map.get(&code).unwrap();
     parse_rdna3(&asm.to_string())
-    /*
-    let mut child = Command::new("/opt/rocm/llvm/bin/llvm-objdump")
-        .args(&["-d", "-"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .expect("Failed to execute command");
+}
 
-    {
-        let stdin = child.stdin.as_mut().expect("Failed to open stdin");
-        stdin.write_all(lib).expect("Failed to write to stdin");
-    }
+fn read_json_to_hashmap(file_path: &str) -> io::Result<HashMap<String, String>> {
+    let mut file = fs::File::open(file_path)?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
 
-    let output = child.wait_with_output().expect("Failed to read stdout");
-    if output.status.success() {
-        let asm = String::from_utf8_lossy(&output.stdout);
-        parse_rdna3(&asm.to_string())
+    let json: Value = serde_json::from_str(&contents)?;
+    if let Value::Object(map) = json {
+        let hashmap: HashMap<String, String> = map
+            .into_iter()
+            .filter_map(|(k, v)| {
+                if let Value::String(s) = v {
+                    Some((k, s))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        Ok(hashmap)
     } else {
-        let err = String::from_utf8_lossy(&output.stderr);
-        panic!("Command failed with error: {}", err);
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            "Invalid JSON structure",
+        ))
     }
-    */
 }
