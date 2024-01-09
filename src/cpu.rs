@@ -299,7 +299,7 @@ impl CPU {
         // vopc
         else if instruction >> 25 == 0b0111110 {
             let src0 = self.resolve_src(instruction & 0x1ff);
-            let vsrc1 = (instruction >> 9) & 0xff;
+            let vsrc1 = self.vec_reg[((instruction >> 9) & 0xff) as usize];
             let op = (instruction >> 17) & 0xff;
 
             if *DEBUG >= 1 {
@@ -313,8 +313,14 @@ impl CPU {
             }
 
             match op {
+                18 => {
+                    self.vcc_lo = (f32::from_bits(src0 as u32) == f32::from_bits(vsrc1)) as u32;
+                    if *DEBUG >= 2 {
+                        println!("{} {}", "VCC".color("pink"), self.vcc_lo);
+                    }
+                }
                 68 => {
-                    self.vcc_lo = (src0 as i32 > self.vec_reg[vsrc1 as usize] as i32) as u32;
+                    self.vcc_lo = (src0 as i32 > vsrc1 as i32) as u32;
                     if *DEBUG >= 2 {
                         println!("{} {}", "VCC".color("pink"), self.vcc_lo);
                     }
@@ -354,9 +360,10 @@ impl CPU {
                 8 => (s0 * s1).to_bits(),
                 9 => ((ssrc0 as i32) * (vsrc1 as i32)) as u32,
                 16 => f32::max(s0, s1).to_bits(),
+                18 => i32::max(ssrc0, vsrc1 as i32) as u32,
                 24 => vsrc1 << (ssrc0 as u32),
                 25 => vsrc1 >> (ssrc0 as u32),
-                26 => vsrc1 >> (ssrc0 as u32),
+                26 => ((vsrc1 as i32) >> ssrc0) as u32,
                 28 => (ssrc0 as u32) | (vsrc1 as u32),
                 32 => {
                     let temp = ssrc0 as u64 + vsrc1 as u64 + self.vcc_lo as u64;
@@ -365,6 +372,16 @@ impl CPU {
                         println!("{} {}", "VCC".color("pink"), self.vcc_lo);
                     }
                     temp as u32
+                }
+                33 => {
+                    let temp = ssrc0 as u32 - vsrc1 - self.vcc_lo;
+                    self.vcc_lo = (vsrc1 + self.vcc_lo > ssrc0 as u32) as u32;
+                    temp
+                }
+                34 => {
+                    let temp = vsrc1 - ssrc0 as u32 - self.vcc_lo;
+                    self.vcc_lo = (vsrc1 + self.vcc_lo > ssrc0 as u32) as u32;
+                    temp
                 }
                 37 => ssrc0 as u32 + vsrc1,
                 38 => ssrc0 as u32 - vsrc1,
@@ -411,7 +428,11 @@ impl CPU {
                             let temp = (src0 as u64 * src1 as u64) + src2 as u64;
                             self.vec_reg[vdst as usize] = temp as u32;
                         }
-                        768 => self.vec_reg[vdst as usize] = src0 as u32 + src1 as u32,
+                        768 => {
+                            let temp = src0 as u64 + src1 as u64;
+                            self.vcc_lo = (temp >= 0x100000000) as u32;
+                            self.vec_reg[vdst as usize] = temp as u32;
+                        }
                         _ => todo!(),
                     }
                 }
@@ -451,6 +472,7 @@ impl CPU {
                         264 => (s0 * s1).to_bits(),
                         272 => f32::max(s0, s1).to_bits(),
                         531 | 567 => (s0 * s1 + s2).to_bits(),
+                        541 => i32::max(i32::max(src0, src1), src2) as u32,
                         551 => (s2 / s1).to_bits(),
                         257 => {
                             if src2 != 0 {
@@ -461,6 +483,7 @@ impl CPU {
                         }
                         522 => ((src0 as i32) * (src1 as i32) + (src2 as i32)) as u32,
                         523 => (src0 as u32 * src1 as u32) + src2 as u32,
+                        540 => f32::max(f32::max(s0, s1), s2).to_bits(),
                         582 => ((src0 as u32) << (src1 as u32)) + src2 as u32,
                         598 => ((src0 as u32) << (src1 as u32)) | src2 as u32,
                         828 => {
@@ -776,6 +799,14 @@ mod test_vop2 {
         cpu.vec_reg[4] = f32::to_bits(2.0);
         cpu.interpret(&vec![0x10060504, END_PRG]);
         assert_eq!(f32::from_bits(cpu.vec_reg[3]), 42.0);
+    }
+
+    #[test]
+    fn test_v_ashrrev_i32() {
+        let mut cpu = _helper_test_cpu("test_v_ashrrev_i32");
+        cpu.vec_reg[0] = 4294967295;
+        cpu.interpret(&vec![0x3402009F, END_PRG]);
+        assert_eq!(cpu.vec_reg[1] as i32, -1);
     }
 }
 
