@@ -10,7 +10,8 @@ if git status | grep 'not staged' > /dev/null 2>&1; then
     exit
 EOF
     scp -P 44 qazal@72.220.147.45:/home/qazal/tinygrad/asms.json /tmp/asms.json
-    git add t.py
+    git add .
+    python3 ~/code/tools/c/sound.py
 fi
 
 cd ~/code/tinygrad/remu
