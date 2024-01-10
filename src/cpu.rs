@@ -1,5 +1,6 @@
 use crate::allocator::BumpAllocator;
 use crate::state::RegisterGroup;
+use crate::todo_instr;
 use crate::utils::{twos_complement_21bit, Colorize, DebugLevel, DEBUG};
 
 const SGPR_COUNT: u32 = 105;
@@ -96,14 +97,14 @@ impl CPU {
                     soffset
                 );
             }
-            let base_addr = self.scalar_reg.read_addr(sbase as usize);
+            let base_addr = self.scalar_reg.read64(sbase as usize);
             let effective_addr = (base_addr as i64 + offset + soffset as i64) as u64;
 
             match op {
                 0..=4 => (0..2_usize.pow(op as u32)).for_each(|i| {
                     self.scalar_reg[sdata + i] = self.gds.read(effective_addr + (4 * i as u64));
                 }),
-                _ => todo!(),
+                _ => todo_instr!(instruction),
             }
         }
         // sop1
@@ -122,12 +123,12 @@ impl CPU {
                 );
             }
 
-            let ret = match op {
-                0 => ssrc0,
-                30 => !ssrc0,
-                _ => todo!(),
+            match op {
+                0 => self.write_to_sdst(sdst, ssrc0),
+                1 => self.scalar_reg.write64(sdst as usize, ssrc0 as u64),
+                30 => self.write_to_sdst(sdst, !ssrc0),
+                _ => todo_instr!(instruction),
             };
-            self.write_to_sdst(sdst, ret);
         }
         // sopc
         else if (instruction >> 23) & 0x3ff == 0b101111110 {
@@ -150,7 +151,7 @@ impl CPU {
                 4 => (ssrc0 < ssrc1) as u32,
                 6 => (ssrc0 == ssrc1) as u32,
                 10 => (ssrc0 < ssrc1) as u32,
-                _ => todo!(),
+                _ => todo_instr!(instruction),
             };
 
             if *DEBUG >= DebugLevel::STATE {
@@ -158,8 +159,8 @@ impl CPU {
             }
         }
         // sopp
-        else if instruction >> 23 == 0b101111111 {
-            let simm16 = instruction & 0xffff;
+        else if instruction >> 23 == 0b10_1111111 {
+            let simm16 = (instruction & 0xffff) as i16;
             let op = (instruction >> 16) & 0x7f;
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
@@ -167,12 +168,38 @@ impl CPU {
             }
 
             match op {
-                37 => {
-                    if self.exec_lo == 0 {
+                32..=42 => {
+                    let should_jump = match op {
+                        33 => self.scc == 1,
+                        37 => self.exec_lo == 0,
+                        _ => todo_instr!(instruction),
+                    };
+                    if should_jump {
                         self.pc += simm16 as u64
                     }
                 }
-                _ => todo!(),
+                _ => todo_instr!(instruction),
+            }
+        }
+        // sopk
+        else if instruction >> 28 == 0b1011 {
+            let simm16 = (instruction & 0xffff) as i16;
+            let sdst = (instruction >> 16) & 0x7f;
+            let op = (instruction >> 23) & 0x1f;
+
+            if *DEBUG >= DebugLevel::INSTRUCTION {
+                println!(
+                    "{} simm16={} sdst={} op={}",
+                    "SOPK".color("blue"),
+                    simm16,
+                    sdst,
+                    op
+                );
+            }
+
+            match op {
+                3 => self.scc = (self.resolve_src(sdst) as i64 == simm16 as i64) as u32,
+                _ => todo_instr!(instruction),
             }
         }
         // sop2
@@ -232,7 +259,7 @@ impl CPU {
                         ssrc1 as u64
                     }
                 }
-                _ => todo!("sop2 opcode {}", op),
+                _ => todo_instr!(instruction),
             };
             self.write_to_sdst(sdst, ret as u32);
         }
@@ -255,7 +282,8 @@ impl CPU {
             self.vec_reg[vdst as usize] = match op {
                 1 => src as u32,
                 42 => (1.0 / f32::from_bits(src as u32)).to_bits(),
-                _ => todo!(),
+                56 => (src as u32).reverse_bits(),
+                _ => todo_instr!(instruction),
             };
         }
         // vopd
@@ -299,7 +327,7 @@ impl CPU {
                         8 => s0,
                         10 => f32::max(s0, s1),
                         18 => f32::from_bits(i[1] as u32 & i[2] as u32),
-                        _ => todo!(),
+                        _ => todo_instr!(instruction),
                     }
                     .to_bits();
                 });
@@ -339,7 +367,7 @@ impl CPU {
                         println!("{} {}", "EXEC_LO".color("pink"), self.exec_lo);
                     }
                 }
-                _ => todo!(),
+                _ => todo_instr!(instruction),
             };
         }
         // vop2
@@ -364,6 +392,13 @@ impl CPU {
             let s1 = f32::from_bits(vsrc1);
 
             self.vec_reg[vdst as usize] = match op {
+                1 => {
+                    if self.vcc_lo != 0 {
+                        vsrc1
+                    } else {
+                        ssrc0 as u32
+                    }
+                }
                 3 | 50 => (s0 + s1).to_bits(),
                 8 => (s0 * s1).to_bits(),
                 9 => ((ssrc0 as i32) * (vsrc1 as i32)) as u32,
@@ -398,7 +433,7 @@ impl CPU {
                     let d0 = f32::from_bits(self.vec_reg[vdst as usize]);
                     (s0 * s1 + d0).to_bits()
                 }
-                _ => todo!(),
+                _ => todo_instr!(instruction),
             };
         }
         // vop3
@@ -441,7 +476,7 @@ impl CPU {
                             self.vcc_lo = (temp >= 0x100000000) as u32;
                             self.vec_reg[vdst as usize] = temp as u32;
                         }
-                        _ => todo!(),
+                        _ => todo_instr!(instruction),
                     }
                 }
                 _ => {
@@ -476,6 +511,7 @@ impl CPU {
                     }
 
                     self.vec_reg[vdst as usize] = match op {
+                        18 => (s0 == s1) as u32,
                         259 => (s0 + s1).to_bits(),
                         264 => (s0 * s1).to_bits(),
                         272 => f32::max(s0, s1).to_bits(),
@@ -500,7 +536,7 @@ impl CPU {
                             self.vec_reg[vdst as usize + 1] = self.vec_reg[vsrc1_lo as usize + 1];
                             vsrc1_val_lo << src0 as u32
                         }
-                        _ => todo!(),
+                        _ => todo_instr!(instruction),
                     };
                 }
             }
@@ -543,7 +579,7 @@ impl CPU {
                     let data = self.vec_reg[data0 as usize];
                     self.lds.write(effective_addr, data);
                 }
-                _ => todo!(),
+                _ => todo_instr!(instruction),
             }
         }
         // global
@@ -570,10 +606,10 @@ impl CPU {
 
             let effective_addr = match self.resolve_src(saddr as u32) as u32 {
                 0x7F | _ if saddr as u32 == NULL_SRC => {
-                    self.vec_reg.read_addr(addr as usize).wrapping_add(offset)
+                    self.vec_reg.read64(addr as usize).wrapping_add(offset)
                 }
                 _ => {
-                    let scalar_addr = self.scalar_reg.read_addr(saddr as usize);
+                    let scalar_addr = self.scalar_reg.read64(saddr as usize);
                     let vgpr_offset = self.vec_reg[addr as usize];
                     scalar_addr + vgpr_offset as u64 + offset
                 }
@@ -592,7 +628,7 @@ impl CPU {
                         self.vec_reg[(data + i) as usize],
                     );
                 }),
-                _ => todo!(),
+                _ => todo_instr!(instruction),
             }
         } else {
             todo!("instruction={:08X}", instruction)
@@ -945,7 +981,7 @@ mod test_smem {
 
         // negative offset
         let mut cpu = _helper_test_cpu("s_load_b32_4");
-        cpu.scalar_reg.write_addr(0, 10000);
+        cpu.scalar_reg.write64(0, 10000);
         helper_test_s_load(cpu, 0xf4000000, 0xf81fffd8, &vec![42], 9960, 0);
     }
 
@@ -974,7 +1010,7 @@ mod test_smem {
         // negative offset
         let mut cpu = _helper_test_cpu("s_load_b64_3");
         cpu.scalar_reg[2] = 612;
-        cpu.scalar_reg.write_addr(2, 612);
+        cpu.scalar_reg.write64(2, 612);
         helper_test_s_load(cpu, 0xf4040301, 0xf81ffd9c, &data, 0, 12);
     }
 
@@ -994,12 +1030,12 @@ mod test_smem {
 
         let mut cpu = _helper_test_cpu("s_load_b128_2");
         let base_mem_addr: u64 = 0x10;
-        cpu.scalar_reg.write_addr(6, base_mem_addr);
+        cpu.scalar_reg.write64(6, base_mem_addr);
         helper_test_s_load(cpu, 0xf4080203, 0xf8000000, &data, base_mem_addr, 8);
 
         // negative offset
         let mut cpu = _helper_test_cpu("s_load_b128_3");
-        cpu.scalar_reg.write_addr(2, 0x10);
+        cpu.scalar_reg.write64(2, 0x10);
         helper_test_s_load(cpu, 0xf4080401, 0xf81ffff0, &data, 0, 16);
     }
 }
@@ -1024,7 +1060,7 @@ mod test_global {
         let val1: u32 = 20;
         let val2: u32 = 30;
         let base = 100;
-        cpu.vec_reg.write_addr(3, base);
+        cpu.vec_reg.write64(3, base);
         cpu.vec_reg[0] = val0;
         cpu.vec_reg[1] = val1;
         cpu.vec_reg[2] = val2;
@@ -1043,7 +1079,7 @@ mod test_global {
         cpu.gds.write(base, val0);
         cpu.gds.write(base + 4, val1);
         cpu.gds.write(base + 8, val2);
-        cpu.vec_reg.write_addr(0, base);
+        cpu.vec_reg.write64(0, base);
         cpu.interpret(&vec![0xdc5a0000, 0x007c0000, END_PRG]);
         assert_eq!(cpu.vec_reg[0], val0);
         assert_eq!(cpu.vec_reg[1], val1);
@@ -1058,7 +1094,7 @@ mod test_global {
         let val2: u32 = 30;
         let val3: u32 = 40;
         let base = 100;
-        cpu.vec_reg.write_addr(4, base);
+        cpu.vec_reg.write64(4, base);
         cpu.vec_reg[0] = val0;
         cpu.vec_reg[1] = val1;
         cpu.vec_reg[2] = val2;
@@ -1081,7 +1117,7 @@ mod test_global {
         cpu.gds.write(base + 4, val1);
         cpu.gds.write(base + 8, val2);
         cpu.gds.write(base + 12, val3);
-        cpu.vec_reg.write_addr(4, base);
+        cpu.vec_reg.write64(4, base);
         cpu.interpret(&vec![0xdc5e0000, 0x047c0004, END_PRG]);
         assert_eq!(cpu.vec_reg[4], val0);
         assert_eq!(cpu.vec_reg[5], val1);
@@ -1141,7 +1177,7 @@ mod test_real_world {
         for i in 0..global_size.0 {
             // allocate src registers
             cpu.scalar_reg.reset();
-            cpu.scalar_reg.write_addr(0, data0_ptr_addr);
+            cpu.scalar_reg.write64(0, data0_ptr_addr);
             println!("i={i}");
             cpu.scalar_reg[15] = i;
             cpu.interpret(&parse_rdna3_file("./tests/test_ops/test_add_simple.s"));

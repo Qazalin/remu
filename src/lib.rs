@@ -43,7 +43,7 @@ pub extern "C" fn hipModuleLaunchKernel(
     }
 
     let (prg, function_name) = &utils::read_asm(&lib_bytes);
-    if *DEBUG >= DebugLevel::MISC {
+    if *DEBUG >= DebugLevel::NONE {
         println!(
             "[remu] launching kernel {function_name} with global_size {} {} {} local_size {} {} {} args {:?}",
             grid_dim_x, grid_dim_y, grid_dim_z, block_dim_x, block_dim_y, block_dim_z, kernel_args
@@ -80,7 +80,7 @@ pub extern "C" fn hipModuleLaunchKernel(
                         cpu.vec_reg.values = val[1].clone();
                     }
                     None => {
-                        cpu.scalar_reg.write_addr(0, stack_ptr);
+                        cpu.scalar_reg.write64(0, stack_ptr);
                         cpu.scalar_reg[15] = i;
                         cpu.vec_reg[0] = j;
                     }

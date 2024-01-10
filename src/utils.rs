@@ -120,7 +120,8 @@ Disassembly of section .text:
 	s_load_b64 s[0:1], s[0:1], null                            // 000000001600: F4040000 F8000000
 	v_dual_mov_b32 v0, 0 :: v_dual_mov_b32 v1, 4               // 000000001608: CA100080 00000084
 ",
-        );
+        )
+        .0;
         assert_eq!(instructions.len(), 4);
         let hexed = instructions
             .iter()
@@ -191,7 +192,14 @@ pub fn read_asm(lib: &Vec<u8>) -> (Vec<u32>, String) {
         let asm_map = read_json_to_hashmap("/tmp/asms.json").unwrap();
         let code = String::from_utf8(lib.to_vec()).unwrap();
         let asm = asm_map.get(&code).unwrap();
-        return parse_rdna3(&asm.to_string());
+        let (base_rdna3, name) = parse_rdna3(&asm.to_string());
+        let asm_override = fs::read_to_string("/tmp/compiled.s")
+            .unwrap()
+            .split("-------------------------")
+            .map(|x| parse_rdna3(x))
+            .find(|(x, n)| n == &name)
+            .unwrap();
+        return asm_override;
     }
     let mut child = Command::new("/opt/rocm/llvm/bin/llvm-objdump")
         .args(&["-d", "-"])
@@ -239,4 +247,19 @@ fn read_json_to_hashmap(file_path: &str) -> io::Result<HashMap<String, String>> 
             "Invalid JSON structure",
         ))
     }
+}
+
+#[macro_export]
+macro_rules! todo_instr {
+    ($x:expr) => {{
+        let instr = format!("{:08X}", $x);
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        Command::new("pbcopy")
+            .stdin(Stdio::piped())
+            .spawn()
+            .and_then(|mut process| process.stdin.as_mut().unwrap().write_all(instr.as_bytes()))
+            .unwrap();
+        std::panic!("TODO instruction {instr}");
+    }};
 }

@@ -1,3 +1,4 @@
 /target
 extra/run.sh
 extra/prg.py
+extra/bitfields.py
