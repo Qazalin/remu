@@ -27,7 +27,7 @@ pub static DEBUG: Lazy<DebugLevel> = Lazy::new(|| {
         2 => DebugLevel::STATE,
         3 => DebugLevel::MEMORY,
         4 => DebugLevel::MISC,
-        _ => panic!()
+        _ => panic!(),
     }
 });
 
@@ -40,10 +40,10 @@ pub static SGPR_INDEX: Lazy<Option<i32>> = Lazy::new(|| {
 });
 pub fn parse_rdna3_file(file_path: &str) -> Vec<u32> {
     let content = fs::read_to_string(file_path).unwrap();
-    parse_rdna3(&content)
+    parse_rdna3(&content).0
 }
 
-fn parse_rdna3(content: &str) -> Vec<u32> {
+fn parse_rdna3(content: &str) -> (Vec<u32>, String) {
     if *DEBUG >= DebugLevel::MISC {
         println!(
             "{}",
@@ -55,7 +55,15 @@ fn parse_rdna3(content: &str) -> Vec<u32> {
         );
     }
     let mut kernel = content.lines().skip(5);
-    let _name = kernel.nth(0).unwrap();
+    let name = kernel
+        .nth(0)
+        .unwrap()
+        .split(" ")
+        .nth(1)
+        .unwrap()
+        .replace(":", "")
+        .replace("<", "")
+        .replace(">", "");
     let instructions = kernel
         .map(|line| {
             line.split_whitespace()
@@ -65,7 +73,7 @@ fn parse_rdna3(content: &str) -> Vec<u32> {
         .flatten()
         .map(|x| u32::from_str_radix(x, 16).unwrap())
         .collect::<Vec<u32>>();
-    return instructions;
+    return (instructions, name.to_string());
 }
 
 pub fn split_asm_by_thread_syncs(instructions: &Vec<u32>) -> Vec<Vec<u32>> {
@@ -175,7 +183,7 @@ impl<'a> Colorize for &'a str {
     }
 }
 
-pub fn read_asm(lib: &Vec<u8>) -> Vec<u32> {
+pub fn read_asm(lib: &Vec<u8>) -> (Vec<u32>, String) {
     let mut child = Command::new("/opt/rocm/llvm/bin/llvm-objdump")
         .args(&["-d", "-"])
         .stdin(Stdio::piped())

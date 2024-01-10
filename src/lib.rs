@@ -42,9 +42,10 @@ pub extern "C" fn hipModuleLaunchKernel(
         }
     }
 
+    let (prg, function_name) = &utils::read_asm(&lib_bytes);
     if *DEBUG >= DebugLevel::MISC {
         println!(
-            "[remu] launching kernel with global_size {} {} {} local_size {} {} {} args {:?}",
+            "[remu] launching kernel {function_name} with global_size {} {} {} local_size {} {} {} args {:?}",
             grid_dim_x, grid_dim_y, grid_dim_z, block_dim_x, block_dim_y, block_dim_z, kernel_args
         );
     }
@@ -55,7 +56,7 @@ pub extern "C" fn hipModuleLaunchKernel(
         gds.write_bytes(stack_ptr + i as u64 * 8, &x.to_le_bytes());
     });
 
-    let prg = utils::split_asm_by_thread_syncs(&utils::read_asm(&lib_bytes));
+    let prg = utils::split_asm_by_thread_syncs(&prg);
     for i in 0..grid_dim_x {
         let mut thread_registers = HashMap::<u32, [Vec<u32>; 2]>::new();
         for prg in prg.iter() {

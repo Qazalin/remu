@@ -100,7 +100,7 @@ impl CPU {
             let effective_addr = (base_addr as i64 + offset + soffset as i64) as u64;
 
             match op {
-                0..=3 => (0..2_usize.pow(op as u32)).for_each(|i| {
+                0..=4 => (0..2_usize.pow(op as u32)).for_each(|i| {
                     self.scalar_reg[sdata + i] = self.gds.read(effective_addr + (4 * i as u64));
                 }),
                 _ => todo!(),
@@ -208,9 +208,17 @@ impl CPU {
                     temp as u64
                 }
                 12 => (ssrc0 >> (ssrc1 & 0x1F)) as u64,
+                18 => {
+                    self.scc = (ssrc0 < ssrc1) as u32;
+                    if self.scc != 0 {
+                        ssrc0 as u64
+                    } else {
+                        ssrc1 as u64
+                    }
+                }
                 20 => {
                     self.scc = (ssrc0 > ssrc1) as u32;
-                    if self.scc == 1 {
+                    if self.scc != 0 {
                         ssrc0 as u64
                     } else {
                         ssrc1 as u64
@@ -582,7 +590,7 @@ impl CPU {
                     self.gds.write(
                         effective_addr + (4 * i as u64),
                         self.vec_reg[(data + i) as usize],
-                    )
+                    );
                 }),
                 _ => todo!(),
             }
