@@ -1,4 +1,4 @@
-pub trait DType: Copy + 'static {}
+pub trait DType: Copy + 'static + core::fmt::Debug {}
 macro_rules! impl_dtype_for {
     ($($t:ty),*) => {
         $(impl DType for $t {})*

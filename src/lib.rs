@@ -1,6 +1,6 @@
 use crate::allocator::BumpAllocator;
 use crate::cpu::CPU;
-use crate::utils::{Colorize, DEBUG};
+use crate::utils::{Colorize, DebugLevel, DEBUG};
 use std::collections::HashMap;
 use std::os::raw::{c_char, c_void};
 mod allocator;
@@ -42,7 +42,7 @@ pub extern "C" fn hipModuleLaunchKernel(
         }
     }
 
-    if *DEBUG >= 1 {
+    if *DEBUG >= DebugLevel::MISC {
         println!(
             "[remu] launching kernel with global_size {} {} {} local_size {} {} {} args {:?}",
             grid_dim_x, grid_dim_y, grid_dim_z, block_dim_x, block_dim_y, block_dim_z, kernel_args
@@ -63,7 +63,7 @@ pub extern "C" fn hipModuleLaunchKernel(
                 let lds = BumpAllocator::new(&format!("{WAVE_ID}_lds{i}"));
                 let gds = BumpAllocator::new(WAVE_ID);
                 let mut cpu = CPU::new(gds, lds);
-                if *DEBUG >= 1 {
+                if *DEBUG >= DebugLevel::MISC {
                     println!(
                         "{}={}, {}={}",
                         "blockIdx.x".color("jade"),
@@ -101,7 +101,7 @@ pub extern "C" fn hipMalloc(ptr: *mut c_void, size: u32) {
         *data_ptr = gds.alloc(size);
     }
 
-    if *DEBUG >= 1 {
+    if *DEBUG >= DebugLevel::MISC {
         println!("[remu] hipMalloc({})", size);
     }
 }

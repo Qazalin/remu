@@ -7,11 +7,28 @@ use std::{env, fs, str};
 const END_PRG: u32 = 0xbfb00000;
 const WAIT_CNT_0: u32 = 0xBF89FC07;
 
-pub static DEBUG: Lazy<i32> = Lazy::new(|| {
-    env::var("REMU_DEBUG")
+#[derive(PartialEq, PartialOrd)]
+pub enum DebugLevel {
+    NONE,
+    INSTRUCTION,
+    STATE,
+    MEMORY,
+    MISC,
+}
+
+pub static DEBUG: Lazy<DebugLevel> = Lazy::new(|| {
+    let var = env::var("REMU_DEBUG")
         .unwrap_or_default()
         .parse::<i32>()
-        .unwrap_or(0)
+        .unwrap_or(0);
+    match var {
+        0 => DebugLevel::NONE,
+        1 => DebugLevel::INSTRUCTION,
+        2 => DebugLevel::STATE,
+        3 => DebugLevel::MEMORY,
+        4 => DebugLevel::MISC,
+        _ => panic!()
+    }
 });
 
 pub static SGPR_INDEX: Lazy<Option<i32>> = Lazy::new(|| {
@@ -27,7 +44,7 @@ pub fn parse_rdna3_file(file_path: &str) -> Vec<u32> {
 }
 
 fn parse_rdna3(content: &str) -> Vec<u32> {
-    if *DEBUG >= 4 {
+    if *DEBUG >= DebugLevel::MISC {
         println!(
             "{}",
             content
@@ -114,7 +131,7 @@ Disassembly of section .text:
         assert_eq!(twos_complement_21bit(0b000111111111111111111), 262143);
     }
 
-        #[test]
+    #[test]
     fn test_split_asm_by_thread_syncs() {
         let mut p1: Vec<u32> = vec![1, 2, 3, 4];
         let mut p2: Vec<u32> = vec![5, 6, WAIT_CNT_0, 4];
@@ -151,6 +168,7 @@ impl<'a> Colorize for &'a str {
             "blue" => format!("\x1b[{};2;112;184;255m", 38),
             "jade" => format!("\x1b[{};2;39;176;139m", 38),
             "pink" => format!("\x1b[{};2;238;81;138m", 38),
+            "yellow" => format!("\x1b[{};2;212;255;112m", 38),
             _ => format!("\x1b[{};2;255;255;255m", 38), // default white
         };
         format!("{}{}{}", ansi_code, self, "\x1b[0m")

@@ -1,4 +1,5 @@
 use crate::dtype::DType;
+use crate::utils::{Colorize, DebugLevel, DEBUG};
 use core::mem;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -29,11 +30,17 @@ impl BumpAllocator {
         let bytes = self.read_bytes(addr, mem::size_of::<D>());
         unsafe {
             let ptr = bytes.as_ptr() as *const D;
+            if *DEBUG >= DebugLevel::MEMORY {
+                println!("{} {} {:?}", "READ".color("yellow"), addr, *ptr);
+            }
             *ptr
         }
     }
 
     pub fn write<D: DType>(&mut self, addr: u64, val: D) {
+        if *DEBUG >= DebugLevel::MEMORY {
+            println!("{} {} {:?}", "WRITE".color("yellow"), addr, val);
+        }
         let mut bytes = vec![0; mem::size_of::<D>()];
         unsafe {
             let ptr = bytes.as_mut_ptr() as *mut D;

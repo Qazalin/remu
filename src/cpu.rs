@@ -1,6 +1,6 @@
 use crate::allocator::BumpAllocator;
 use crate::state::RegisterGroup;
-use crate::utils::{twos_complement_21bit, Colorize, DEBUG};
+use crate::utils::{twos_complement_21bit, Colorize, DebugLevel, DEBUG};
 
 const SGPR_COUNT: u32 = 105;
 const VGPR_COUNT: u32 = 256;
@@ -83,7 +83,7 @@ impl CPU {
                 _ => 0, // TODO soffset is not implemented
             };
 
-            if *DEBUG >= 1 {
+            if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
                     "{} sbase={} sdata={} dlc={} glc={} op={} offset={} soffset={}",
                     "SMEM".color("blue"),
@@ -112,7 +112,7 @@ impl CPU {
             let op = (instruction >> 8) & 0xFF;
             let sdst = (instruction >> 16) & 0x7F;
 
-            if *DEBUG >= 1 {
+            if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
                     "{} ssrc0={} sdst={} op={}",
                     "SOP1".color("blue"),
@@ -135,7 +135,7 @@ impl CPU {
             let ssrc1 = self.resolve_src((instruction >> 8) & 0xff);
             let op = (instruction >> 16) & 0x7f;
 
-            if *DEBUG >= 1 {
+            if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
                     "{} ssrc0={} ssrc1={} op={}",
                     "SOPC".color("blue"),
@@ -153,7 +153,7 @@ impl CPU {
                 _ => todo!(),
             };
 
-            if *DEBUG >= 2 {
+            if *DEBUG >= DebugLevel::STATE {
                 println!("{} {}", "SCC".color("pink"), self.scc);
             }
         }
@@ -162,7 +162,7 @@ impl CPU {
             let simm16 = instruction & 0xffff;
             let op = (instruction >> 16) & 0x7f;
 
-            if *DEBUG >= 1 {
+            if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!("{} simm16={} op={}", "SOPP".color("blue"), simm16, op);
             }
 
@@ -182,7 +182,7 @@ impl CPU {
             let sdst = (instruction >> 16) & 0x7F;
             let op = (instruction >> 23) & 0xFF;
 
-            if *DEBUG >= 1 {
+            if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
                     "{} ssrc0={} ssrc1={} sdst={} op={}",
                     "SOP2".color("blue"),
@@ -234,7 +234,7 @@ impl CPU {
             let op = (instruction >> 9) & 0xff;
             let vdst = (instruction >> 17) & 0xff;
 
-            if *DEBUG >= 1 {
+            if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
                     "{} src={} op={} vdst={}",
                     "VOP1".color("blue"),
@@ -266,7 +266,7 @@ impl CPU {
             // LSB is the opposite of VDSTX[0]
             let vdsty = ((instr >> 49) & 0x7f) << 1 | ((vdstx & 1) ^ 1);
 
-            if *DEBUG >= 1 {
+            if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
                     "{} X=[op={}, dest={} src={}, vsrc={}] Y=[op={}, dest={}, src={}, vsrc={}]",
                     "VOPD".color("blue"),
@@ -302,7 +302,7 @@ impl CPU {
             let vsrc1 = self.vec_reg[((instruction >> 9) & 0xff) as usize];
             let op = (instruction >> 17) & 0xff;
 
-            if *DEBUG >= 1 {
+            if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
                     "{} src0={} vsrc1={} op={}",
                     "VOPC".color("blue"),
@@ -315,19 +315,19 @@ impl CPU {
             match op {
                 18 => {
                     self.vcc_lo = (f32::from_bits(src0 as u32) == f32::from_bits(vsrc1)) as u32;
-                    if *DEBUG >= 2 {
+                    if *DEBUG >= DebugLevel::STATE {
                         println!("{} {}", "VCC".color("pink"), self.vcc_lo);
                     }
                 }
                 68 => {
                     self.vcc_lo = (src0 as i32 > vsrc1 as i32) as u32;
-                    if *DEBUG >= 2 {
+                    if *DEBUG >= DebugLevel::STATE {
                         println!("{} {}", "VCC".color("pink"), self.vcc_lo);
                     }
                 }
                 202 => {
                     self.exec_lo = ((src0 as u32) == vsrc1) as u32;
-                    if *DEBUG >= 2 {
+                    if *DEBUG >= DebugLevel::STATE {
                         println!("{} {}", "EXEC_LO".color("pink"), self.exec_lo);
                     }
                 }
@@ -341,7 +341,7 @@ impl CPU {
             let vdst = (instruction >> 17) & 0xFF;
             let op = (instruction >> 25) & 0x3F;
 
-            if *DEBUG >= 1 {
+            if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
                     "{} ssrc0={} vsrc1={} vdst={} op={}",
                     "VOP2".color("blue"),
@@ -368,7 +368,7 @@ impl CPU {
                 32 => {
                     let temp = ssrc0 as u64 + vsrc1 as u64 + self.vcc_lo as u64;
                     self.vcc_lo = if temp >= 0x100000000 { 1 } else { 0 };
-                    if *DEBUG >= 2 {
+                    if *DEBUG >= DebugLevel::STATE {
                         println!("{} {}", "VCC".color("pink"), self.vcc_lo);
                     }
                     temp as u32
@@ -407,7 +407,7 @@ impl CPU {
                     let src2 = self.resolve_src(((instr >> 50) & 0x1ff) as u32);
                     let omod = (instr >> 59) & 0x3;
                     let neg = (instr >> 61) & 0x7;
-                    if *DEBUG >= 1 {
+                    if *DEBUG >= DebugLevel::INSTRUCTION {
                         println!(
                             "{} vdst={} sdst={} op={} src0={} src1={} src2={} omod={} neg={}",
                             "VOP3SD".color("blue"),
@@ -448,7 +448,7 @@ impl CPU {
                     let omod = (instr >> 59) & 0x3;
                     let neg = (instr >> 61) & 0x7;
 
-                    if *DEBUG >= 1 {
+                    if *DEBUG >= DebugLevel::INSTRUCTION {
                         println!("{} vdst={} abs={} opsel={} op={} src0={} src1={} src2={} omod={} neg=0b{:03b}", "VOP3".color("blue"), vdst, abs, opsel, op, src0, src1, src2, omod, neg);
                     }
 
@@ -508,7 +508,7 @@ impl CPU {
             let data1 = (instr >> 48) & 0xff;
             let vdst = (instr >> 56) & 0xff;
 
-            if *DEBUG >= 1 {
+            if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
                     "{} offset0={} offset1={} op={} addr={} data0={} data1={} vdst={}",
                     "LDS".color("blue"),
@@ -548,7 +548,7 @@ impl CPU {
             let saddr = (instr >> 48) & 0x7f;
             let vdst = (instr >> 56) & 0xff;
 
-            if *DEBUG >= 1 {
+            if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
                     "{} addr={} data={} saddr={} op={} offset={}",
                     "GLOBAL".color("blue"),
@@ -615,7 +615,7 @@ impl CPU {
             0..=SGPR_COUNT => self.scalar_reg[sdst_bf as usize] = val,
             106 => {
                 self.vcc_lo = val;
-                if *DEBUG >= 2 {
+                if *DEBUG >= DebugLevel::STATE {
                     println!("{} {}", "VCC".color("pink"), self.vcc_lo);
                 }
             }

@@ -1,5 +1,5 @@
 #![allow(unused)]
-use crate::utils::{Colorize, DEBUG, SGPR_INDEX};
+use crate::utils::{Colorize, DebugLevel, DEBUG, SGPR_INDEX};
 use std::ops::{Index, IndexMut};
 
 pub struct RegisterGroup {
@@ -36,7 +36,7 @@ impl Index<usize> for RegisterGroup {
     type Output = u32;
 
     fn index(&self, index: usize) -> &Self::Output {
-        if *DEBUG >= 3 || Some(index as i32) == *SGPR_INDEX {
+        if *DEBUG >= DebugLevel::STATE || Some(index as i32) == *SGPR_INDEX {
             println!("{} read {}", self.name.color("pink"), index);
         }
         &self.values[index]
@@ -51,7 +51,7 @@ impl IndexMut<usize> for RegisterGroup {
             index,
             self.count
         );
-        if *DEBUG >= 3 || Some(index as i32) == *SGPR_INDEX {
+        if *DEBUG >= DebugLevel::STATE || Some(index as i32) == *SGPR_INDEX {
             println!("{} write {}", self.name.color("pink"), index);
         }
         &mut self.values[index]
