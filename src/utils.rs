@@ -14,8 +14,8 @@ const WAIT_CNT_0: u32 = 0xBF89FC07;
 pub enum DebugLevel {
     NONE,
     INSTRUCTION,
-    STATE,
     MEMORY,
+    STATE,
     MISC,
 }
 
@@ -27,8 +27,8 @@ pub static DEBUG: Lazy<DebugLevel> = Lazy::new(|| {
     match var {
         0 => DebugLevel::NONE,
         1 => DebugLevel::INSTRUCTION,
-        2 => DebugLevel::STATE,
-        3 => DebugLevel::MEMORY,
+        2 => DebugLevel::MEMORY,
+        3 => DebugLevel::STATE,
         4 => DebugLevel::MISC,
         _ => panic!(),
     }

@@ -35,6 +35,49 @@ impl CPU {
             prg: vec![],
         };
     }
+    pub fn interpret_debug(&mut self, prg: &Vec<u32>) {
+        self.pc = 0;
+        self.vcc_lo = 0;
+        self.exec_lo = 0;
+        self.prg = prg
+            .iter()
+            .filter(|x| !(NOOPS.contains(x) || *x >> 20 == 0xbf8))
+            .map(|x| *x)
+            .collect::<Vec<u32>>();
+
+        let history_file = "/tmp/.remu-debug";
+        let mut inter = interaction::InteractionBuilder::new()
+            .prompt_str("remu> ")
+            .history_limit(5)
+            .load_history(history_file)
+            .unwrap()
+            .build();
+        loop {
+            let cmd = String::from_utf8(inter.line().unwrap()).unwrap();
+            if cmd == "" {
+                let instruction = self.prg[self.pc as usize];
+                self.pc += 1;
+                if instruction == END_PRG {
+                    break;
+                }
+                self.exec(instruction);
+            } else if cmd.starts_with("saddr") {
+                let idx = cmd.replace("saddr", "").parse::<usize>().unwrap();
+                println!("{}", self.scalar_reg.read64(idx));
+            } else if cmd.starts_with("sf") {
+                let idx = cmd.replace("sf", "").parse::<usize>().unwrap();
+                println!("{}", f32::from_bits(self.scalar_reg[idx]));
+            } else if cmd.starts_with("v") {
+                let idx = cmd.replace("v", "").parse::<usize>().unwrap();
+                println!("{}", self.vec_reg[idx]);
+            } else if cmd.starts_with("s") {
+                let idx = cmd.replace("s", "").parse::<usize>().unwrap();
+                println!("{}", self.scalar_reg[idx]);
+            } else {
+                continue;
+            }
+        }
+    }
 
     pub fn interpret(&mut self, prg: &Vec<u32>) {
         self.pc = 0;
@@ -175,7 +218,7 @@ impl CPU {
                         _ => todo_instr!(instruction),
                     };
                     if should_jump {
-                        self.pc += simm16 as u64
+                        self.pc += simm16 as u64;
                     }
                 }
                 _ => todo_instr!(instruction),
@@ -192,7 +235,7 @@ impl CPU {
                     "{} simm16={} sdst={} op={}",
                     "SOPK".color("blue"),
                     simm16,
-                    sdst,
+                    self.resolve_src(sdst),
                     op
                 );
             }
