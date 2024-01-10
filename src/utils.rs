@@ -1,5 +1,8 @@
 #![allow(unused)]
 use once_cell::sync::Lazy;
+use serde_json::Value;
+use std::collections::HashMap;
+use std::io::{self, Read};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 use std::{env, fs, str};
@@ -184,6 +187,12 @@ impl<'a> Colorize for &'a str {
 }
 
 pub fn read_asm(lib: &Vec<u8>) -> (Vec<u32>, String) {
+    if std::env::consts::OS == "macos" {
+        let asm_map = read_json_to_hashmap("/tmp/asms.json").unwrap();
+        let code = String::from_utf8(lib.to_vec()).unwrap();
+        let asm = asm_map.get(&code).unwrap();
+        return parse_rdna3(&asm.to_string());
+    }
     let mut child = Command::new("/opt/rocm/llvm/bin/llvm-objdump")
         .args(&["-d", "-"])
         .stdin(Stdio::piped())
@@ -203,5 +212,31 @@ pub fn read_asm(lib: &Vec<u8>) -> (Vec<u32>, String) {
     } else {
         let err = String::from_utf8_lossy(&output.stderr);
         panic!("Command failed with error: {}", err);
+    }
+}
+
+fn read_json_to_hashmap(file_path: &str) -> io::Result<HashMap<String, String>> {
+    let mut file = fs::File::open(file_path)?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+
+    let json: Value = serde_json::from_str(&contents)?;
+    if let Value::Object(map) = json {
+        let hashmap: HashMap<String, String> = map
+            .into_iter()
+            .filter_map(|(k, v)| {
+                if let Value::String(s) = v {
+                    Some((k, s))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        Ok(hashmap)
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            "Invalid JSON structure",
+        ))
     }
 }
