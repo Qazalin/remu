@@ -64,6 +64,9 @@ impl CPU {
             } else if cmd.starts_with("saddr") {
                 let idx = cmd.replace("saddr", "").parse::<usize>().unwrap();
                 println!("{}", self.scalar_reg.read64(idx));
+            } else if cmd.starts_with("vf") {
+                let idx = cmd.replace("vf", "").parse::<usize>().unwrap();
+                println!("{}", f32::from_bits(self.vec_reg[idx]));
             } else if cmd.starts_with("sf") {
                 let idx = cmd.replace("sf", "").parse::<usize>().unwrap();
                 println!("{}", f32::from_bits(self.scalar_reg[idx]));
@@ -213,12 +216,12 @@ impl CPU {
             match op {
                 32..=42 => {
                     let should_jump = match op {
-                        33 => self.scc == 1,
+                        33 => self.scc == 0,
                         37 => self.exec_lo == 0,
                         _ => todo_instr!(instruction),
                     };
                     if should_jump {
-                        self.pc += simm16 as u64;
+                        self.pc = (self.pc as i64 + simm16 as i64) as u64;
                     }
                 }
                 _ => todo_instr!(instruction),

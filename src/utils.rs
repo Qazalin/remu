@@ -193,13 +193,11 @@ pub fn read_asm(lib: &Vec<u8>) -> (Vec<u32>, String) {
         let code = String::from_utf8(lib.to_vec()).unwrap();
         let asm = asm_map.get(&code).unwrap();
         let (base_rdna3, name) = parse_rdna3(&asm.to_string());
-        let asm_override = fs::read_to_string("/tmp/compiled.s")
-            .unwrap()
-            .split("-------------------------")
-            .map(|x| parse_rdna3(x))
-            .find(|(x, n)| n == &name)
-            .unwrap();
-        return asm_override;
+        let prg = match std::fs::metadata(format!("/tmp/{name}.s")) {
+            Ok(_) => parse_rdna3(&fs::read_to_string(format!("/tmp/{name}.s")).unwrap()).0,
+            Err(_) => base_rdna3,
+        };
+        return (prg, name);
     }
     let mut child = Command::new("/opt/rocm/llvm/bin/llvm-objdump")
         .args(&["-d", "-"])
