@@ -336,13 +336,20 @@ impl CPU {
         else if instruction >> 26 == 0b110010 {
             let instr = self.u64_instr();
 
-            let srcx0 = self.resolve_src((instr & 0x1ff) as u32) as u64;
-            let vsrcx1 = self.vec_reg[((instr >> 9) & 0xff) as usize] as u64;
+            let sx = instr & 0x1ff;
+            let vx = (instr >> 9) & 0xff;
+            let srcx0 = self.resolve_src((sx) as u32) as u64;
+            let vsrcx1 = self.vec_reg[(vx) as usize] as u64;
             let opy = (instr >> 17) & 0x1f;
 
+            let sy = (instr >> 32) & 0x1ff;
+            let vy = (instr >> 41) & 0xff;
             let opx = (instr >> 22) & 0xf;
-            let srcy0 = self.resolve_src(((instr >> 32) & 0x1ff) as u32) as u64;
-            let vsrcy1 = self.vec_reg[((instr >> 41) & 0xff) as usize] as u64;
+            let srcy0 = match sx {
+                255 => srcx0,
+                _ => self.resolve_src((sy) as u32) as u64,
+            };
+            let vsrcy1 = self.vec_reg[(vy) as usize] as u64;
 
             let vdstx = (instr >> 56) & 0xff;
             // LSB is the opposite of VDSTX[0]
@@ -533,15 +540,19 @@ impl CPU {
                     let abs = (instr >> 8) & 0x7;
                     let opsel = (instr >> 11) & 0xf;
 
-                    let src0 = self.resolve_src(((instr >> 32) & 0x1ff) as u32);
-                    let src1 = self.resolve_src(((instr >> 41) & 0x1ff) as u32);
-                    let src2 = self.resolve_src(((instr >> 50) & 0x1ff) as u32);
+                    let s0_bf = ((instr >> 32) & 0x1ff) as u32;
+                    let s1_bf = ((instr >> 41) & 0x1ff) as u32;
+                    let s2_bf = ((instr >> 50) & 0x1ff) as u32;
+
+                    let src0 = self.resolve_src(s0_bf);
+                    let src1 = self.resolve_src(s1_bf);
+                    let src2 = self.resolve_src(s2_bf);
 
                     let omod = (instr >> 59) & 0x3;
                     let neg = (instr >> 61) & 0x7;
 
                     if *DEBUG >= DebugLevel::INSTRUCTION {
-                        println!("{} vdst={} abs={} opsel={} op={} src0={} src1={} src2={} omod={} neg=0b{:03b}", "VOP3".color("blue"), vdst, abs, opsel, op, src0, src1, src2, omod, neg);
+                        println!("{} vdst={} abs={} opsel={} op={} src0({})={} src1({})={} src2({})={} omod={} neg=0b{:03b}", "VOP3".color("blue"), vdst, abs, opsel, op, s0_bf, src0, s1_bf, src1, s2_bf, src2, omod, neg);
                     }
 
                     let mut s0 = f32::from_bits(src0 as u32);
@@ -596,10 +607,9 @@ impl CPU {
                                 522 => ((src0 as i32) * (src1 as i32) + (src2 as i32)) as u32,
                                 523 => (src0 as u32 * src1 as u32) + src2 as u32,
                                 528 => {
-                                    let offset = src0 as u32 & 0x1f;
-                                    let width = src1 as u32 & 0x1f;
-                                    let mask = if width == 0 { 0 } else { (1 << width) - 1 };
-                                    (src0 as u32 >> offset) & mask
+                                    let a = (src0 as u32) >> (src1 as u32);
+                                    let b = (1 << (src2 as u32)) - 1;
+                                    a & b
                                 }
                                 540 => f32::max(f32::max(s0, s1), s2).to_bits(),
                                 582 => ((src0 as u32) << (src1 as u32)) + src2 as u32,

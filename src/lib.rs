@@ -57,37 +57,49 @@ pub extern "C" fn hipModuleLaunchKernel(
     });
 
     let prg = utils::split_asm_by_thread_syncs(&prg);
-    for i in 0..grid_dim_x {
-        let mut thread_registers = HashMap::<u32, [Vec<u32>; 2]>::new();
-        for prg in prg.iter() {
-            for j in 0..block_dim_x {
-                let lds = BumpAllocator::new(&format!("{WAVE_ID}_lds{i}"));
-                let gds = BumpAllocator::new(WAVE_ID);
-                let mut cpu = CPU::new(gds, lds);
-                if *DEBUG >= DebugLevel::MISC {
-                    println!(
-                        "{}={}, {}={}",
-                        "blockIdx.x".color("jade"),
-                        i,
-                        "threadIdx.x".color("jade"),
-                        j
-                    );
-                }
+    for gx in 0..grid_dim_x {
+        for gy in 0..grid_dim_y {
+            let mut thread_registers = HashMap::<[u32; 2], [Vec<u32>; 2]>::new();
+            for prg in prg.iter() {
+                for tx in 0..block_dim_x {
+                    for ty in 0..block_dim_y {
+                        let lds = BumpAllocator::new(&format!("{WAVE_ID}_lds{tx}"));
+                        let gds = BumpAllocator::new(WAVE_ID);
+                        let mut cpu = CPU::new(gds, lds);
+                        if *DEBUG >= DebugLevel::MISC {
+                            println!(
+                                "{}=({}, {}), {}=({}, {})",
+                                "block".color("jade"),
+                                gx,
+                                gy,
+                                "thread".color("jade"),
+                                tx,
+                                ty
+                            );
+                        }
 
-                match thread_registers.get(&j) {
-                    Some(val) => {
-                        cpu.scalar_reg.values = val[0].clone();
-                        cpu.vec_reg.values = val[1].clone();
-                    }
-                    None => {
-                        cpu.scalar_reg.write64(0, stack_ptr);
-                        cpu.scalar_reg[15] = i;
-                        cpu.vec_reg[0] = j;
+                        match thread_registers.get(&[tx, ty]) {
+                            Some(val) => {
+                                cpu.scalar_reg.values = val[0].clone();
+                                cpu.vec_reg.values = val[1].clone();
+                            }
+                            None => {
+                                cpu.scalar_reg.write64(0, stack_ptr);
+                                if grid_dim_x != 1 && grid_dim_y != 1 {
+                                    cpu.scalar_reg[14] = gx;
+                                    cpu.scalar_reg[15] = gy;
+                                } else {
+                                    cpu.scalar_reg[15] = gx;
+                                }
+                                cpu.vec_reg[0] = (1 << 20) | (ty << 10) | (tx);
+                            }
+                        }
+
+                        cpu.interpret(&prg);
+                        thread_registers
+                            .insert([tx, ty], [cpu.scalar_reg.values, cpu.vec_reg.values]);
                     }
                 }
-
-                cpu.interpret(&prg);
-                thread_registers.insert(j, [cpu.scalar_reg.values, cpu.vec_reg.values]);
             }
         }
     }
