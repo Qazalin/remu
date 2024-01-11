@@ -556,33 +556,50 @@ impl CPU {
                         s2 = -s2;
                     }
 
-                    self.vec_reg[vdst as usize] = match op {
-                        18 => (s0 == s1) as u32,
-                        259 => (s0 + s1).to_bits(),
-                        264 => (s0 * s1).to_bits(),
-                        272 => f32::max(s0, s1).to_bits(),
-                        531 | 567 => (s0 * s1 + s2).to_bits(),
-                        541 => i32::max(i32::max(src0, src1), src2) as u32,
-                        551 => (s2 / s1).to_bits(),
-                        257 => {
-                            if src2 != 0 {
-                                s1.to_bits()
-                            } else {
-                                s0.to_bits()
+                    match op {
+                        // VOPC using VOP3 encoding
+                        0..=255 => {
+                            let ret = match op {
+                                18 => s0 == s1,
+                                _ => todo_instr!(instruction),
+                            } as u32;
+
+                            match vdst {
+                                106 => self.vcc_lo = ret,
+                                _ => todo_instr!(instruction),
                             }
                         }
-                        522 => ((src0 as i32) * (src1 as i32) + (src2 as i32)) as u32,
-                        523 => (src0 as u32 * src1 as u32) + src2 as u32,
-                        540 => f32::max(f32::max(s0, s1), s2).to_bits(),
-                        582 => ((src0 as u32) << (src1 as u32)) + src2 as u32,
-                        598 => ((src0 as u32) << (src1 as u32)) | src2 as u32,
-                        828 => {
-                            let vsrc1_lo = ((instr >> 41) & 0x1ff) - VGPR_COUNT as u64;
-                            let vsrc1_val_lo = self.vec_reg[vsrc1_lo as usize];
-                            self.vec_reg[vdst as usize + 1] = self.vec_reg[vsrc1_lo as usize + 1];
-                            vsrc1_val_lo << src0 as u32
+                        _ => {
+                            // other VOPC ops
+                            self.vec_reg[vdst as usize] = match op {
+                                259 => (s0 + s1).to_bits(),
+                                264 => (s0 * s1).to_bits(),
+                                272 => f32::max(s0, s1).to_bits(),
+                                531 | 567 => (s0 * s1 + s2).to_bits(),
+                                541 => i32::max(i32::max(src0, src1), src2) as u32,
+                                551 => (s2 / s1).to_bits(),
+                                257 => {
+                                    if src2 != 0 {
+                                        s1.to_bits()
+                                    } else {
+                                        s0.to_bits()
+                                    }
+                                }
+                                522 => ((src0 as i32) * (src1 as i32) + (src2 as i32)) as u32,
+                                523 => (src0 as u32 * src1 as u32) + src2 as u32,
+                                540 => f32::max(f32::max(s0, s1), s2).to_bits(),
+                                582 => ((src0 as u32) << (src1 as u32)) + src2 as u32,
+                                598 => ((src0 as u32) << (src1 as u32)) | src2 as u32,
+                                828 => {
+                                    let vsrc1_lo = ((instr >> 41) & 0x1ff) - VGPR_COUNT as u64;
+                                    let vsrc1_val_lo = self.vec_reg[vsrc1_lo as usize];
+                                    self.vec_reg[vdst as usize + 1] =
+                                        self.vec_reg[vsrc1_lo as usize + 1];
+                                    vsrc1_val_lo << src0 as u32
+                                }
+                                _ => todo_instr!(instruction),
+                            }
                         }
-                        _ => todo_instr!(instruction),
                     };
                 }
             }
