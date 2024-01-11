@@ -369,6 +369,7 @@ impl CPU {
                     let s0 = f32::from_bits(i[1] as u32);
                     let s1 = f32::from_bits(i[2] as u32);
                     self.vec_reg[i[3] as usize] = match i[0] {
+                        3 => s0 * s1,
                         4 => s0 + s1,
                         8 => s0,
                         10 => f32::max(s0, s1),
@@ -448,11 +449,13 @@ impl CPU {
                 3 | 50 => (s0 + s1).to_bits(),
                 8 => (s0 * s1).to_bits(),
                 9 => ((ssrc0 as i32) * (vsrc1 as i32)) as u32,
+                11 => ((ssrc0 as u32) & 0x00ffffff) * (vsrc1 & 0x00ffffff),
                 16 => f32::max(s0, s1).to_bits(),
                 18 => i32::max(ssrc0, vsrc1 as i32) as u32,
                 24 => vsrc1 << (ssrc0 as u32),
                 25 => vsrc1 >> (ssrc0 as u32),
                 26 => ((vsrc1 as i32) >> ssrc0) as u32,
+                27 => (ssrc0 as u32) & (vsrc1),
                 28 => (ssrc0 as u32) | (vsrc1 as u32),
                 32 => {
                     let temp = ssrc0 as u64 + vsrc1 as u64 + self.vcc_lo as u64;
@@ -564,15 +567,20 @@ impl CPU {
                                 _ => todo_instr!(instruction),
                             } as u32;
 
-                            match vdst {
+                            match vdst as u32 {
+                                0..=SGPR_COUNT => self.scalar_reg[vdst as usize] = ret,
                                 106 => self.vcc_lo = ret,
                                 _ => todo_instr!(instruction),
                             }
                         }
                         _ => {
-                            // other VOPC ops
+                            // other VOP3 ops
                             self.vec_reg[vdst as usize] = match op {
                                 259 => (s0 + s1).to_bits(),
+                                299 => {
+                                    let d0 = f32::from_bits(self.vec_reg[vdst as usize]);
+                                    ((s0 * s1) + d0).to_bits()
+                                }
                                 264 => (s0 * s1).to_bits(),
                                 272 => f32::max(s0, s1).to_bits(),
                                 531 | 567 => (s0 * s1 + s2).to_bits(),
@@ -587,8 +595,15 @@ impl CPU {
                                 }
                                 522 => ((src0 as i32) * (src1 as i32) + (src2 as i32)) as u32,
                                 523 => (src0 as u32 * src1 as u32) + src2 as u32,
+                                528 => {
+                                    let offset = src0 as u32 & 0x1f;
+                                    let width = src1 as u32 & 0x1f;
+                                    let mask = if width == 0 { 0 } else { (1 << width) - 1 };
+                                    (src0 as u32 >> offset) & mask
+                                }
                                 540 => f32::max(f32::max(s0, s1), s2).to_bits(),
                                 582 => ((src0 as u32) << (src1 as u32)) + src2 as u32,
+                                597 => src0 as u32 + src1 as u32 + src2 as u32,
                                 598 => ((src0 as u32) << (src1 as u32)) | src2 as u32,
                                 828 => {
                                     let vsrc1_lo = ((instr >> 41) & 0x1ff) - VGPR_COUNT as u64;
