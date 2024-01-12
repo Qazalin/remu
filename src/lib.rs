@@ -60,56 +60,77 @@ pub extern "C" fn hipModuleLaunchKernel(
     for gx in 0..grid_dim_x {
         for gy in 0..grid_dim_y {
             for gz in 0..grid_dim_z {
+                let mut thread_registers = HashMap::<[u32; 3], [Vec<u32>; 2]>::new();
                 for prg in prg.iter() {
                     for tx in 0..block_dim_x {
                         for ty in 0..block_dim_y {
-                            let mut thread_registers = HashMap::<[u32; 2], [Vec<u32>; 2]>::new();
-                            let lds = BumpAllocator::new(&format!("{WAVE_ID}_lds{tx}"));
-                            let gds = BumpAllocator::new(WAVE_ID);
-                            let mut cpu = CPU::new(gds, lds);
-                            if *DEBUG >= DebugLevel::MISC {
-                                println!(
-                                    "{}=({}, {}, {}), {}=({}, {})",
-                                    "block".color("jade"),
-                                    gx,
-                                    gy,
-                                    gz,
-                                    "thread".color("jade"),
-                                    tx,
-                                    ty
-                                );
-                            }
-
-                            match thread_registers.get(&[tx, ty]) {
-                                Some(val) => {
-                                    cpu.scalar_reg.values = val[0].clone();
-                                    cpu.vec_reg.values = val[1].clone();
-                                }
-                                None => {
-                                    cpu.scalar_reg.write64(0, stack_ptr);
-                                    if grid_dim_x != 1 && grid_dim_y != 1 && grid_dim_z != 1 {
-                                        cpu.scalar_reg[13] = gx;
-                                        cpu.scalar_reg[14] = gy;
-                                        cpu.scalar_reg[15] = gz;
-                                    } else if grid_dim_x != 1 && grid_dim_y != 1 {
-                                        cpu.scalar_reg[14] = gx;
-                                        cpu.scalar_reg[15] = gy;
-                                    } else {
-                                        cpu.scalar_reg[15] = gx;
-                                    }
-                                    cpu.vec_reg[0] = (1 << 20) | (ty << 10) | (tx);
-                                }
-                            }
-
-                            cpu.interpret(&prg);
-                            thread_registers
-                                .insert([tx, ty], [cpu.scalar_reg.values, cpu.vec_reg.values]);
+                            launch_thread(
+                                [gx, gy, gz],
+                                [tx, ty, 0],
+                                [grid_dim_x, grid_dim_y, grid_dim_z],
+                                [block_dim_x, block_dim_y, block_dim_z],
+                                stack_ptr,
+                                &prg,
+                                &mut thread_registers,
+                            );
                         }
                     }
                 }
             }
         }
     }
+}
+
+fn launch_thread(
+    grid_id: [u32; 3],
+    thread_id: [u32; 3],
+    global_size: [u32; 3],
+    local_size: [u32; 3],
+    stack_ptr: u64,
+    prg: &Vec<u32>,
+    thread_registers: &mut HashMap<[u32; 3], [Vec<u32>; 2]>,
+) {
+    if *DEBUG >= DebugLevel::MISC {
+        println!(
+            "{}={:?}, {}={:?}",
+            "block".color("jade"),
+            grid_id,
+            "thread".color("jade"),
+            thread_id
+        );
+    }
+    let lds = BumpAllocator::new(&format!("{WAVE_ID}_lds_{:?}", grid_id));
+    let gds = BumpAllocator::new(WAVE_ID);
+    let mut cpu = CPU::new(gds, lds);
+
+    match thread_registers.get(&thread_id) {
+        Some(val) => {
+            cpu.scalar_reg.values = val[0].clone();
+            cpu.vec_reg.values = val[1].clone();
+        }
+        None => {
+            cpu.scalar_reg.write64(0, stack_ptr);
+
+            match (global_size[1] != 1, global_size[2] != 1) {
+                (true, true) => {
+                    (cpu.scalar_reg[13], cpu.scalar_reg[14], cpu.scalar_reg[15]) =
+                        (grid_id[0], grid_id[1], grid_id[2])
+                }
+                (true, false) => {
+                    (cpu.scalar_reg[14], cpu.scalar_reg[15]) = (grid_id[0], grid_id[1])
+                }
+                _ => cpu.scalar_reg[15] = grid_id[0],
+            }
+
+            match local_size[1] != 1 {
+                true => cpu.vec_reg[0] = (1 << 20) | (thread_id[1] << 10) | (thread_id[0]),
+                false => cpu.vec_reg[0] = thread_id[0],
+            }
+        }
+    }
+
+    cpu.interpret(prg);
+    thread_registers.insert(thread_id, [cpu.scalar_reg.values, cpu.vec_reg.values]);
 }
 
 #[no_mangle]
