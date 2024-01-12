@@ -5,7 +5,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 
-const MAX_MEM_SIZE: usize = 1_000_000;
+const MAX_MEM_SIZE: usize = 1_000_000_000;
 pub struct BumpAllocator {
     fp: PathBuf,
 }
@@ -20,10 +20,14 @@ impl BumpAllocator {
     }
 
     pub fn alloc(&mut self, size: u32) -> u64 {
+        let last = self.len();
+        self.write_bytes(last as u64, &vec![0; size as usize]);
+        return last as u64;
+    }
+
+    fn len(&mut self) -> usize {
         let mut file = File::open(&self.fp).unwrap();
-        let last = file.seek(SeekFrom::End(0)).unwrap();
-        self.write_bytes(last, &vec![0; size as usize]);
-        return last;
+        file.seek(SeekFrom::End(0)).unwrap() as usize
     }
 
     pub fn read<D: DType>(&self, addr: u64) -> D {
@@ -50,7 +54,7 @@ impl BumpAllocator {
     }
 
     pub fn write_bytes(&mut self, addr: u64, bytes: &[u8]) {
-        assert!(bytes.len() <= MAX_MEM_SIZE);
+        assert!(self.len() + bytes.len() <= MAX_MEM_SIZE);
         let mut file = OpenOptions::new()
             .read(true)
             .write(true) // NOTE: we dont use the builtin `append` mode since the API uses alloc

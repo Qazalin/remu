@@ -245,6 +245,9 @@ impl CPU {
 
             match op {
                 3 => self.scc = (self.resolve_src(sdst) as i64 == simm16 as i64) as u32,
+                16 => {
+                    self.scalar_reg[sdst as usize] = (self.resolve_src(sdst) * simm16 as i32) as u32
+                }
                 _ => todo_instr!(instruction),
             }
         }
@@ -380,6 +383,7 @@ impl CPU {
                         4 => s0 + s1,
                         8 => s0,
                         10 => f32::max(s0, s1),
+                        17 => f32::from_bits((i[2] as u32) << (i[1] as u32)),
                         18 => f32::from_bits(i[1] as u32 & i[2] as u32),
                         _ => todo_instr!(instruction),
                     }
@@ -498,23 +502,29 @@ impl CPU {
 
             let op = (instr >> 16) & 0x3ff;
             match op {
-                764 | 766 | 768 => {
+                764 | 288 | 766 | 768 => {
                     let vdst = instr & 0xff;
                     let sdst = (instr >> 8) & 0x7f;
-                    let src0 = self.resolve_src(((instr >> 32) & 0x1ff) as u32);
-                    let src1 = self.resolve_src(((instr >> 41) & 0x1ff) as u32);
-                    let src2 = self.resolve_src(((instr >> 50) & 0x1ff) as u32);
+                    let s0 = (instr >> 32) & 0x1ff;
+                    let s1 = (instr >> 41) & 0x1ff;
+                    let s2 = (instr >> 50) & 0x1ff;
+                    let src0 = self.resolve_src(s0 as u32);
+                    let src1 = self.resolve_src(s1 as u32);
+                    let src2 = self.resolve_src(s2 as u32);
                     let omod = (instr >> 59) & 0x3;
                     let neg = (instr >> 61) & 0x7;
                     if *DEBUG >= DebugLevel::INSTRUCTION {
                         println!(
-                            "{} vdst={} sdst={} op={} src0={} src1={} src2={} omod={} neg={}",
+                            "{} vdst={} sdst={} op={} src0({})={} src1({})={} src2({})={} omod={} neg={}",
                             "VOP3SD".color("blue"),
                             vdst,
                             sdst,
                             op,
+                            s0,
                             src0,
+                            s1,
                             src1,
+                            s2,
                             src2,
                             omod,
                             neg
@@ -522,6 +532,10 @@ impl CPU {
                     }
 
                     match op {
+                        288 => {
+                            let temp = (src0 as u64) + (src1 as u64) + (src2 as u64);
+                            self.vec_reg[vdst as usize] = temp as u32
+                        }
                         764 => {} // NOTE: div scaling isn't required
                         766 => {
                             let temp = (src0 as u64 * src1 as u64) + src2 as u64;
@@ -529,7 +543,11 @@ impl CPU {
                         }
                         768 => {
                             let temp = src0 as u64 + src1 as u64;
-                            self.vcc_lo = (temp >= 0x100000000) as u32;
+                            let vcc_value = (temp >= 0x100000000) as u32;
+                            match sdst {
+                                106 => self.vcc_lo = vcc_value,
+                                _ => self.scalar_reg[sdst as usize] = vcc_value,
+                            }
                             self.vec_reg[vdst as usize] = temp as u32;
                         }
                         _ => todo_instr!(instruction),
