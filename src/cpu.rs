@@ -348,23 +348,32 @@ impl CPU {
 
             ([[opx, srcx0, vsrcx1, vdstx], [opy, srcy0, vsrcy1, vdsty]])
                 .iter()
-                .for_each(|i| {
-                    let s0 = f32::from_bits(i[1] as u32);
-                    let s1 = f32::from_bits(i[2] as u32);
-                    self.vec_reg[i[3] as usize] = match i[0] {
-                        0 => {
-                            let d0 = f32::from_bits(self.vec_reg[i[3] as usize]);
-                            s0 * s1 + d0
+                .for_each(|[op, s0, s1, dst]| {
+                    self.vec_reg[*dst as usize] = match *op {
+                        0 | 3 | 4 | 10 => {
+                            let s0 = f32::from_bits(*s0 as u32);
+                            let s1 = f32::from_bits(*s1 as u32);
+                            match *op {
+                                0 => s0 * s1 + f32::from_bits(self.vec_reg[*dst as usize]),
+                                3 => s0 * s1,
+                                4 => s0 + s1,
+                                10 => f32::max(s0, s1),
+                                _ => panic!(),
+                            }
+                            .to_bits()
                         }
-                        3 => s0 * s1,
-                        4 => s0 + s1,
-                        8 => s0,
-                        10 => f32::max(s0, s1),
-                        17 => f32::from_bits((i[2] as u32) << (i[1] as u32)),
-                        18 => f32::from_bits(i[1] as u32 & i[2] as u32),
-                        _ => todo_instr!(instruction),
+                        _ => {
+                            let s0 = *s0 as u32;
+                            let s1 = *s1 as u32;
+                            match op {
+                                8 => s0,
+                                16 => s0 + s1,
+                                17 => s1 << s0,
+                                18 => s0 & s1,
+                                _ => todo_instr!(instruction),
+                            }
+                        }
                     }
-                    .to_bits();
                 });
         }
         // vopc
