@@ -393,11 +393,15 @@ impl CPU {
             }
 
             match op {
-                18 => {
-                    self.vcc_lo = (f32::from_bits(src0 as u32) == f32::from_bits(vsrc1)) as u32;
-                    if *DEBUG >= DebugLevel::STATE {
-                        println!("{} {}", "VCC".color("pink"), self.vcc_lo);
-                    }
+                17 | 18 | 27 => {
+                    let s0 = f32::from_bits(src0 as u32);
+                    let s1 = f32::from_bits(vsrc1 as u32);
+                    self.vcc_lo = match op {
+                        17 => s0 < s1,
+                        18 => s0 == s1,
+                        27 => !(s0 > s1),
+                        _ => panic!(),
+                    } as u32;
                 }
                 68 => {
                     self.vcc_lo = (src0 as i32 > vsrc1 as i32) as u32;
@@ -579,6 +583,9 @@ impl CPU {
                         0..=255 => {
                             let ret = match op {
                                 18 => s0 == s1,
+                                17 => s0 < s1,
+                                20 => s0 > s1,
+                                27 => !(s0 > s1),
                                 77 => src0 as u32 != src1 as u32,
                                 _ => todo_instr!(instruction),
                             } as u32;
@@ -746,7 +753,19 @@ impl CPU {
             124 => NULL_SRC as i32,
             129..=192 => (ssrc_bf - 128) as i32,
             193..=208 => (ssrc_bf - 192) as i32 * -1,
-            242 => (1.0_f32).to_bits() as i32,
+            240..=247 => [
+                (240, 0.5_f32),
+                (241, -0.5_f32),
+                (242, 1_f32),
+                (243, -1.0_f32),
+                (244, 2.0_f32),
+                (245, -2.0_f32),
+            ]
+            .iter()
+            .find(|x| x.0 == ssrc_bf)
+            .unwrap()
+            .1
+            .to_bits() as i32,
             255 => {
                 self.pc += 1;
                 self.prg[self.pc as usize - 1] as i32
