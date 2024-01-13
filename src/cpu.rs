@@ -176,6 +176,7 @@ impl CPU {
             match op {
                 32..=42 => {
                     let should_jump = match op {
+                        32 => true,
                         33 => self.scc == 0,
                         35 => self.vccz(),
                         36 => !self.vccz(),
@@ -352,7 +353,7 @@ impl CPU {
                     let s1 = f32::from_bits(i[2] as u32);
                     self.vec_reg[i[3] as usize] = match i[0] {
                         0 => {
-                            let d0 = f32::from_bits(i[3] as u32);
+                            let d0 = f32::from_bits(self.vec_reg[i[3] as usize]);
                             s0 * s1 + d0
                         }
                         3 => s0 * s1,
