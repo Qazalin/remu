@@ -10,14 +10,14 @@ pub const END_PRG: u32 = 0xbfb00000;
 const NOOPS: [u32; 1] = [0xbfb60003];
 
 pub struct CPU {
-    pc: u64,
+    pub pc: u64,
     pub gds: BumpAllocator,
     pub lds: BumpAllocator,
     pub scalar_reg: RegisterGroup,
     pub vec_reg: RegisterGroup,
-    scc: u32,
-    vcc_lo: u32,
-    exec_lo: u32,
+    pub scc: u32,
+    pub vcc_lo: u32,
+    pub exec_lo: u32,
     prg: Vec<u32>,
 }
 
@@ -35,57 +35,11 @@ impl CPU {
             prg: vec![],
         };
     }
-    pub fn interpret_debug(&mut self, prg: &Vec<u32>) {
-        self.pc = 0;
-        self.vcc_lo = 0;
-        self.exec_lo = 0;
-        self.prg = prg
-            .iter()
-            .filter(|x| !(NOOPS.contains(x) || *x >> 20 == 0xbf8))
-            .map(|x| *x)
-            .collect::<Vec<u32>>();
-
-        let history_file = "/tmp/.remu-debug";
-        let mut inter = interaction::InteractionBuilder::new()
-            .prompt_str("remu> ")
-            .history_limit(5)
-            .load_history(history_file)
-            .unwrap()
-            .build();
-        loop {
-            let cmd = String::from_utf8(inter.line().unwrap()).unwrap();
-            if cmd == "" {
-                let instruction = self.prg[self.pc as usize];
-                self.pc += 1;
-                if instruction == END_PRG {
-                    break;
-                }
-                self.exec(instruction);
-            } else if cmd.starts_with("saddr") {
-                let idx = cmd.replace("saddr", "").parse::<usize>().unwrap();
-                println!("{}", self.scalar_reg.read64(idx));
-            } else if cmd.starts_with("vf") {
-                let idx = cmd.replace("vf", "").parse::<usize>().unwrap();
-                println!("{}", f32::from_bits(self.vec_reg[idx]));
-            } else if cmd.starts_with("sf") {
-                let idx = cmd.replace("sf", "").parse::<usize>().unwrap();
-                println!("{}", f32::from_bits(self.scalar_reg[idx]));
-            } else if cmd.starts_with("v") {
-                let idx = cmd.replace("v", "").parse::<usize>().unwrap();
-                println!("{}", self.vec_reg[idx]);
-            } else if cmd.starts_with("s") {
-                let idx = cmd.replace("s", "").parse::<usize>().unwrap();
-                println!("{}", self.scalar_reg[idx]);
-            } else {
-                continue;
-            }
-        }
-    }
 
     pub fn interpret(&mut self, prg: &Vec<u32>) {
         self.pc = 0;
         self.vcc_lo = 0;
-        self.exec_lo = 0;
+        self.exec_lo = 1;
         self.prg = prg.to_vec();
 
         loop {
@@ -195,8 +149,8 @@ impl CPU {
             self.scc = match op {
                 2 => (ssrc0 > ssrc1) as u32,
                 4 => (ssrc0 < ssrc1) as u32,
-                6 => (ssrc0 == ssrc1) as u32,
-                10 => (ssrc0 < ssrc1) as u32,
+                6 => ((ssrc0 as u32) == (ssrc1 as u32)) as u32,
+                10 => ((ssrc0 as u32) < (ssrc1 as u32)) as u32,
                 _ => todo_instr!(instruction),
             };
 
@@ -210,7 +164,13 @@ impl CPU {
             let op = (instruction >> 16) & 0x7f;
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
-                println!("{} simm16={} op={}", "SOPP".color("blue"), simm16, op);
+                println!(
+                    "{} simm16={} op={} pc={}",
+                    "SOPP".color("blue"),
+                    simm16,
+                    op,
+                    self.pc
+                );
             }
 
             match op {
@@ -570,7 +530,7 @@ impl CPU {
                     }
                 }
                 _ => {
-                    let vdst = instr & 0xff;
+                    let vdst = (instr & 0xff) as usize;
                     let abs = (instr >> 8) & 0x7;
                     let opsel = (instr >> 11) & 0xf;
 
@@ -621,10 +581,23 @@ impl CPU {
                         }
                         _ => {
                             // other VOP3 ops
-                            self.vec_reg[vdst as usize] = match op {
+                            let val64 = match op {
+                                828 => {
+                                    let vsrc1_lo = ((instr >> 41) & 0x1ff) - VGPR_COUNT as u64;
+                                    let vsrc = self.vec_reg.read64(vsrc1_lo as usize);
+                                    Some(vsrc << (src0 as u64))
+                                }
+                                _ => None,
+                            };
+                            if let Some(val) = val64 {
+                                self.vec_reg.write64(vdst, val);
+                                return;
+                            }
+
+                            self.vec_reg[vdst] = match op {
                                 259 => (s0 + s1).to_bits(),
                                 299 => {
-                                    let d0 = f32::from_bits(self.vec_reg[vdst as usize]);
+                                    let d0 = f32::from_bits(self.vec_reg[vdst]);
                                     ((s0 * s1) + d0).to_bits()
                                 }
                                 264 => (s0 * s1).to_bits(),
@@ -650,13 +623,6 @@ impl CPU {
                                 582 => ((src0 as u32) << (src1 as u32)) + src2 as u32,
                                 597 => src0 as u32 + src1 as u32 + src2 as u32,
                                 598 => ((src0 as u32) << (src1 as u32)) | src2 as u32,
-                                828 => {
-                                    let vsrc1_lo = ((instr >> 41) & 0x1ff) - VGPR_COUNT as u64;
-                                    let vsrc1_val_lo = self.vec_reg[vsrc1_lo as usize];
-                                    self.vec_reg[vdst as usize + 1] =
-                                        self.vec_reg[vsrc1_lo as usize + 1];
-                                    vsrc1_val_lo << src0 as u32
-                                }
                                 _ => todo_instr!(instruction),
                             }
                         }
@@ -717,13 +683,14 @@ impl CPU {
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
-                    "{} addr={} data={} saddr={} op={} offset={}",
+                    "{} addr={} data={} saddr={} op={} offset={} vdst={}",
                     "GLOBAL".color("blue"),
                     addr,
                     data,
                     saddr,
                     op,
-                    offset
+                    offset,
+                    vdst
                 );
             }
 
@@ -754,7 +721,7 @@ impl CPU {
                 _ => todo_instr!(instruction),
             };
         } else {
-            todo!("instruction={:08X}", instruction)
+            todo_instr!(instruction);
         }
     }
 
