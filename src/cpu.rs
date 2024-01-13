@@ -217,6 +217,8 @@ impl CPU {
                 32..=42 => {
                     let should_jump = match op {
                         33 => self.scc == 0,
+                        35 => self.vccz(),
+                        36 => !self.vccz(),
                         37 => self.exec_lo == 0,
                         _ => todo_instr!(instruction),
                     };
@@ -300,6 +302,16 @@ impl CPU {
                         ssrc1 as u64
                     }
                 }
+                22 => {
+                    let ret = (ssrc0 as u32) & (ssrc1 as u32);
+                    self.scc = (ret != 0) as u32;
+                    ret as u64
+                }
+                34 => {
+                    let ret = (ssrc0 as u32) & !(ssrc1 as u32);
+                    self.scc = (ret != 0) as u32;
+                    ret as u64
+                }
                 44 => ((ssrc0 as i32) * (ssrc1 as i32)) as u64,
                 48 => {
                     if self.scc != 0 {
@@ -379,6 +391,10 @@ impl CPU {
                     let s0 = f32::from_bits(i[1] as u32);
                     let s1 = f32::from_bits(i[2] as u32);
                     self.vec_reg[i[3] as usize] = match i[0] {
+                        0 => {
+                            let d0 = f32::from_bits(i[3] as u32);
+                            s0 * s1 + d0
+                        }
                         3 => s0 * s1,
                         4 => s0 + s1,
                         8 => s0,
@@ -593,6 +609,7 @@ impl CPU {
                         0..=255 => {
                             let ret = match op {
                                 18 => s0 == s1,
+                                77 => src0 as u32 != src1 as u32,
                                 _ => todo_instr!(instruction),
                             } as u32;
 
@@ -735,7 +752,7 @@ impl CPU {
                     );
                 }),
                 _ => todo_instr!(instruction),
-            }
+            };
         } else {
             todo!("instruction={:08X}", instruction)
         }
@@ -770,6 +787,14 @@ impl CPU {
                 }
             }
             _ => todo!("write to sdst {}", sdst_bf),
+        }
+    }
+
+    /* branching utils */
+    fn vccz(&self) -> bool {
+        match self.vcc_lo {
+            0 => true,
+            _ => false,
         }
     }
 }
