@@ -304,7 +304,7 @@ impl CPU {
             self.vec_reg[vdst as usize] = match op {
                 1 => src as u32,
                 56 => (src as u32).reverse_bits(),
-                42 | 37  | 39 => {
+                42 | 37 | 39 => {
                     let s0 = f32::from_bits(src as u32);
                     match op {
                         37 => f32::exp2(s0),
@@ -330,7 +330,7 @@ impl CPU {
             let sy = (instr >> 32) & 0x1ff;
             let vy = (instr >> 41) & 0xff;
             let opx = (instr >> 22) & 0xf;
-            let srcy0 = match sx {
+            let srcy0 = match sy {
                 255 => srcx0,
                 _ => self.resolve_src((sy) as u32) as u64,
             };
@@ -572,8 +572,8 @@ impl CPU {
                     let s1_bf = ((instr >> 41) & 0x1ff) as u32;
                     let s2_bf = ((instr >> 50) & 0x1ff) as u32;
 
-                    let src0 = self.resolve_src(s0_bf);
-                    let src1 = self.resolve_src(s1_bf);
+                    let mut src0 = self.resolve_src(s0_bf);
+                    let mut src1 = self.resolve_src(s1_bf);
                     let src2 = self.resolve_src(s2_bf);
 
                     let omod = (instr >> 59) & 0x3;
@@ -645,10 +645,19 @@ impl CPU {
                                 541 => i32::max(i32::max(src0, src1), src2) as u32,
                                 551 => (s2 / s1).to_bits(),
                                 257 => {
+                                    if ((neg >> 0) & 1) == 1 {
+                                        src0 =
+                                            (-1.0 * (f32::from_bits(src0 as u32))).to_bits() as i32
+                                    }
+                                    if ((neg >> 1) & 1) == 1 {
+                                        src1 =
+                                            (-1.0 * (f32::from_bits(src1 as u32))).to_bits() as i32
+                                    }
+
                                     if src2 != 0 {
-                                        s1.to_bits()
+                                        src1 as u32
                                     } else {
-                                        s0.to_bits()
+                                        src0 as u32
                                     }
                                 }
                                 522 => ((src0 as i32) * (src1 as i32) + (src2 as i32)) as u32,
