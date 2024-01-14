@@ -303,8 +303,17 @@ impl CPU {
 
             self.vec_reg[vdst as usize] = match op {
                 1 => src as u32,
-                42 => (1.0 / f32::from_bits(src as u32)).to_bits(),
                 56 => (src as u32).reverse_bits(),
+                42 | 37  | 39 => {
+                    let s0 = f32::from_bits(src as u32);
+                    match op {
+                        37 => f32::exp2(s0),
+                        39 => f32::log2(s0),
+                        42 => 1.0 / s0,
+                        _ => panic!(),
+                    }
+                    .to_bits()
+                }
                 _ => todo_instr!(instruction),
             };
         }
@@ -350,13 +359,14 @@ impl CPU {
                 .iter()
                 .for_each(|[op, s0, s1, dst]| {
                     self.vec_reg[*dst as usize] = match *op {
-                        0 | 3 | 4 | 10 => {
+                        0 | 3 | 4 | 5 | 10 => {
                             let s0 = f32::from_bits(*s0 as u32);
                             let s1 = f32::from_bits(*s1 as u32);
                             match *op {
                                 0 => s0 * s1 + f32::from_bits(self.vec_reg[*dst as usize]),
                                 3 => s0 * s1,
                                 4 => s0 + s1,
+                                5 => s0 - s1,
                                 10 => f32::max(s0, s1),
                                 _ => panic!(),
                             }
@@ -367,6 +377,13 @@ impl CPU {
                             let s1 = *s1 as u32;
                             match op {
                                 8 => s0,
+                                9 => {
+                                    if self.vcc_lo != 0 {
+                                        s1
+                                    } else {
+                                        s0
+                                    }
+                                }
                                 16 => s0 + s1,
                                 17 => s1 << s0,
                                 18 => s0 & s1,
@@ -393,13 +410,15 @@ impl CPU {
             }
 
             match op {
-                17 | 18 | 27 => {
+                17 | 18 | 27 | 20 | 30 => {
                     let s0 = f32::from_bits(src0 as u32);
                     let s1 = f32::from_bits(vsrc1 as u32);
                     self.vcc_lo = match op {
                         17 => s0 < s1,
                         18 => s0 == s1,
+                        20 => s0 > s1,
                         27 => !(s0 > s1),
+                        30 => !(s0 < s1),
                         _ => panic!(),
                     } as u32;
                 }
@@ -447,7 +466,8 @@ impl CPU {
                         ssrc0 as u32
                     }
                 }
-                3 | 50 => (s0 + s1).to_bits(),
+                3 => (s0 + s1).to_bits(),
+                4 => (s0 - s1).to_bits(),
                 8 => (s0 * s1).to_bits(),
                 9 => ((ssrc0 as i32) * (vsrc1 as i32)) as u32,
                 11 => ((ssrc0 as u32) & 0x00ffffff) * (vsrc1 & 0x00ffffff),
@@ -586,7 +606,9 @@ impl CPU {
                                 17 => s0 < s1,
                                 20 => s0 > s1,
                                 27 => !(s0 > s1),
+                                30 => !(s0 < s1),
                                 77 => src0 as u32 != src1 as u32,
+                                126 => false,
                                 _ => todo_instr!(instruction),
                             } as u32;
 
@@ -930,6 +952,32 @@ mod test_vop1 {
         cpu.scalar_reg[6] = 31;
         cpu.interpret(&vec![0x7e020206, END_PRG]);
         assert_eq!(cpu.vec_reg[1], 31);
+    }
+
+    fn helper_test_fexp(val: f32) -> f32 {
+        let mut cpu = _helper_test_cpu("test_fexp");
+        cpu.vec_reg[6] = val.to_bits();
+        cpu.interpret(&vec![0x7E0C4B06, END_PRG]);
+        f32::from_bits(cpu.vec_reg[6])
+    }
+
+    #[test]
+    fn test_fexp_1ulp() {
+        let test_values = [-2.0, -1.0, 0.0, 1.0, 2.0, 3.0];
+        for &val in test_values.iter() {
+            let expected = (2.0_f32).powf(val);
+            assert!((helper_test_fexp(val) - expected).abs() <= f32::EPSILON);
+        }
+    }
+
+    #[test]
+    fn test_fexp_flush_denormals() {
+        assert_eq!(helper_test_fexp(f32::from_bits(0xff800000)), 0.0);
+        assert_eq!(helper_test_fexp(f32::from_bits(0x80000000)), 1.0);
+        assert_eq!(
+            helper_test_fexp(f32::from_bits(0x7f800000)),
+            f32::from_bits(0x7f800000)
+        );
     }
 }
 
