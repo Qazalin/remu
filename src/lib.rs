@@ -4,6 +4,7 @@ use crate::utils::{Colorize, DebugLevel, DEBUG};
 use std::collections::HashMap;
 use std::os::raw::{c_char, c_void};
 mod allocator;
+mod alu_modifiers;
 mod cpu;
 mod dtype;
 mod state;

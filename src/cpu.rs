@@ -1,4 +1,5 @@
 use crate::allocator::BumpAllocator;
+use crate::alu_modifiers::Negate;
 use crate::state::RegisterGroup;
 use crate::todo_instr;
 use crate::utils::{twos_complement_21bit, Colorize, DebugLevel, DEBUG};
@@ -526,6 +527,11 @@ impl CPU {
                     let src2 = self.resolve_src(s2 as u32);
                     let omod = (instr >> 59) & 0x3;
                     let neg = (instr >> 61) & 0x7;
+                    let clmp = (instr >> 15) & 0x1;
+                    assert_eq!(neg, 0);
+                    assert_eq!(omod, 0);
+                    assert_eq!(clmp, 0);
+
                     if *DEBUG >= DebugLevel::INSTRUCTION {
                         println!(
                             "{} vdst={} sdst={} op={} src0({})={} src1({})={} src2({})={} omod={} neg={}",
@@ -570,49 +576,50 @@ impl CPU {
                     let vdst = (instr & 0xff) as usize;
                     let abs = (instr >> 8) & 0x7;
                     let opsel = (instr >> 11) & 0xf;
+                    let cm = (instr >> 15) & 0x1;
 
                     let s0_bf = ((instr >> 32) & 0x1ff) as u32;
                     let s1_bf = ((instr >> 41) & 0x1ff) as u32;
                     let s2_bf = ((instr >> 50) & 0x1ff) as u32;
 
-                    let mut src0 = self.resolve_src(s0_bf);
-                    let mut src1 = self.resolve_src(s1_bf);
+                    let src0 = self.resolve_src(s0_bf);
+                    let src1 = self.resolve_src(s1_bf);
                     let src2 = self.resolve_src(s2_bf);
 
                     let omod = (instr >> 59) & 0x3;
-                    let neg = (instr >> 61) & 0x7;
+                    let neg = ((instr >> 61) & 0x7) as u32;
+                    assert_eq!(omod, 0);
+                    assert_eq!(abs, 0);
+                    assert_eq!(cm, 0);
 
                     if *DEBUG >= DebugLevel::INSTRUCTION {
-                        println!("{} vdst={} abs={} opsel={} op={} src0({})={} src1({})={} src2({})={} omod={} neg=0b{:03b}", "VOP3".color("blue"), vdst, abs, opsel, op, s0_bf, src0, s1_bf, src1, s2_bf, src2, omod, neg);
-                    }
-
-                    let mut s0 = f32::from_bits(src0 as u32);
-                    let mut s1 = f32::from_bits(src1 as u32);
-                    let mut s2 = f32::from_bits(src2 as u32);
-
-                    // Negate input. TODO this could be done better
-                    if ((neg >> 0) & 1) == 1 {
-                        s0 = -s0;
-                    }
-                    if ((neg >> 1) & 1) == 1 {
-                        s1 = -s1;
-                    }
-                    if ((neg >> 2) & 1) == 1 {
-                        s2 = -s2;
+                        println!("{} vdst={} abs={} opsel={} op={} src0({})={} src1({})={} src2({})={} neg=0b{:03b}", "VOP3".color("blue"), vdst, abs, opsel, op, s0_bf, src0, s1_bf, src1, s2_bf, src2, neg);
                     }
 
                     match op {
                         // VOPC using VOP3 encoding
                         0..=255 => {
                             let ret = match op {
-                                18 => s0 == s1,
-                                17 => s0 < s1,
-                                20 => s0 > s1,
-                                27 => !(s0 > s1),
-                                30 => !(s0 < s1),
-                                77 => src0 as u32 != src1 as u32,
-                                126 => false,
-                                _ => todo_instr!(instruction),
+                                17 | 18 | 27 | 20 | 30 => {
+                                    let s0 = f32::from_bits(src0 as u32).negate(0, neg as u32);
+                                    let s1 = f32::from_bits(src1 as u32).negate(1, neg as u32);
+                                    match op {
+                                        17 => s0 < s1,
+                                        18 => s0 == s1,
+                                        20 => s0 > s1,
+                                        27 => !(s0 > s1),
+                                        30 => !(s0 < s1),
+                                        _ => panic!(),
+                                    }
+                                }
+                                _ => {
+                                    assert_eq!(neg, 0);
+                                    match op {
+                                        77 => src0 as u32 != src1 as u32,
+                                        126 => false,
+                                        _ => todo_instr!(instruction),
+                                    }
+                                }
                             } as u32;
 
                             match vdst as u32 {
@@ -637,44 +644,53 @@ impl CPU {
                             }
 
                             self.vec_reg[vdst] = match op {
-                                259 => (s0 + s1).to_bits(),
-                                299 => {
-                                    let d0 = f32::from_bits(self.vec_reg[vdst]);
-                                    ((s0 * s1) + d0).to_bits()
-                                }
-                                264 => (s0 * s1).to_bits(),
-                                272 => f32::max(s0, s1).to_bits(),
-                                531 | 567 => (s0 * s1 + s2).to_bits(),
-                                541 => i32::max(i32::max(src0, src1), src2) as u32,
-                                551 => (s2 / s1).to_bits(),
-                                257 => {
-                                    if ((neg >> 0) & 1) == 1 {
-                                        src0 =
-                                            (-1.0 * (f32::from_bits(src0 as u32))).to_bits() as i32
+                                257 | 259 | 299 | 264 | 272 | 531 | 540 | 551 | 567 => {
+                                    let s0 = f32::from_bits(src0 as u32).negate(0, neg);
+                                    let s1 = f32::from_bits(src1 as u32).negate(1, neg);
+                                    let s2 = f32::from_bits(src2 as u32).negate(2, neg);
+                                    match op {
+                                        259 => s0 + s1,
+                                        264 => s0 * s1,
+                                        272 => f32::max(s0, s1),
+                                        299 => s0 * s1 + f32::from_bits(self.vec_reg[vdst]),
+                                        531 => s0 * s1 + s2,
+                                        540 => f32::max(f32::max(s0, s1), s2),
+                                        551 => s2 / s1,
+                                        567 => {
+                                            let ret = s0 * s1 + s2;
+                                            match self.vcc_lo != 0 {
+                                                true => 2.0_f32.powi(32) * ret,
+                                                false => ret,
+                                            }
+                                        }
+                                        // cnd_mask isn't a float alu but supports neg
+                                        257 => match src2 != 0 {
+                                            true => s1,
+                                            false => s0,
+                                        },
+                                        _ => panic!(),
                                     }
-                                    if ((neg >> 1) & 1) == 1 {
-                                        src1 =
-                                            (-1.0 * (f32::from_bits(src1 as u32))).to_bits() as i32
-                                    }
-
-                                    if src2 != 0 {
-                                        src1 as u32
-                                    } else {
-                                        src0 as u32
+                                    .to_bits()
+                                }
+                                _ => {
+                                    assert_eq!(neg, 0);
+                                    match op {
+                                        541 => i32::max(i32::max(src0, src1), src2) as u32,
+                                        522 => {
+                                            ((src0 as i32) * (src1 as i32) + (src2 as i32)) as u32
+                                        }
+                                        523 => (src0 as u32 * src1 as u32) + src2 as u32,
+                                        528 => {
+                                            let a = (src0 as u32) >> (src1 as u32);
+                                            let b = (1 << (src2 as u32)) - 1;
+                                            a & b
+                                        }
+                                        582 => ((src0 as u32) << (src1 as u32)) + src2 as u32,
+                                        597 => src0 as u32 + src1 as u32 + src2 as u32,
+                                        598 => ((src0 as u32) << (src1 as u32)) | src2 as u32,
+                                        _ => todo_instr!(instruction),
                                     }
                                 }
-                                522 => ((src0 as i32) * (src1 as i32) + (src2 as i32)) as u32,
-                                523 => (src0 as u32 * src1 as u32) + src2 as u32,
-                                528 => {
-                                    let a = (src0 as u32) >> (src1 as u32);
-                                    let b = (1 << (src2 as u32)) - 1;
-                                    a & b
-                                }
-                                540 => f32::max(f32::max(s0, s1), s2).to_bits(),
-                                582 => ((src0 as u32) << (src1 as u32)) + src2 as u32,
-                                597 => src0 as u32 + src1 as u32 + src2 as u32,
-                                598 => ((src0 as u32) << (src1 as u32)) | src2 as u32,
-                                _ => todo_instr!(instruction),
                             }
                         }
                     };
