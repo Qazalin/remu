@@ -331,8 +331,11 @@ impl CPU {
             let vy = (instr >> 41) & 0xff;
             let opx = (instr >> 22) & 0xf;
             let srcy0 = match sy {
-                255 => srcx0,
-                _ => self.resolve_src((sy) as u32) as u64,
+                255 => match sx {
+                    255 => srcx0,
+                    _ => self.resolve_src(sy as u32) as u64,
+                },
+                _ => self.resolve_src(sy as u32) as u64,
             };
             let vsrcy1 = self.vec_reg[(vy) as usize] as u64;
 
@@ -342,7 +345,7 @@ impl CPU {
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
-                    "{} X=[op={}, dest={} src={}, vsrc={}] Y=[op={}, dest={}, src={}, vsrc={}]",
+                    "{} X=[op={}, dest={} src({sx})={}, vsrc({vx})={}] Y=[op={}, dest={}, src({sy})={}, vsrc({vy})={}]",
                     "VOPD".color("blue"),
                     opx,
                     vdstx,
@@ -919,6 +922,38 @@ mod test_sop2 {
 #[cfg(test)]
 mod test_vopd {
     use super::*;
+
+    #[test]
+    fn test_inline_const_vopx_only() {
+        let mut cpu = _helper_test_cpu("test_inline_const_vopx_only");
+        cpu.vec_reg[0] = f32::to_bits(0.5);
+        let constant = f32::from_bits(0x39a8b099);
+        cpu.vec_reg[1] = 10;
+        cpu.interpret(&vec![0xC8D000FF, 0x00000080, 0x39A8B099, END_PRG]);
+        assert_eq!(f32::from_bits(cpu.vec_reg[0]), 0.5 * constant);
+        assert_eq!(cpu.vec_reg[1], 0);
+    }
+
+    #[test]
+    fn test_inline_const_vopy_only() {
+        let mut cpu = _helper_test_cpu("test_inline_const_vopy_only");
+        cpu.vec_reg[0] = 10;
+        cpu.vec_reg[1] = 10;
+        cpu.interpret(&vec![0xCA100080, 0x000000FF, 0x3E15F480, END_PRG]);
+        assert_eq!(cpu.vec_reg[0], 0);
+        assert_eq!(cpu.vec_reg[1], 0x3e15f480);
+    }
+
+    #[test]
+    fn test_inline_const_shared() {
+        let mut cpu = _helper_test_cpu("test_inline_const_shared");
+        cpu.vec_reg[2] = f32::to_bits(2.0);
+        cpu.vec_reg[3] = f32::to_bits(4.0);
+        let constant = f32::from_bits(0x3e800000);
+        cpu.interpret(&vec![0xC8C604FF, 0x020206FF, 0x3E800000, END_PRG]);
+        assert_eq!(f32::from_bits(cpu.vec_reg[2]), 2.0 * constant);
+        assert_eq!(f32::from_bits(cpu.vec_reg[3]), 4.0 * constant);
+    }
 
     #[test]
     fn test_add_mov() {
