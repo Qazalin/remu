@@ -65,15 +65,17 @@ pub extern "C" fn hipModuleLaunchKernel(
                 for prg in prg.iter() {
                     for tx in 0..block_dim_x {
                         for ty in 0..block_dim_y {
-                            launch_thread(
-                                [gx, gy, gz],
-                                [tx, ty, 0],
-                                [grid_dim_x, grid_dim_y, grid_dim_z],
-                                [block_dim_x, block_dim_y, block_dim_z],
-                                stack_ptr,
-                                &prg,
-                                &mut thread_registers,
-                            );
+                            for tz in 0..block_dim_z {
+                                launch_thread(
+                                    [gx, gy, gz],
+                                    [tx, ty, tz],
+                                    [grid_dim_x, grid_dim_y, grid_dim_z],
+                                    [block_dim_x, block_dim_y, block_dim_z],
+                                    stack_ptr,
+                                    &prg,
+                                    &mut thread_registers,
+                                );
+                            }
                         }
                     }
                 }
@@ -123,9 +125,9 @@ fn launch_thread(
                 _ => cpu.scalar_reg[15] = grid_id[0],
             }
 
-            match local_size[1] != 1 {
-                true => cpu.vec_reg[0] = (1 << 20) | (thread_id[1] << 10) | (thread_id[0]),
-                false => cpu.vec_reg[0] = thread_id[0],
+            match (local_size[1] != 1, local_size[2] != 1) {
+                (false, false) => cpu.vec_reg[0] = thread_id[0],
+                _ => cpu.vec_reg[0] = (thread_id[2] << 20) | (thread_id[1] << 10) | (thread_id[0]),
             }
         }
     }
@@ -168,3 +170,6 @@ pub extern "C" fn hipMemcpy(dest: *const c_void, src: *const c_void, size: u32, 
         _ => panic!("invalid mode"),
     }
 }
+
+#[no_mangle]
+pub extern "C" fn hipFree(_ptr: u64) {}
