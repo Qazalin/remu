@@ -94,12 +94,11 @@ pub fn split_asm_by_thread_syncs(instructions: &Vec<u32>) -> Vec<Vec<u32>> {
     parts
 }
 
-/** We use this for the smem immediate 21-bit constant OFFSET */
-pub fn twos_complement_21bit(num: u64) -> i64 {
+pub fn as_signed(num: u64, bits: usize) -> i64 {
     let mut value = num;
-    let is_negative = (value >> 20) & 1 != 0;
+    let is_negative = (value >> (bits - 1)) & 1 != 0;
     if is_negative {
-        value |= !0 << 21;
+        value |= !0 << bits;
     }
     value as i64
 }
@@ -134,13 +133,15 @@ Disassembly of section .text:
     }
 
     #[test]
-    fn test_twos_complement_21bit() {
-        assert_eq!(twos_complement_21bit(0b000000000000000101000), 40);
-        assert_eq!(twos_complement_21bit(0b111111111111111011000), -40);
-        assert_eq!(twos_complement_21bit(0b000000000000000000000), 0);
-        assert_eq!(twos_complement_21bit(0b111111111111111111111), -1);
-        assert_eq!(twos_complement_21bit(0b111000000000000000000), -262144);
-        assert_eq!(twos_complement_21bit(0b000111111111111111111), 262143);
+    fn test_custom_signed_bits() {
+        assert_eq!(as_signed(0b000000000000000101000, 21), 40);
+        assert_eq!(as_signed(0b111111111111111011000, 21), -40);
+        assert_eq!(as_signed(0b000000000000000000000, 21), 0);
+        assert_eq!(as_signed(0b111111111111111111111, 21), -1);
+        assert_eq!(as_signed(0b111000000000000000000, 21), -262144);
+        assert_eq!(as_signed(0b000111111111111111111, 21), 262143);
+
+        assert_eq!(as_signed(7608, 13), -584);
     }
 
     #[test]

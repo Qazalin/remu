@@ -2,7 +2,7 @@ use crate::allocator::BumpAllocator;
 use crate::alu_modifiers::Negate;
 use crate::state::RegisterGroup;
 use crate::todo_instr;
-use crate::utils::{twos_complement_21bit, Colorize, DebugLevel, DEBUG};
+use crate::utils::{as_signed, Colorize, DebugLevel, DEBUG};
 
 const SGPR_COUNT: u32 = 105;
 const VGPR_COUNT: u32 = 256;
@@ -79,8 +79,7 @@ impl CPU {
             let dlc = (instr >> 13) & 0x1;
             let glc = (instr >> 14) & 0x1;
             let op = (instr >> 18) & 0xff;
-            // offset is a sign-extend immediate 21-bit constant
-            let offset = twos_complement_21bit((instr >> 32) & 0x1fffff);
+            let offset = as_signed((instr >> 32) & 0x1fffff, 21);
             let soffset = match instr & 0x7F {
                 _ => 0, // TODO soffset is not implemented
             };
@@ -128,6 +127,12 @@ impl CPU {
                 0 => self.write_to_sdst(sdst, ssrc0),
                 1 => self.scalar_reg.write64(sdst as usize, ssrc0 as u64),
                 30 => self.write_to_sdst(sdst, !ssrc0),
+                32 => {
+                    let saveexec = self.exec_lo;
+                    self.exec_lo = ssrc0 & self.exec_lo;
+                    self.scc = (self.exec_lo != 0) as u32;
+                    self.write_to_sdst(sdst, saveexec)
+                }
                 _ => todo_instr!(instruction),
             };
         }
@@ -528,9 +533,9 @@ impl CPU {
                     let s0 = (instr >> 32) & 0x1ff;
                     let s1 = (instr >> 41) & 0x1ff;
                     let s2 = (instr >> 50) & 0x1ff;
-                    let src0 = self.resolve_src(s0 as u32);
-                    let src1 = self.resolve_src(s1 as u32);
-                    let src2 = self.resolve_src(s2 as u32);
+                    let src0 = self.resolve_src(s0 as u32) as u32;
+                    let src1 = self.resolve_src(s1 as u32) as u32;
+                    let src2 = self.resolve_src(s2 as u32) as u32;
                     let omod = (instr >> 59) & 0x3;
                     let neg = (instr >> 61) & 0x7;
                     let clmp = (instr >> 15) & 0x1;
@@ -563,8 +568,10 @@ impl CPU {
                         }
                         764 => {} // NOTE: div scaling isn't required
                         766 => {
+                            let src2 = self.resolve_src64(s2 as u32);
                             let temp = (src0 as u64 * src1 as u64) + src2 as u64;
-                            self.vec_reg[vdst as usize] = temp as u32;
+                            self.vec_reg.write64(vdst as usize, temp);
+                            assert!(sdst as u32 == NULL_SRC)
                         }
                         768 => {
                             let temp = src0 as u64 + src1 as u64;
@@ -749,9 +756,9 @@ impl CPU {
         // global
         else if instruction >> 26 == 0b110111 {
             let instr = self.u64_instr();
-            let offset = instr & 0x1fff;
+            let offset = as_signed(instr & 0x1fff, 13);
             let op = (instr >> 18) & 0x7f;
-            let addr = (instr >> 32) & 0xff;
+            let addr = ((instr >> 32) & 0xff) as usize;
             let data = (instr >> 40) & 0xff;
             let saddr = (instr >> 48) & 0x7f;
             let vdst = (instr >> 56) & 0xff;
@@ -771,14 +778,14 @@ impl CPU {
 
             let effective_addr = match self.resolve_src(saddr as u32) as u32 {
                 0x7F | _ if saddr as u32 == NULL_SRC => {
-                    self.vec_reg.read64(addr as usize).wrapping_add(offset)
+                    self.vec_reg.read64(addr) as i64 + (offset as i64)
                 }
                 _ => {
                     let scalar_addr = self.scalar_reg.read64(saddr as usize);
-                    let vgpr_offset = self.vec_reg[addr as usize];
-                    scalar_addr + vgpr_offset as u64 + offset
+                    let vgpr_offset = self.vec_reg[addr];
+                    scalar_addr as i64 + vgpr_offset as i64 + offset
                 }
-            };
+            } as u64;
 
             match op {
                 // load
@@ -829,6 +836,14 @@ impl CPU {
                 self.prg[self.pc as usize - 1] as i32
             }
             _ => todo!("resolve_src={ssrc_bf}"),
+        }
+    }
+
+    fn resolve_src64(&mut self, ssrc_bf: u32) -> u64 {
+        match ssrc_bf {
+            0..=SGPR_COUNT => self.scalar_reg.read64(ssrc_bf as usize),
+            VGPR_COUNT..=511 => self.vec_reg.read64((ssrc_bf - VGPR_COUNT) as usize),
+            _ => panic!(),
         }
     }
     fn write_to_sdst(&mut self, sdst_bf: u32, val: u32) {
