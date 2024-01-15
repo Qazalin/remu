@@ -153,12 +153,27 @@ impl CPU {
             }
 
             self.scc = match op {
-                2 => (ssrc0 > ssrc1) as u32,
-                4 => (ssrc0 < ssrc1) as u32,
-                6 => ((ssrc0 as u32) == (ssrc1 as u32)) as u32,
-                10 => ((ssrc0 as u32) < (ssrc1 as u32)) as u32,
+                0..=5 => {
+                    let s0 = ssrc0 as i32;
+                    let s1 = ssrc1 as i32;
+                    match op {
+                        2 => s0 > s1,
+                        4 => s0 < s1,
+                        _ => todo_instr!(instruction),
+                    }
+                }
+                6..=11 => {
+                    let s0 = ssrc0 as u32;
+                    let s1 = ssrc1 as u32;
+                    match op {
+                        6 => s0 == s1,
+                        8 => s0 > s1,
+                        10 => s0 < s1,
+                        _ => todo_instr!(instruction),
+                    }
+                }
                 _ => todo_instr!(instruction),
-            };
+            } as u32;
 
             if *DEBUG >= DebugLevel::STATE {
                 println!("{} {}", "SCC".color("pink"), self.scc);
@@ -184,6 +199,7 @@ impl CPU {
                     let should_jump = match op {
                         32 => true,
                         33 => self.scc == 0,
+                        34 => self.scc == 1,
                         35 => self.vccz(),
                         36 => !self.vccz(),
                         37 => self.exec_lo == 0,
