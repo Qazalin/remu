@@ -7,13 +7,13 @@ use std::path::PathBuf;
 
 const MAX_MEM_SIZE: usize = 1_000_000_000;
 pub struct BumpAllocator {
-    fp: PathBuf,
+    fp: String,
 }
 
 impl BumpAllocator {
     pub fn new(wave_id: &str) -> Self {
-        let fp = PathBuf::from(format!("/tmp/{}.bin", wave_id));
-        if !fp.exists() {
+        let fp = format!("/tmp/{}.bin", wave_id);
+        if !PathBuf::from(&fp).exists() {
             File::create(&fp).unwrap();
         }
         Self { fp }
@@ -25,9 +25,9 @@ impl BumpAllocator {
         return last as u64;
     }
 
-    fn len(&mut self) -> usize {
-        let mut file = File::open(&self.fp).unwrap();
-        file.seek(SeekFrom::End(0)).unwrap() as usize
+    pub fn len(&self) -> usize {
+        let file = File::open(&self.fp).unwrap();
+        file.metadata().unwrap().len() as usize
     }
 
     pub fn read<D: DType>(&self, addr: u64) -> D {
