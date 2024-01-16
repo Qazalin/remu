@@ -345,6 +345,8 @@ impl CPU {
 
             self.vec_reg[vdst] = match op {
                 1 => s0,
+                5 => (s0 as i32 as f32).to_bits(),
+                8 => f32::from_bits(s0) as i32 as u32,
                 56 => s0.reverse_bits(),
                 42 | 37 | 39 => {
                     let s0 = f32::from_bits(s0);
@@ -1085,6 +1087,30 @@ mod test_vop1 {
             helper_test_fexp(f32::from_bits(0x7f800000)),
             f32::from_bits(0x7f800000)
         );
+    }
+
+    #[test]
+    fn test_cast_f32_i32() {
+        let mut cpu = _helper_test_cpu("test_cast_f32_i32");
+        [(10.42, 10i32), (-20.08, -20i32)]
+            .iter()
+            .for_each(|(src, expected)| {
+                cpu.scalar_reg[2] = f32::to_bits(*src);
+                cpu.interpret(&vec![0x7E001002, END_PRG]);
+                assert_eq!(cpu.vec_reg[0] as i32, *expected);
+            })
+    }
+
+    #[test]
+    fn test_cast_i32_f32() {
+        let mut cpu = _helper_test_cpu("test_cast_f32_i32");
+        [(10.0, 10i32), (-20.0, -20i32)]
+            .iter()
+            .for_each(|(expected, src)| {
+                cpu.vec_reg[0] = *src as u32;
+                cpu.interpret(&vec![0x7E000B00, END_PRG]);
+                assert_eq!(f32::from_bits(cpu.vec_reg[0]), *expected);
+            })
     }
 }
 
