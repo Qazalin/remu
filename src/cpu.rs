@@ -138,24 +138,24 @@ impl CPU {
         }
         // sopc
         else if (instruction >> 23) & 0x3ff == 0b101111110 {
-            let ssrc0 = self.resolve_src(instruction & 0xff);
-            let ssrc1 = self.resolve_src((instruction >> 8) & 0xff);
+            let s0 = self.resolve_src(instruction & 0xff) as u32;
+            let s1 = self.resolve_src((instruction >> 8) & 0xff) as u32;
             let op = (instruction >> 16) & 0x7f;
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
                     "{} ssrc0={} ssrc1={} op={}",
                     "SOPC".color("blue"),
-                    ssrc0,
-                    ssrc1,
+                    s0,
+                    s1,
                     op
                 );
             }
 
             self.scc = match op {
                 0..=5 => {
-                    let s0 = ssrc0 as i32;
-                    let s1 = ssrc1 as i32;
+                    let s0 = s0 as i32;
+                    let s1 = s1 as i32;
                     match op {
                         2 => s0 > s1,
                         4 => s0 < s1,
@@ -163,8 +163,6 @@ impl CPU {
                     }
                 }
                 6..=11 => {
-                    let s0 = ssrc0 as u32;
-                    let s1 = ssrc1 as u32;
                     match op {
                         6 => s0 == s1,
                         8 => s0 > s1,
@@ -248,8 +246,8 @@ impl CPU {
         }
         // sop2
         else if instruction >> 30 == 0b10 {
-            let ssrc0 = self.resolve_src(instruction & 0xFF);
-            let ssrc1 = self.resolve_src((instruction >> 8) & 0xFF);
+            let s0 = self.resolve_src(instruction & 0xFF) as u32;
+            let s1 = self.resolve_src((instruction >> 8) & 0xFF) as u32;
             let sdst = (instruction >> 16) & 0x7F;
             let op = (instruction >> 23) & 0xFF;
 
@@ -257,74 +255,83 @@ impl CPU {
                 println!(
                     "{} ssrc0={} ssrc1={} sdst={} op={}",
                     "SOP2".color("blue"),
-                    ssrc0,
-                    ssrc1,
+                    s0,
+                    s1,
                     sdst,
                     op
                 );
             }
 
             let ret = match op {
-                0 => {
-                    let temp = (ssrc0 as u64) + (ssrc1 as u64);
-                    self.scc = if temp >= 0x100000000 { 1 } else { 0 };
+                0 | 4 => {
+                    let s0 = s0 as u64;
+                    let s1 = s1 as u64;
+                    let temp = match op {
+                        0 => s0 + s1,
+                        4 => s0 + s1 + self.scc as u64,
+                        _ => panic!(),
+                    };
+                    self.scc = (temp >= 0x100000000) as u32;
                     temp as u32
                 }
-                2 => ((ssrc0 as i32) + (ssrc1 as i32)) as u32,
-                3 => ((ssrc0 as i32) - (ssrc1 as i32)) as u32,
-                4 => ((ssrc0 as u64) + (ssrc1 as u64) + (self.scc as u64)) as u32,
-                9 => ((ssrc0 as u64) << (ssrc1 as u64 & 0x1F)) as u32,
+                2 | 3 => {
+                    let s0 = s0 as i32;
+                    let s1 = s1 as i32;
+                    let temp = match op {
+                        2 => s0 + s1,
+                        3 => s0 - s1,
+                        _ => panic!(),
+                    };
+                    temp as u32
+                }
                 8 => {
-                    let temp = (ssrc0 as u32) << (ssrc1 as u32);
+                    let temp = s0 << s1;
+                    self.scc = (temp != 0) as u32;
                     temp as u32
                 }
-                12 => (ssrc0 >> (ssrc1 & 0x1F)) as u32,
-                18 => {
-                    self.scc = (ssrc0 < ssrc1) as u32;
-                    if self.scc != 0 {
-                        ssrc0 as u32
-                    } else {
-                        ssrc1 as u32
-                    }
+                9 => {
+                    let temp = (s0 as u64) << (s1 as u64 & 0x1F);
+                    self.scc = (temp != 0) as u32;
+                    temp as u32
                 }
-                20 => {
-                    self.scc = (ssrc0 > ssrc1) as u32;
-                    if self.scc != 0 {
-                        ssrc0 as u32
-                    } else {
-                        ssrc1 as u32
-                    }
+                12 => {
+                    let temp = (s0 as i32) >> (s1 as i32);
+                    self.scc = (temp != 0) as u32;
+                    temp as u32
                 }
-                22 => {
-                    let ret = (ssrc0 as u32) & (ssrc1 as u32);
-                    self.scc = (ret != 0) as u32;
-                    ret as u32
+                18 | 20 => {
+                    self.scc = match op {
+                        18 => (s0 as i32) < (s1 as i32),
+                        20 => (s0 as i32) > (s1 as i32),
+                        _ => panic!(),
+                    } as u32;
+                    (match self.scc != 0 {
+                        true => s0,
+                        false => s1,
+                    }) as u32
                 }
-                24 => {
-                    let ret = (ssrc0 as u32) | (ssrc1 as u32);
-                    self.scc = (ret != 0) as u32;
-                    ret as u32
+                22..=34 => {
+                    let temp = match op {
+                        22 => s0 & s1,
+                        24 => s0 | s1,
+                        34 => s0 & !s1,
+                        _ => panic!(),
+                    };
+                    self.scc = (temp != 0) as u32;
+                    temp as u32
                 }
-                34 => {
-                    let ret = (ssrc0 as u32) & !(ssrc1 as u32);
-                    self.scc = (ret != 0) as u32;
-                    ret as u32
-                }
-                44 => ((ssrc0 as i32) * (ssrc1 as i32)) as u32,
-                48 => {
-                    if self.scc != 0 {
-                        ssrc0 as u32
-                    } else {
-                        ssrc1 as u32
-                    }
-                }
+                44 => ((s0 as i32) * (s1 as i32)) as u32,
+                48 => match self.scc != 0 {
+                    true => s0,
+                    false => s1,
+                },
                 _ => todo_instr!(instruction),
             };
             self.write_to_sdst(sdst, ret);
         }
         // vop1
         else if instruction >> 25 == 0b0111111 {
-            let src = self.resolve_src(instruction & 0x1ff);
+            let s0 = self.resolve_src(instruction & 0x1ff) as u32;
             let op = (instruction >> 9) & 0xff;
             let vdst = (instruction >> 17) & 0xff;
 
@@ -332,17 +339,17 @@ impl CPU {
                 println!(
                     "{} src={} op={} vdst={}",
                     "VOP1".color("blue"),
-                    src,
+                    s0,
                     op,
                     vdst,
                 );
             }
 
             self.vec_reg[vdst as usize] = match op {
-                1 => src as u32,
-                56 => (src as u32).reverse_bits(),
+                1 => s0,
+                56 => s0.reverse_bits(),
                 42 | 37 | 39 => {
-                    let s0 = f32::from_bits(src as u32);
+                    let s0 = f32::from_bits(s0);
                     match op {
                         37 => f32::exp2(s0),
                         39 => f32::log2(s0),
@@ -841,6 +848,8 @@ impl CPU {
                 (243, -1.0_f32),
                 (244, 2.0_f32),
                 (245, -2.0_f32),
+                (246, 4.0_f32),
+                (247, -4.0_f32),
             ]
             .iter()
             .find(|x| x.0 == ssrc_bf)
