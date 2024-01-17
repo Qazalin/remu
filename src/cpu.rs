@@ -1,6 +1,6 @@
 use crate::allocator::BumpAllocator;
 use crate::alu_modifiers::Negate;
-use crate::state::RegisterGroup;
+use crate::state::{RegisterGroup, VCC};
 use crate::todo_instr;
 use crate::utils::{as_signed, Colorize, DebugLevel, DEBUG};
 
@@ -17,7 +17,7 @@ pub struct CPU {
     pub scalar_reg: RegisterGroup,
     pub vec_reg: RegisterGroup,
     pub scc: u32,
-    pub vcc_lo: u32,
+    pub vcc: VCC,
     pub exec_lo: u32,
     prg: Vec<u32>,
 }
@@ -27,7 +27,7 @@ impl CPU {
         return CPU {
             pc: 0,
             scc: 0,
-            vcc_lo: 0,
+            vcc: VCC::new(),
             exec_lo: 0,
             gds,
             lds,
@@ -39,7 +39,7 @@ impl CPU {
 
     pub fn interpret(&mut self, prg: &Vec<u32>) {
         self.pc = 0;
-        self.vcc_lo = 0;
+        self.vcc.assign(0);
         self.exec_lo = 1;
         self.prg = prg.to_vec();
 
@@ -196,8 +196,8 @@ impl CPU {
                         32 => true,
                         33 => self.scc == 0,
                         34 => self.scc == 1,
-                        35 => self.vccz(),
-                        36 => !self.vccz(),
+                        35 => self.vcc == 0,
+                        36 => self.vcc != 0,
                         37 => self.exec_lo == 0,
                         _ => todo_instr!(instruction),
                     };
@@ -421,7 +421,7 @@ impl CPU {
                         }
                         _ => match op {
                             8 => *s0,
-                            9 => match self.vcc_lo != 0 {
+                            9 => match self.vcc != 0 {
                                 true => *s1,
                                 false => *s0,
                             },
@@ -447,16 +447,16 @@ impl CPU {
                 17 | 18 | 27 | 20 | 30 => {
                     let s0 = f32::from_bits(s0);
                     let s1 = f32::from_bits(s1);
-                    self.vcc_lo = match op {
+                    self.vcc.assign(match op {
                         17 => s0 < s1,
                         18 => s0 == s1,
                         20 => s0 > s1,
                         27 => !(s0 > s1),
                         30 => !(s0 < s1),
                         _ => panic!(),
-                    } as u32;
+                    } as u32);
                 }
-                68 => self.vcc_lo = (s0 as i32 > s1 as i32) as u32,
+                68 => self.vcc.assign((s0 as i32 > s1 as i32) as u32),
                 196 => self.exec_lo = (s0 as i32 > s1 as i32) as u32,
                 202 => self.exec_lo = (s0 == s1) as u32,
                 _ => todo_instr!(instruction),
@@ -481,7 +481,7 @@ impl CPU {
             }
 
             self.vec_reg[vdst as usize] = match op {
-                1 => match self.vcc_lo != 0 {
+                1 => match self.vcc != 0 {
                     true => s1,
                     false => s0,
                 },
@@ -520,17 +520,18 @@ impl CPU {
                 28 => s0 | s1,
 
                 32 => {
-                    let temp = s0 as u64 + s1 as u64 + self.vcc_lo as u64;
-                    self.vcc_lo = if temp >= 0x100000000 { 1 } else { 0 };
+                    let temp = s0 as u64 + s1 as u64 + *self.vcc as u64;
+                    self.vcc.assign(if temp >= 0x100000000 { 1 } else { 0 });
                     temp as u32
                 }
                 33 | 34 => {
                     let temp = match op {
-                        33 => s0 - s1 - self.vcc_lo,
-                        34 => s1 - s0 - self.vcc_lo,
+                        33 => s0 - s1 - *self.vcc,
+                        34 => s1 - s0 - *self.vcc,
                         _ => panic!(),
                     };
-                    self.vcc_lo = ((s1 as u64 + self.vcc_lo as u64) > s0 as u64) as u32;
+                    self.vcc
+                        .assign(((s1 as u64 + *self.vcc as u64) > s0 as u64) as u32);
                     temp
                 }
 
@@ -591,7 +592,7 @@ impl CPU {
                             let temp = s0 as u64 + s1 as u64;
                             let vcc_value = (temp >= 0x100000000) as u32;
                             match sdst {
-                                106 => self.vcc_lo = vcc_value,
+                                106 => self.vcc.assign(vcc_value),
                                 _ => self.scalar_reg[sdst] = vcc_value,
                             }
                             self.vec_reg[vdst] = temp as u32;
@@ -659,7 +660,7 @@ impl CPU {
 
                             match vdst as u32 {
                                 0..=SGPR_COUNT => self.scalar_reg[vdst] = ret,
-                                106 => self.vcc_lo = ret,
+                                106 => self.vcc.assign(ret),
                                 _ => todo_instr!(instruction),
                             }
                         }
@@ -694,7 +695,7 @@ impl CPU {
                                         551 => s2 / s1,
                                         567 => {
                                             let ret = s0 * s1 + s2;
-                                            match self.vcc_lo != 0 {
+                                            match self.vcc != 0 {
                                                 true => 2.0_f32.powi(32) * ret,
                                                 false => ret,
                                             }
@@ -835,7 +836,7 @@ impl CPU {
         match ssrc_bf {
             0..=SGPR_COUNT => self.scalar_reg[ssrc_bf as usize] as i32,
             VGPR_COUNT..=511 => self.vec_reg[(ssrc_bf - VGPR_COUNT) as usize] as i32,
-            106 => self.vcc_lo as i32,
+            106 => *self.vcc as i32,
             126 => self.exec_lo as i32,
             128 => 0,
             124 => NULL_SRC as i32,
@@ -875,21 +876,13 @@ impl CPU {
         match sdst_bf {
             0..=SGPR_COUNT => self.scalar_reg[sdst_bf as usize] = val,
             106 => {
-                self.vcc_lo = val;
+                self.vcc.assign(val);
                 if *DEBUG >= DebugLevel::STATE {
-                    println!("{} {}", "VCC".color("pink"), self.vcc_lo);
+                    println!("{} {:?}", "VCC".color("pink"), self.vcc);
                 }
             }
             126 => self.exec_lo = val,
             _ => todo!("write to sdst {}", sdst_bf),
-        }
-    }
-
-    /* branching utils */
-    fn vccz(&self) -> bool {
-        match self.vcc_lo {
-            0 => true,
-            _ => false,
         }
     }
 }
@@ -915,7 +908,7 @@ mod test_alu_utils {
         let mut cpu = _helper_test_cpu("test_write_to_sdst_sgpr");
         let val = 0b1011101011011011111011101111;
         cpu.write_to_sdst(106, val);
-        assert_eq!(cpu.vcc_lo, val);
+        assert_eq!(cpu.vcc, 1);
     }
 
     #[test]
@@ -1124,11 +1117,11 @@ mod test_vopc {
 
         cpu.vec_reg[1] = (4_i32 * -1) as u32;
         cpu.interpret(&vec![0x7c8802c1, END_PRG]);
-        assert_eq!(cpu.vcc_lo, 1);
+        assert_eq!(cpu.vcc, 1);
 
         cpu.vec_reg[1] = 4;
         cpu.interpret(&vec![0x7c8802c1, END_PRG]);
-        assert_eq!(cpu.vcc_lo, 0);
+        assert_eq!(cpu.vcc, 0);
     }
 }
 #[cfg(test)]

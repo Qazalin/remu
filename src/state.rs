@@ -55,3 +55,54 @@ impl IndexMut<usize> for RegisterGroup {
         &mut self.values[index]
     }
 }
+
+#[derive(Debug)]
+pub struct VCC {
+    val: u32,
+}
+
+impl VCC {
+    pub fn new() -> Self {
+        Self { val: 0 }
+    }
+    pub fn assign(&mut self, val: u32) {
+        self.val = val & 1;
+    }
+}
+impl std::ops::Deref for VCC {
+    type Target = u32;
+    fn deref(&self) -> &Self::Target {
+        &self.val
+    }
+}
+impl std::cmp::PartialEq<u32> for VCC {
+    fn eq(&self, other: &u32) -> bool {
+        &self.val == other
+    }
+}
+
+#[cfg(test)]
+mod test_state {
+    use super::*;
+
+    #[test]
+    fn test_vcc() {
+        let mut vcc = VCC { val: 0 };
+        let val: i32 = -1;
+        vcc.assign(val as u32);
+        let result = 2 + 2 + *vcc;
+        assert_eq!(result, 5);
+
+        vcc.assign(0);
+        let result = 2 + 2 + *vcc;
+        assert_eq!(result, 4);
+
+        vcc.assign(0b010);
+        let result = 2 + 2 + *vcc;
+        assert_eq!(result, 4);
+
+        vcc.assign(0b1);
+        let result = 2 + 2 + *vcc;
+        assert_eq!(result, 5);
+    }
+}
