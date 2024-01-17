@@ -62,7 +62,7 @@ pub extern "C" fn hipModuleLaunchKernel(
     for gx in 0..grid_dim_x {
         for gy in 0..grid_dim_y {
             for gz in 0..grid_dim_z {
-                let mut thread_registers = HashMap::<[u32; 3], [Vec<u32>; 2]>::new();
+                let mut thread_registers = HashMap::<[u32; 3], (Vec<u32>, Vec<u32>, u32)>::new();
                 for prg in prg.iter() {
                     for tx in 0..block_dim_x {
                         for ty in 0..block_dim_y {
@@ -92,7 +92,7 @@ fn launch_thread(
     local_size: [u32; 3],
     stack_ptr: u64,
     prg: &Vec<u32>,
-    thread_registers: &mut HashMap<[u32; 3], [Vec<u32>; 2]>,
+    thread_registers: &mut HashMap<[u32; 3], (Vec<u32>, Vec<u32>, u32)>,
 ) {
     if *DEBUG >= DebugLevel::MISC {
         println!(
@@ -109,8 +109,9 @@ fn launch_thread(
 
     match thread_registers.get(&thread_id) {
         Some(val) => {
-            cpu.scalar_reg.values = val[0].clone();
-            cpu.vec_reg.values = val[1].clone();
+            cpu.scalar_reg.values = val.0.clone();
+            cpu.vec_reg.values = val.1.clone();
+            cpu.vcc.assign(val.2);
         }
         None => {
             cpu.scalar_reg.write64(0, stack_ptr);
@@ -134,7 +135,10 @@ fn launch_thread(
     }
 
     cpu.interpret(prg);
-    thread_registers.insert(thread_id, [cpu.scalar_reg.values, cpu.vec_reg.values]);
+    thread_registers.insert(
+        thread_id,
+        (cpu.scalar_reg.values, cpu.vec_reg.values, *cpu.vcc),
+    );
 }
 
 #[no_mangle]

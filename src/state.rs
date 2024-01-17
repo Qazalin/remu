@@ -62,9 +62,6 @@ pub struct VCC {
 }
 
 impl VCC {
-    pub fn new() -> Self {
-        Self { val: 0 }
-    }
     pub fn assign(&mut self, val: u32) {
         self.val = val & 1;
     }
@@ -77,7 +74,7 @@ impl std::ops::Deref for VCC {
 }
 impl From<u32> for VCC {
     fn from(val: u32) -> Self {
-        let mut vcc = Self::new();
+        let mut vcc = Self { val: 0 };
         vcc.assign(val);
         vcc
     }

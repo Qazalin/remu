@@ -27,7 +27,7 @@ impl CPU {
         return CPU {
             pc: 0,
             scc: 0,
-            vcc: VCC::new(),
+            vcc: VCC::from(0),
             exec_lo: 0,
             gds,
             lds,
@@ -576,33 +576,29 @@ impl CPU {
                         )
                     }
 
-                    match op {
+                    let (ret, vcc) = match op {
                         288 => {
-                            let temp = s0 as u64 + s1 as u64 + *VCC::from(s2) as u64;
-                            let vcc_value = (temp >= 0x100000000) as u32;
-                            match sdst {
-                                106 => self.vcc.assign(vcc_value),
-                                _ => self.scalar_reg[sdst] = *VCC::from(vcc_value),
-                            }
-                            self.vec_reg[vdst] = temp as u32
+                            let ret = s0 as u64 + s1 as u64 + *VCC::from(s2) as u64;
+                            (ret as u32, ret >= 0x100000000)
                         }
-                        764 => {} // NOTE: div scaling isn't required
+                        764 => (0, false), // NOTE: div scaling isn't required
                         766 => {
-                            let temp = s0 as u64 * s1 as u64 + *VCC::from(s2) as u64;
-                            self.vec_reg.write64(vdst, temp);
-                            assert!(sdst as u32 == NULL_SRC)
+                            let ret = s0 as u64 * s1 as u64 + s2 as u64;
+                            assert!(sdst as u32 == NULL_SRC, "not yet implemented");
+                            (ret as u32, false)
                         }
                         768 => {
-                            let temp = s0 as u64 + s1 as u64;
-                            let vcc_value = (temp >= 0x100000000) as u32;
-                            match sdst {
-                                106 => self.vcc.assign(vcc_value),
-                                _ => self.scalar_reg[sdst] = *VCC::from(vcc_value),
-                            }
-                            self.vec_reg[vdst] = temp as u32;
+                            let ret = s0 as u64 + s1 as u64;
+                            (ret as u32, ret >= 0x100000000)
                         }
                         _ => todo_instr!(instruction),
+                    };
+                    match sdst {
+                        106 => self.vcc.assign(vcc as u32),
+                        124 => {}
+                        _ => self.scalar_reg[sdst] = *VCC::from(vcc as u32),
                     }
+                    self.vec_reg[vdst] = ret;
                 }
                 _ => {
                     let vdst = (instr & 0xff) as usize;
@@ -869,13 +865,6 @@ impl CPU {
         }
     }
 
-    fn resolve_src64(&mut self, ssrc_bf: u32) -> u64 {
-        match ssrc_bf {
-            0..=SGPR_COUNT => self.scalar_reg.read64(ssrc_bf as usize),
-            VGPR_COUNT..=511 => self.vec_reg.read64((ssrc_bf - VGPR_COUNT) as usize),
-            _ => panic!(),
-        }
-    }
     fn write_to_sdst(&mut self, sdst_bf: u32, val: u32) {
         match sdst_bf {
             0..=SGPR_COUNT => self.scalar_reg[sdst_bf as usize] = val,
