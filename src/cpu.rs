@@ -196,8 +196,8 @@ impl CPU {
                         32 => true,
                         33 => self.scc == 0,
                         34 => self.scc == 1,
-                        35 => self.vcc == 0,
-                        36 => self.vcc != 0,
+                        35 => *self.vcc == 0,
+                        36 => *self.vcc != 0,
                         37 => self.exec_lo == 0,
                         _ => todo_instr!(instruction),
                     };
@@ -421,7 +421,7 @@ impl CPU {
                         }
                         _ => match op {
                             8 => *s0,
-                            9 => match self.vcc != 0 {
+                            9 => match *self.vcc != 0 {
                                 true => *s1,
                                 false => *s0,
                             },
@@ -481,7 +481,7 @@ impl CPU {
             }
 
             self.vec_reg[vdst as usize] = match op {
-                1 => match self.vcc != 0 {
+                1 => match *self.vcc != 0 {
                     true => s1,
                     false => s0,
                 },
@@ -578,13 +578,17 @@ impl CPU {
 
                     match op {
                         288 => {
-                            let temp = s0 as u64 + s1 as u64 + s2 as u64;
+                            let temp = s0 as u64 + s1 as u64 + *VCC::from(s2) as u64;
+                            let vcc_value = (temp >= 0x100000000) as u32;
+                            match sdst {
+                                106 => self.vcc.assign(vcc_value),
+                                _ => self.scalar_reg[sdst] = *VCC::from(vcc_value),
+                            }
                             self.vec_reg[vdst] = temp as u32
                         }
                         764 => {} // NOTE: div scaling isn't required
                         766 => {
-                            let s2 = self.resolve_src64(((instr >> 50) & 0x1ff) as u32);
-                            let temp = s0 as u64 * s1 as u64 + s2 as u64;
+                            let temp = s0 as u64 * s1 as u64 + *VCC::from(s2) as u64;
                             self.vec_reg.write64(vdst, temp);
                             assert!(sdst as u32 == NULL_SRC)
                         }
@@ -593,7 +597,7 @@ impl CPU {
                             let vcc_value = (temp >= 0x100000000) as u32;
                             match sdst {
                                 106 => self.vcc.assign(vcc_value),
-                                _ => self.scalar_reg[sdst] = vcc_value,
+                                _ => self.scalar_reg[sdst] = *VCC::from(vcc_value),
                             }
                             self.vec_reg[vdst] = temp as u32;
                         }
@@ -695,7 +699,7 @@ impl CPU {
                                         551 => s2 / s1,
                                         567 => {
                                             let ret = s0 * s1 + s2;
-                                            match self.vcc != 0 {
+                                            match *self.vcc != 0 {
                                                 true => 2.0_f32.powi(32) * ret,
                                                 false => ret,
                                             }
@@ -908,7 +912,7 @@ mod test_alu_utils {
         let mut cpu = _helper_test_cpu("test_write_to_sdst_sgpr");
         let val = 0b1011101011011011111011101111;
         cpu.write_to_sdst(106, val);
-        assert_eq!(cpu.vcc, 1);
+        assert_eq!(*cpu.vcc, 1);
     }
 
     #[test]
@@ -1117,11 +1121,11 @@ mod test_vopc {
 
         cpu.vec_reg[1] = (4_i32 * -1) as u32;
         cpu.interpret(&vec![0x7c8802c1, END_PRG]);
-        assert_eq!(cpu.vcc, 1);
+        assert_eq!(*cpu.vcc, 1);
 
         cpu.vec_reg[1] = 4;
         cpu.interpret(&vec![0x7c8802c1, END_PRG]);
-        assert_eq!(cpu.vcc, 0);
+        assert_eq!(*cpu.vcc, 0);
     }
 }
 #[cfg(test)]

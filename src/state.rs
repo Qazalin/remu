@@ -75,9 +75,11 @@ impl std::ops::Deref for VCC {
         &self.val
     }
 }
-impl std::cmp::PartialEq<u32> for VCC {
-    fn eq(&self, other: &u32) -> bool {
-        &self.val == other
+impl From<u32> for VCC {
+    fn from(val: u32) -> Self {
+        let mut vcc = Self::new();
+        vcc.assign(val);
+        vcc
     }
 }
 
@@ -104,5 +106,9 @@ mod test_state {
         vcc.assign(0b1);
         let result = 2 + 2 + *vcc;
         assert_eq!(result, 5);
+
+        let vcc = VCC::from(4);
+        let result = 2 + 2 + *vcc;
+        assert_eq!(result, 4);
     }
 }
