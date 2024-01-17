@@ -61,11 +61,20 @@ pub struct VCC {
     val: u32,
 }
 
-impl VCC {
-    pub fn assign(&mut self, val: u32) {
+pub trait Assign<T> {
+    fn assign(&mut self, val: T) {}
+}
+impl Assign<u32> for VCC {
+    fn assign(&mut self, val: u32) {
         self.val = val & 1;
     }
 }
+impl Assign<bool> for VCC {
+    fn assign(&mut self, val: bool) {
+        self.val = val as u32;
+    }
+}
+
 impl std::ops::Deref for VCC {
     type Target = u32;
     fn deref(&self) -> &Self::Target {

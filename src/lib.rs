@@ -1,5 +1,6 @@
 use crate::allocator::BumpAllocator;
 use crate::cpu::CPU;
+use crate::state::Assign;
 use crate::utils::{Colorize, DebugLevel, DEBUG};
 use std::collections::HashMap;
 use std::os::raw::{c_char, c_void};

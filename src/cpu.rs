@@ -1,6 +1,6 @@
 use crate::allocator::BumpAllocator;
 use crate::alu_modifiers::Negate;
-use crate::state::{RegisterGroup, VCC};
+use crate::state::{Assign, RegisterGroup, VCC};
 use crate::todo_instr;
 use crate::utils::{as_signed, Colorize, DebugLevel, DEBUG};
 
@@ -272,30 +272,28 @@ impl CPU {
                     self.scc = (temp >= 0x100000000) as u32;
                     temp as u32
                 }
-                2 | 3 => {
+                2 | 3 | 44 | 46 => {
                     let s0 = s0 as i32;
                     let s1 = s1 as i32;
                     let temp = match op {
                         2 => s0 + s1,
                         3 => s0 - s1,
+                        44 => s0 * s1,
+                        46 => ((s0 as i64 * s1 as i64) >> 32) as i32,
                         _ => panic!(),
                     };
                     temp as u32
                 }
-                8 => {
-                    let temp = s0 << s1;
-                    self.scc = (temp != 0) as u32;
-                    temp as u32
-                }
-                9 => {
-                    let temp = (s0 as u64) << (s1 as u64 & 0x1F);
-                    self.scc = (temp != 0) as u32;
-                    temp as u32
-                }
-                12 => {
-                    let temp = (s0 as i32) >> (s1 as i32);
-                    self.scc = (temp != 0) as u32;
-                    temp as u32
+                8 | 10 | 9 | 12 => {
+                    let ret = match op {
+                        8 => s0 << s1,
+                        9 => ((s0 as u64) << (s1 as u64 & 0x1F)) as u32,
+                        10 => s0 >> s1,
+                        12 => ((s0 as i32) >> (s1 as i32)) as u32,
+                        _ => panic!(),
+                    };
+                    self.scc = (ret != 0) as u32;
+                    ret
                 }
                 18 | 20 => {
                     self.scc = match op {
@@ -318,7 +316,6 @@ impl CPU {
                     self.scc = (temp != 0) as u32;
                     temp as u32
                 }
-                44 => ((s0 as i32) * (s1 as i32)) as u32,
                 48 => match self.scc != 0 {
                     true => s0,
                     false => s1,
@@ -454,9 +451,20 @@ impl CPU {
                         27 => !(s0 > s1),
                         30 => !(s0 < s1),
                         _ => panic!(),
-                    } as u32);
+                    });
                 }
-                68 => self.vcc.assign((s0 as i32 > s1 as i32) as u32),
+                57 | 58 | 62 => {
+                    let s0 = s0 as u16;
+                    let s1 = s1 as u16;
+
+                    self.vcc.assign(match op {
+                        58 => s0 == s1,
+                        57 => s0 < s1,
+                        62 => s0 >= s1,
+                        _ => panic!(),
+                    })
+                }
+                68 => self.vcc.assign(s0 as i32 > s1 as i32),
                 196 => self.exec_lo = (s0 as i32 > s1 as i32) as u32,
                 202 => self.exec_lo = (s0 == s1) as u32,
                 _ => todo_instr!(instruction),
@@ -515,6 +523,7 @@ impl CPU {
                 11 => s0 * s1,
 
                 24 => s1 << s0,
+                29 => s0 ^ s1,
                 25 => s1 >> s0,
                 27 => s0 & s1,
                 28 => s0 | s1,
@@ -594,7 +603,7 @@ impl CPU {
                         _ => todo_instr!(instruction),
                     };
                     match sdst {
-                        106 => self.vcc.assign(vcc as u32),
+                        106 => self.vcc.assign(vcc),
                         124 => {}
                         _ => self.scalar_reg[sdst] = *VCC::from(vcc as u32),
                     }
@@ -712,21 +721,34 @@ impl CPU {
                                 _ => {
                                     assert_eq!(neg, 0);
                                     match op {
-                                        522 | 541 => {
+                                        522 | 541 | 529 => {
                                             let s0 = s0 as i32;
                                             let s1 = s1 as i32;
                                             let s2 = s2 as i32;
                                             (match op {
                                                 522 => s0 * s1 + s2, // TODO 24 bit trunc
                                                 541 => i32::max(i32::max(s0, s1), s2),
+                                                529 => (s0 >> s1) & ((1 << s2) - 1),
                                                 _ => panic!(),
                                             }) as u32
                                         }
+
                                         523 => s0 * s1 + s2, // TODO 24 bit trunc
                                         528 => (s0 >> s1) & ((1 << s2) - 1),
                                         582 => (s0 << s1) + s2,
                                         597 => s0 + s1 + s2,
                                         598 => (s0 << s1) | s2,
+                                        771 | 772 | 773 | 824 => {
+                                            let s0 = s0 as u16;
+                                            let s1 = s1 as u16;
+                                            (match op {
+                                                771 => s0 + s1,
+                                                772 => s0 - s1,
+                                                773 => s0 * s1,
+                                                824 => s1 << s0,
+                                                _ => panic!(),
+                                            }) as u32
+                                        }
                                         _ => todo_instr!(instruction),
                                     }
                                 }
@@ -781,11 +803,11 @@ impl CPU {
         else if instruction >> 26 == 0b110111 {
             let instr = self.u64_instr();
             let offset = as_signed(instr & 0x1fff, 13);
-            let op = (instr >> 18) & 0x7f;
+            let op = ((instr >> 18) & 0x7f) as usize;
             let addr = ((instr >> 32) & 0xff) as usize;
-            let data = (instr >> 40) & 0xff;
-            let saddr = (instr >> 48) & 0x7f;
-            let vdst = (instr >> 56) & 0xff;
+            let data = ((instr >> 40) & 0xff) as usize;
+            let saddr = ((instr >> 48) & 0x7f) as usize;
+            let vdst = ((instr >> 56) & 0xff) as usize;
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
@@ -805,7 +827,7 @@ impl CPU {
                     self.vec_reg.read64(addr) as i64 + (offset as i64)
                 }
                 _ => {
-                    let scalar_addr = self.scalar_reg.read64(saddr as usize);
+                    let scalar_addr = self.scalar_reg.read64(saddr);
                     let vgpr_offset = self.vec_reg[addr];
                     scalar_addr as i64 + vgpr_offset as i64 + offset
                 }
@@ -813,16 +835,15 @@ impl CPU {
 
             match op {
                 // load
+                16 => self.vec_reg[vdst] = self.gds.read::<u8>(effective_addr) as u32,
                 20..=23 => (0..op - 19).for_each(|i| {
-                    self.vec_reg[(vdst + i) as usize] =
-                        self.gds.read(effective_addr + (4 * i as u64));
+                    self.vec_reg[vdst + i] = self.gds.read(effective_addr + 4 * i as u64);
                 }),
                 // store
+                24 => self.gds.write(effective_addr, self.vec_reg[data] as u8),
                 26..=29 => (0..op - 25).for_each(|i| {
-                    self.gds.write(
-                        effective_addr + (4 * i as u64),
-                        self.vec_reg[(data + i) as usize],
-                    );
+                    self.gds
+                        .write(effective_addr + 4 * i as u64, self.vec_reg[data + i]);
                 }),
                 _ => todo_instr!(instruction),
             };
