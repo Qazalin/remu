@@ -1,11 +1,18 @@
-pub trait Negate {
-    fn negate(&self, pos: usize, modifier: u32) -> f32;
+pub trait VOPModifier {
+    fn negate(&self, pos: usize, modifier: usize) -> f32;
+    fn absolute(&self, pos: usize, modifier: usize) -> f32;
 }
 
-impl Negate for f32 {
-    fn negate(&self, pos: usize, modifier: u32) -> f32 {
-        match (modifier >> pos as u32) & 1 {
+impl VOPModifier for f32 {
+    fn negate(&self, pos: usize, modifier: usize) -> f32 {
+        match (modifier >> pos) & 1 {
             1 => -(*self),
+            _ => *self,
+        }
+    }
+    fn absolute(&self, pos: usize, modifier: usize) -> f32 {
+        match (modifier >> pos) & 1 {
+            1 => f32::abs(*self),
             _ => *self,
         }
     }

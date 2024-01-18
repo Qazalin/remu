@@ -6,3 +6,5 @@ extra/bitfields.py
 extra/test_ops.sh
 extra/test_ops_asms.json
 extra/test_ops.py
+extra/all_ops
+extra/asm.py

@@ -1,5 +1,5 @@
 use crate::allocator::BumpAllocator;
-use crate::alu_modifiers::Negate;
+use crate::alu_modifiers::VOPModifier;
 use crate::state::{Assign, RegisterGroup, VCC};
 use crate::todo_instr;
 use crate::utils::{as_signed, Colorize, DebugLevel, DEBUG};
@@ -109,27 +109,25 @@ impl CPU {
         }
         // sop1
         else if instruction >> 23 == 0b10_1111101 {
-            let ssrc0 = self.resolve_src(instruction & 0xFF) as u32;
+            let s0 = self.resolve_src(instruction & 0xFF) as u32;
             let op = (instruction >> 8) & 0xFF;
             let sdst = (instruction >> 16) & 0x7F;
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
-                println!(
-                    "{} ssrc0={} sdst={} op={}",
-                    "SOP1".color("blue"),
-                    ssrc0,
-                    sdst,
-                    op,
-                );
+                println!("{} s0={} sdst={} op={}", "SOP1".color("blue"), s0, sdst, op,);
             }
 
             match op {
-                0 => self.write_to_sdst(sdst, ssrc0),
-                1 => self.scalar_reg.write64(sdst as usize, ssrc0 as u64),
-                30 => self.write_to_sdst(sdst, !ssrc0),
-                32 => {
+                0 => self.write_to_sdst(sdst, s0),
+                1 => self.scalar_reg.write64(sdst as usize, s0 as u64),
+                30 => self.write_to_sdst(sdst, !s0),
+                32 | 48 => {
                     let saveexec = self.exec_lo;
-                    self.exec_lo = ssrc0 & self.exec_lo;
+                    self.exec_lo = match op {
+                        32 => s0 & self.exec_lo,
+                        48 => s0 & !self.exec_lo,
+                        _ => panic!(),
+                    };
                     self.scc = (self.exec_lo != 0) as u32;
                     self.write_to_sdst(sdst, saveexec)
                 }
@@ -310,6 +308,7 @@ impl CPU {
                     let temp = match op {
                         22 => s0 & s1,
                         24 => s0 | s1,
+                        26 => s0 ^ s1,
                         34 => s0 & !s1,
                         _ => panic!(),
                     };
@@ -345,9 +344,16 @@ impl CPU {
                 5 => (s0 as i32 as f32).to_bits(),
                 8 => f32::from_bits(s0) as i32 as u32,
                 56 => s0.reverse_bits(),
-                42 | 37 | 39 => {
+                35..=42 => {
                     let s0 = f32::from_bits(s0);
                     match op {
+                        35 => {
+                            let mut temp = f32::floor(s0 + 0.5);
+                            if f32::floor(s0) % 2.0 != 0.0 && f32::fract(s0) == 0.5 {
+                                temp -= 1.0;
+                            }
+                            temp
+                        }
                         37 => f32::exp2(s0),
                         39 => f32::log2(s0),
                         42 => 1.0 / s0,
@@ -403,11 +409,12 @@ impl CPU {
                 .iter()
                 .for_each(|(op, s0, s1, dst)| {
                     self.vec_reg[*dst as usize] = match *op {
-                        0 | 3 | 4 | 5 | 10 => {
+                        0 | 1 | 3 | 4 | 5 | 10 => {
                             let s0 = f32::from_bits(*s0 as u32);
                             let s1 = f32::from_bits(*s1 as u32);
                             match *op {
                                 0 => s0 * s1 + f32::from_bits(self.vec_reg[*dst as usize]),
+                                1 => s0 * s1 + f32::from_bits(self.simm()),
                                 3 => s0 * s1,
                                 4 => s0 + s1,
                                 5 => s0 - s1,
@@ -465,6 +472,7 @@ impl CPU {
                     })
                 }
                 68 => self.vcc.assign(s0 as i32 > s1 as i32),
+                74 => self.vcc.assign(s0 == s1),
                 196 => self.exec_lo = (s0 as i32 > s1 as i32) as u32,
                 202 => self.exec_lo = (s0 == s1) as u32,
                 _ => todo_instr!(instruction),
@@ -494,7 +502,7 @@ impl CPU {
                     false => s0,
                 },
 
-                3 | 4 | 8 | 16 | 43 => {
+                3 | 4 | 8 | 16 | 43 | 44 | 45 => {
                     let s0 = f32::from_bits(s0);
                     let s1 = f32::from_bits(s1);
                     match op {
@@ -503,6 +511,8 @@ impl CPU {
                         8 => s0 * s1,
                         16 => f32::max(s0, s1),
                         43 => s0 * s1 + f32::from_bits(self.vec_reg[vdst as usize]),
+                        44 => s0 * f32::from_bits(self.simm()) + s1,
+                        45 => s0 * s1 + f32::from_bits(self.simm()),
                         _ => panic!(),
                     }
                     .to_bits()
@@ -573,7 +583,7 @@ impl CPU {
                     if *DEBUG >= DebugLevel::INSTRUCTION {
                         println!(
                             "{} vdst={} sdst={} op={} s0={} s1={} s2={} omod={} neg={}",
-                            "VOP3SD".color("blue"),
+                            "VOPSD".color("blue"),
                             vdst,
                             sdst,
                             op,
@@ -611,7 +621,7 @@ impl CPU {
                 }
                 _ => {
                     let vdst = (instr & 0xff) as usize;
-                    let abs = (instr >> 8) & 0x7;
+                    let abs = ((instr >> 8) & 0x7) as usize;
                     let opsel = (instr >> 11) & 0xf;
                     let cm = (instr >> 15) & 0x1;
 
@@ -620,9 +630,8 @@ impl CPU {
                     let s2 = self.resolve_src(((instr >> 50) & 0x1ff) as u32) as u32;
 
                     let omod = (instr >> 59) & 0x3;
-                    let neg = ((instr >> 61) & 0x7) as u32;
+                    let neg = ((instr >> 61) & 0x7) as usize;
                     assert_eq!(omod, 0);
-                    assert_eq!(abs, 0);
                     assert_eq!(cm, 0);
 
                     if *DEBUG >= DebugLevel::INSTRUCTION {
@@ -644,15 +653,16 @@ impl CPU {
                         // VOPC using VOP3 encoding
                         0..=255 => {
                             let ret = match op {
-                                17 | 18 | 27 | 20 | 30 => {
-                                    let s0 = f32::from_bits(s0).negate(0, neg as u32);
-                                    let s1 = f32::from_bits(s1).negate(1, neg as u32);
+                                17 | 18 | 27 | 20 | 30 | 126 | 155 => {
+                                    let s0 = f32::from_bits(s0).negate(0, neg).absolute(0, abs);
+                                    let s1 = f32::from_bits(s1).negate(1, neg).absolute(1, abs);
                                     match op {
                                         17 => s0 < s1,
                                         18 => s0 == s1,
                                         20 => s0 > s1,
-                                        27 => !(s0 > s1),
+                                        27 | 155 => !(s0 > s1),
                                         30 => !(s0 < s1),
+                                        126 => true,
                                         _ => panic!(),
                                     }
                                 }
@@ -661,7 +671,6 @@ impl CPU {
                                     match op {
                                         77 => s0 != s1,
                                         68 => s0 as i32 > s1 as i32,
-                                        126 => false,
                                         _ => todo_instr!(instruction),
                                     }
                                 }
@@ -670,6 +679,7 @@ impl CPU {
                             match vdst as u32 {
                                 0..=SGPR_COUNT => self.scalar_reg[vdst] = ret,
                                 106 => self.vcc.assign(ret),
+                                126 => self.exec_lo = ret,
                                 _ => todo_instr!(instruction),
                             }
                         }
@@ -690,9 +700,9 @@ impl CPU {
 
                             self.vec_reg[vdst] = match op {
                                 257 | 259 | 299 | 260 | 264 | 272 | 531 | 540 | 551 | 567 => {
-                                    let s0 = f32::from_bits(s0).negate(0, neg);
-                                    let s1 = f32::from_bits(s1).negate(1, neg);
-                                    let s2 = f32::from_bits(s2).negate(2, neg);
+                                    let s0 = f32::from_bits(s0).negate(0, neg).absolute(0, abs);
+                                    let s1 = f32::from_bits(s1).negate(1, neg).absolute(1, abs);
+                                    let s2 = f32::from_bits(s2).negate(2, neg).absolute(2, abs);
                                     match op {
                                         259 => s0 + s1,
                                         260 => s0 - s1,
@@ -735,8 +745,10 @@ impl CPU {
 
                                         523 => s0 * s1 + s2, // TODO 24 bit trunc
                                         528 => (s0 >> s1) & ((1 << s2) - 1),
+                                        576 => s0 ^ s1 ^ s2,
                                         582 => (s0 << s1) + s2,
                                         597 => s0 + s1 + s2,
+                                        583 => (s0 + s1) << s2,
                                         598 => (s0 << s1) | s2,
                                         771 | 772 | 773 | 824 => {
                                             let s0 = s0 as u16;
@@ -878,12 +890,13 @@ impl CPU {
             .unwrap()
             .1
             .to_bits() as i32,
-            255 => {
-                self.pc += 1;
-                self.prg[self.pc as usize - 1] as i32
-            }
+            255 => self.simm() as i32,
             _ => todo!("resolve_src={ssrc_bf}"),
         }
+    }
+    fn simm(&mut self) -> u32 {
+        self.pc += 1;
+        self.prg[self.pc as usize - 1]
     }
 
     fn write_to_sdst(&mut self, sdst_bf: u32, val: u32) {
