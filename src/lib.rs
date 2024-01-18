@@ -1,7 +1,7 @@
 use crate::allocator::BumpAllocator;
 use crate::cpu::CPU;
 use crate::state::Assign;
-use crate::utils::{Colorize, DebugLevel, DEBUG};
+use crate::utils::{Colorize, DebugLevel, DEBUG, PROGRESS};
 use std::collections::HashMap;
 use std::os::raw::{c_char, c_void};
 mod allocator;
@@ -60,6 +60,24 @@ pub extern "C" fn hipModuleLaunchKernel(
     }
 
     let prg = utils::split_asm_by_thread_syncs(&prg);
+
+    let total = grid_dim_x * grid_dim_y * grid_dim_z * block_dim_x * block_dim_y * block_dim_z;
+
+    let pb = match *PROGRESS != 0 {
+        true => {
+            let pb = indicatif::ProgressBar::new(total as u64);
+            pb.set_style(
+                indicatif::ProgressStyle::with_template(
+                    "[{elapsed_precise}] [{wide_bar:.green/white}] {pos:>7}/{len:7} {msg}",
+                )
+                .unwrap()
+                .progress_chars("#>-"),
+            );
+            Some(pb)
+        }
+        false => None,
+    };
+
     for gx in 0..grid_dim_x {
         for gy in 0..grid_dim_y {
             for gz in 0..grid_dim_z {
@@ -77,6 +95,9 @@ pub extern "C" fn hipModuleLaunchKernel(
                                     &prg,
                                     &mut thread_registers,
                                 );
+                                if let Some(ref _pb) = pb {
+                                    _pb.inc(1);
+                                }
                             }
                         }
                     }

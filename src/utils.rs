@@ -34,6 +34,13 @@ pub static DEBUG: Lazy<DebugLevel> = Lazy::new(|| {
     }
 });
 
+pub static PROGRESS: Lazy<i32> = Lazy::new(|| {
+    env::var("PROGRESS")
+        .unwrap_or_default()
+        .parse::<i32>()
+        .unwrap_or(0)
+});
+
 pub static SGPR_INDEX: Lazy<Option<i32>> = Lazy::new(|| {
     let var = env::var("SGPR_INDEX");
     if var.is_ok() {
