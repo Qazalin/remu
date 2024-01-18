@@ -121,10 +121,11 @@ impl CPU {
                 0 => self.write_to_sdst(sdst, s0),
                 1 => self.scalar_reg.write64(sdst as usize, s0 as u64),
                 30 => self.write_to_sdst(sdst, !s0),
-                32 | 48 => {
+                32 | 34 | 48 => {
                     let saveexec = self.exec_lo;
                     self.exec_lo = match op {
                         32 => s0 & self.exec_lo,
+                        34 => s0 | self.exec_lo,
                         48 => s0 & !self.exec_lo,
                         _ => panic!(),
                     };
@@ -256,6 +257,18 @@ impl CPU {
                     sdst,
                     op
                 );
+            }
+
+            let ret64 = match op {
+                9 => {
+                    let s0 = self.scalar_reg.read64(instruction as usize & 0xFF);
+                    Some(s0 << (s1 as u64))
+                }
+                _ => None,
+            };
+            if let Some(ret64) = ret64 {
+                self.scalar_reg.write64(sdst as usize, ret64);
+                return;
             }
 
             let ret = match op {
@@ -473,7 +486,8 @@ impl CPU {
                 }
                 68 => self.vcc.assign(s0 as i32 > s1 as i32),
                 74 => self.vcc.assign(s0 == s1),
-                196 => self.exec_lo = (s0 as i32 > s1 as i32) as u32,
+                193 => self.exec_lo = ((s0 as i32) < (s1 as i32)) as u32,
+                196 => self.exec_lo = ((s0 as i32) > (s1 as i32)) as u32,
                 202 => self.exec_lo = (s0 == s1) as u32,
                 _ => todo_instr!(instruction),
             };

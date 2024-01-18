@@ -1,10 +1,7 @@
 /target
 extra/run.sh
-extra/prg.py
 extra/bitfields.py
-
-extra/test_ops.sh
-extra/test_ops_asms.json
-extra/test_ops.py
-extra/all_ops
+extra/ci.py
 extra/asm.py
+extra/all_ops
+remu.db

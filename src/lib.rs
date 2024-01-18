@@ -60,9 +60,7 @@ pub extern "C" fn hipModuleLaunchKernel(
     }
 
     let prg = utils::split_asm_by_thread_syncs(&prg);
-
     let total = grid_dim_x * grid_dim_y * grid_dim_z * block_dim_x * block_dim_y * block_dim_z;
-
     let pb = match *PROGRESS != 0 {
         true => {
             let pb = indicatif::ProgressBar::new(total as u64);

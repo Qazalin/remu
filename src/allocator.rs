@@ -54,6 +54,7 @@ impl BumpAllocator {
     }
 
     pub fn write_bytes(&mut self, addr: u64, bytes: &[u8]) {
+        assert!(addr as usize <= MAX_MEM_SIZE);
         assert!(self.len() + bytes.len() <= MAX_MEM_SIZE);
         let mut file = OpenOptions::new()
             .read(true)
