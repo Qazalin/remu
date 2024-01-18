@@ -1,6 +1,6 @@
 #![allow(unused)]
 use once_cell::sync::Lazy;
-use serde_json::Value;
+use rusqlite::{params, Connection, Result};
 use std::collections::HashMap;
 use std::io::{self, Read};
 use std::io::{BufRead, BufReader, Write};
@@ -197,9 +197,18 @@ impl<'a> Colorize for &'a str {
 
 pub fn read_asm(lib: &Vec<u8>) -> (Vec<u32>, String) {
     if std::env::consts::OS == "macos" {
-        let asm_map = read_json_to_hashmap("/tmp/asms.json").unwrap();
+        let connection = rusqlite::Connection::open("remu.db").unwrap();
         let code = String::from_utf8(lib.to_vec()).unwrap();
-        let asm = asm_map.get(&code).unwrap();
+        let mut stmt = connection
+            .prepare("select asm from kernels where prg = ?1")
+            .unwrap();
+        let mut asm = "".to_string();
+        let mut rows = stmt.query(params![code]).unwrap();
+        if let Some(row) = rows.next().unwrap() {
+            asm = row.get(0).unwrap();
+        } else {
+            panic!();
+        }
         let (base_rdna3, name) = parse_rdna3(&asm.to_string());
         let prg = match std::fs::metadata(format!("/tmp/{name}.s")) {
             Ok(_) => parse_rdna3(&fs::read_to_string(format!("/tmp/{name}.s")).unwrap()).0,
@@ -226,32 +235,6 @@ pub fn read_asm(lib: &Vec<u8>) -> (Vec<u32>, String) {
     } else {
         let err = String::from_utf8_lossy(&output.stderr);
         panic!("Command failed with error: {}", err);
-    }
-}
-
-fn read_json_to_hashmap(file_path: &str) -> io::Result<HashMap<String, String>> {
-    let mut file = fs::File::open(file_path)?;
-    let mut contents = String::new();
-    file.read_to_string(&mut contents)?;
-
-    let json: Value = serde_json::from_str(&contents)?;
-    if let Value::Object(map) = json {
-        let hashmap: HashMap<String, String> = map
-            .into_iter()
-            .filter_map(|(k, v)| {
-                if let Value::String(s) = v {
-                    Some((k, s))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        Ok(hashmap)
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            "Invalid JSON structure",
-        ))
     }
 }
 
