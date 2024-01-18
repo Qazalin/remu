@@ -200,20 +200,23 @@ pub fn read_asm(lib: &Vec<u8>) -> (Vec<u32>, String) {
         let connection = rusqlite::Connection::open("remu.db").unwrap();
         let code = String::from_utf8(lib.to_vec()).unwrap();
         let mut stmt = connection
-            .prepare("select asm from kernels where prg = ?1")
+            .prepare("select asm from tiny3 where prg = ?1")
             .unwrap();
         let mut asm = "".to_string();
         let mut rows = stmt.query(params![code]).unwrap();
         if let Some(row) = rows.next().unwrap() {
             asm = row.get(0).unwrap();
         } else {
-            panic!();
+            panic!("{}", code);
         }
+
         let (base_rdna3, name) = parse_rdna3(&asm.to_string());
         let prg = match std::fs::metadata(format!("/tmp/{name}.s")) {
             Ok(_) => parse_rdna3(&fs::read_to_string(format!("/tmp/{name}.s")).unwrap()).0,
             Err(_) => base_rdna3,
         };
+        fs::write(format!("/tmp/{name}.s"), asm);
+        fs::write(format!("/tmp/{name}.c"), code);
         return (prg, name);
     }
     let mut child = Command::new("/opt/rocm/llvm/bin/llvm-objdump")

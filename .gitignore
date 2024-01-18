@@ -4,4 +4,5 @@ extra/bitfields.py
 extra/ci.py
 extra/asm.py
 extra/all_ops
+extra/fromtiny.py
 remu.db

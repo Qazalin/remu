@@ -120,6 +120,10 @@ impl CPU {
             match op {
                 0 => self.write_to_sdst(sdst, s0),
                 1 => self.scalar_reg.write64(sdst as usize, s0 as u64),
+                16 => {
+                    let sdst_val = self.resolve_src(sdst) as u32;
+                    self.write_to_sdst(sdst, sdst_val >> s0);
+                }
                 30 => self.write_to_sdst(sdst, !s0),
                 32 | 34 | 48 => {
                     let saveexec = self.exec_lo;
@@ -152,7 +156,7 @@ impl CPU {
             }
 
             self.scc = match op {
-                0..=5 => {
+                0..=4 => {
                     let s0 = s0 as i32;
                     let s1 = s1 as i32;
                     match op {
@@ -161,9 +165,10 @@ impl CPU {
                         _ => todo_instr!(instruction),
                     }
                 }
-                6..=11 => match op {
+                5..=11 => match op {
                     6 => s0 == s1,
                     8 => s0 > s1,
+                    9 => s0 >= s1,
                     10 => s0 < s1,
                     _ => todo_instr!(instruction),
                 },
@@ -328,6 +333,7 @@ impl CPU {
                     self.scc = (temp != 0) as u32;
                     temp as u32
                 }
+                45 => ((s0 as u64) * (s1 as u64) >> 32) as u32,
                 48 => match self.scc != 0 {
                     true => s0,
                     false => s1,
@@ -354,10 +360,16 @@ impl CPU {
 
             self.vec_reg[vdst] = match op {
                 1 => s0,
+                2 => {
+                    assert!(self.exec_lo == 1);
+                    s0
+                }
                 5 => (s0 as i32 as f32).to_bits(),
+                6 => (s0 as f32).to_bits(),
+                7 => f32::from_bits(s0) as u32,
                 8 => f32::from_bits(s0) as i32 as u32,
                 56 => s0.reverse_bits(),
-                35..=42 => {
+                35..=51 => {
                     let s0 = f32::from_bits(s0);
                     match op {
                         35 => {
@@ -370,6 +382,8 @@ impl CPU {
                         37 => f32::exp2(s0),
                         39 => f32::log2(s0),
                         42 => 1.0 / s0,
+                        43 => 1.0 / s0,
+                        51 => f32::sqrt(s0),
                         _ => panic!(),
                     }
                     .to_bits()
@@ -461,13 +475,14 @@ impl CPU {
             }
 
             match op {
-                17 | 18 | 27 | 20 | 30 => {
+                17 | 18 | 27 | 20 | 22 | 30 => {
                     let s0 = f32::from_bits(s0);
                     let s1 = f32::from_bits(s1);
                     self.vcc.assign(match op {
                         17 => s0 < s1,
                         18 => s0 == s1,
                         20 => s0 > s1,
+                        22 => s0 >= s1,
                         27 => !(s0 > s1),
                         30 => !(s0 < s1),
                         _ => panic!(),
@@ -667,13 +682,14 @@ impl CPU {
                         // VOPC using VOP3 encoding
                         0..=255 => {
                             let ret = match op {
-                                17 | 18 | 27 | 20 | 30 | 126 | 155 => {
+                                17 | 18 | 27 | 20 | 22 | 30 | 126 | 155 => {
                                     let s0 = f32::from_bits(s0).negate(0, neg).absolute(0, abs);
                                     let s1 = f32::from_bits(s1).negate(1, neg).absolute(1, abs);
                                     match op {
                                         17 => s0 < s1,
                                         18 => s0 == s1,
                                         20 => s0 > s1,
+                                        22 => s0 >= s1,
                                         27 | 155 => !(s0 > s1),
                                         30 => !(s0 < s1),
                                         126 => true,
@@ -683,6 +699,7 @@ impl CPU {
                                 _ => {
                                     assert_eq!(neg, 0);
                                     match op {
+                                        74 => s0 == s1,
                                         77 => s0 != s1,
                                         68 => s0 as i32 > s1 as i32,
                                         _ => todo_instr!(instruction),
