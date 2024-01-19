@@ -18,7 +18,7 @@ pub struct CPU {
     pub vec_reg: RegisterGroup,
     pub scc: u32,
     pub vcc: VCC,
-    pub exec_lo: u32,
+    pub exec: u32,
     prg: Vec<u32>,
 }
 
@@ -28,7 +28,7 @@ impl CPU {
             pc: 0,
             scc: 0,
             vcc: VCC::from(0),
-            exec_lo: 0,
+            exec: 0,
             gds,
             lds,
             scalar_reg: RegisterGroup::new(105, "SGPR"),
@@ -40,7 +40,7 @@ impl CPU {
     pub fn interpret(&mut self, prg: &Vec<u32>) {
         self.pc = 0;
         self.vcc.assign(0);
-        self.exec_lo = 1;
+        self.exec = 1;
         self.prg = prg.to_vec();
 
         loop {
@@ -66,6 +66,15 @@ impl CPU {
     }
 
     fn exec(&mut self, instruction: u32) {
+        if (instruction >> 25 == 0b0111111
+            || instruction >> 26 == 0b110010
+            || instruction >> 25 == 0b0111110
+            || instruction >> 31 == 0b0
+            || instruction >> 26 == 0b110101)
+            && self.exec == 0
+        {
+            return;
+        }
         // smem
         if instruction >> 26 == 0b111101 {
             let instr = self.u64_instr();
@@ -126,14 +135,14 @@ impl CPU {
                 }
                 30 => self.write_to_sdst(sdst, !s0),
                 32 | 34 | 48 => {
-                    let saveexec = self.exec_lo;
-                    self.exec_lo = match op {
-                        32 => s0 & self.exec_lo,
-                        34 => s0 | self.exec_lo,
-                        48 => s0 & !self.exec_lo,
+                    let saveexec = self.exec;
+                    self.exec = match op {
+                        32 => s0 & self.exec,
+                        34 => s0 | self.exec,
+                        48 => s0 & !self.exec,
                         _ => panic!(),
                     };
-                    self.scc = (self.exec_lo != 0) as u32;
+                    self.scc = (self.exec != 0) as u32;
                     self.write_to_sdst(sdst, saveexec)
                 }
                 _ => todo_instr!(instruction),
@@ -202,7 +211,7 @@ impl CPU {
                         34 => self.scc == 1,
                         35 => *self.vcc == 0,
                         36 => *self.vcc != 0,
-                        37 => self.exec_lo == 0,
+                        37 => self.exec == 0,
                         _ => todo_instr!(instruction),
                     };
                     if should_jump {
@@ -363,7 +372,7 @@ impl CPU {
             self.vec_reg[vdst] = match op {
                 1 => s0,
                 2 => {
-                    assert!(self.exec_lo == 1);
+                    assert!(self.exec == 1);
                     self.scalar_reg[vdst] = s0;
                     s0
                 }
@@ -439,7 +448,7 @@ impl CPU {
                 .iter()
                 .for_each(|(op, s0, s1, dst)| {
                     self.vec_reg[*dst as usize] = match *op {
-                        0 | 1 | 3 | 4 | 5 | 6| 10 => {
+                        0 | 1 | 3 | 4 | 5 | 6 | 10 => {
                             let s0 = f32::from_bits(*s0 as u32);
                             let s1 = f32::from_bits(*s1 as u32);
                             match *op {
@@ -492,6 +501,14 @@ impl CPU {
                         _ => panic!(),
                     });
                 }
+                158 => {
+                    let s0 = f32::from_bits(s0);
+                    let s1 = f32::from_bits(s1);
+                    self.exec = match op {
+                        158 => !(s0 < s1),
+                        _ => panic!(),
+                    } as u32;
+                }
                 57 | 58 | 62 => {
                     let s0 = s0 as u16;
                     let s1 = s1 as u16;
@@ -505,9 +522,9 @@ impl CPU {
                 }
                 68 => self.vcc.assign(s0 as i32 > s1 as i32),
                 74 => self.vcc.assign(s0 == s1),
-                193 => self.exec_lo = ((s0 as i32) < (s1 as i32)) as u32,
-                196 => self.exec_lo = ((s0 as i32) > (s1 as i32)) as u32,
-                202 => self.exec_lo = (s0 == s1) as u32,
+                193 => self.exec = ((s0 as i32) < (s1 as i32)) as u32,
+                196 => self.exec = ((s0 as i32) > (s1 as i32)) as u32,
+                202 => self.exec = (s0 == s1) as u32,
                 _ => todo_instr!(instruction),
             };
         }
@@ -715,7 +732,7 @@ impl CPU {
                             match vdst as u32 {
                                 0..=SGPR_COUNT => self.scalar_reg[vdst] = ret,
                                 106 => self.vcc.assign(ret),
-                                126 => self.exec_lo = ret,
+                                126 => self.exec = ret,
                                 _ => todo_instr!(instruction),
                             }
                         }
@@ -816,9 +833,9 @@ impl CPU {
             let offset1 = (instr >> 8) & 0xff;
             let op = (instr >> 18) & 0xff;
             let addr = (instr >> 32) & 0xff;
-            let data0 = (instr >> 40) & 0xff;
+            let data0 = ((instr >> 40) & 0xff) as usize;
             let data1 = (instr >> 48) & 0xff;
-            let vdst = (instr >> 56) & 0xff;
+            let vdst = ((instr >> 56) & 0xff) as usize;
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
@@ -834,19 +851,18 @@ impl CPU {
                 );
             }
             let effective_addr = self.vec_reg[addr as usize] as u64 + offset0;
+
             match op {
                 // load
-                255 => {
-                    self.vec_reg[vdst as usize] = self.lds.read(effective_addr);
-                    self.vec_reg[vdst as usize + 1] = self.lds.read(effective_addr + 4);
-                    self.vec_reg[vdst as usize + 2] = self.lds.read(effective_addr + 8);
-                    self.vec_reg[vdst as usize + 3] = self.lds.read(effective_addr + 12);
-                }
+                255 => (0..4).for_each(|i| {
+                    self.vec_reg[vdst + i] = self.lds.read(effective_addr + 4 * i as u64);
+                }),
                 // store
-                13 => {
-                    let data = self.vec_reg[data0 as usize];
-                    self.lds.write(effective_addr, data);
-                }
+                13 => self.lds.write(effective_addr, self.vec_reg[data0]),
+                223 => (0..4).for_each(|i| {
+                    self.lds
+                        .write(effective_addr + 4 * i as u64, self.vec_reg[data0 + i]);
+                }),
                 _ => todo_instr!(instruction),
             }
         }
@@ -909,7 +925,7 @@ impl CPU {
             0..=SGPR_COUNT => self.scalar_reg[ssrc_bf as usize] as i32,
             VGPR_COUNT..=511 => self.vec_reg[(ssrc_bf - VGPR_COUNT) as usize] as i32,
             106 => *self.vcc as i32,
-            126 => self.exec_lo as i32,
+            126 => self.exec as i32,
             128 => 0,
             124 => NULL_SRC as i32,
             129..=192 => (ssrc_bf - 128) as i32,
@@ -947,7 +963,7 @@ impl CPU {
                     println!("{} {:?}", "VCC".color("pink"), self.vcc);
                 }
             }
-            126 => self.exec_lo = val,
+            126 => self.exec = val,
             _ => todo!("write to sdst {}", sdst_bf),
         }
     }
@@ -1212,6 +1228,15 @@ mod test_vopc {
         cpu.vec_reg[1] = 4;
         cpu.interpret(&vec![0x7c8802c1, END_PRG]);
         assert_eq!(*cpu.vcc, 0);
+    }
+
+    #[test]
+    fn test_v_cmpx_nlt_f32() {
+        let mut cpu = _helper_test_cpu("test_v_cmp_gt_i32");
+        cpu.vec_reg[0] = f32::to_bits(0.9);
+        cpu.vec_reg[3] = f32::to_bits(0.4);
+        cpu.interpret(&vec![0x7D3C0700, END_PRG]);
+        assert_eq!(cpu.exec, 1);
     }
 }
 #[cfg(test)]
