@@ -197,10 +197,11 @@ impl<'a> Colorize for &'a str {
 
 pub fn read_asm(lib: &Vec<u8>) -> (Vec<u32>, String) {
     if std::env::consts::OS == "macos" {
-        let connection = rusqlite::Connection::open("remu.db").unwrap();
+        let connection = rusqlite::Connection::open("/Users/qazal/remu.db").unwrap();
         let code = String::from_utf8(lib.to_vec()).unwrap();
+        let asm_src = env::var("ASM_SRC").unwrap();
         let mut stmt = connection
-            .prepare("select asm from tiny3 where prg = ?1")
+            .prepare(&format!("select asm from {asm_src} where prg = ?1"))
             .unwrap();
         let mut asm = "".to_string();
         let mut rows = stmt.query(params![code]).unwrap();

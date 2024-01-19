@@ -217,6 +217,7 @@ impl CPU {
             let simm16 = (instruction & 0xffff) as i16;
             let sdst = (instruction >> 16) & 0x7f;
             let op = (instruction >> 23) & 0x1f;
+            let s0 = self.resolve_src(sdst) as u32;
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
@@ -229,9 +230,10 @@ impl CPU {
             }
 
             match op {
-                3 => self.scc = (self.resolve_src(sdst) as i64 == simm16 as i64) as u32,
+                3 => self.scc = (s0 as i32 as i64 == simm16 as i64) as u32,
+                4 => self.scc = (s0 as i32 as i64 != simm16 as i64) as u32,
                 15 => {
-                    let temp = self.resolve_src(sdst);
+                    let temp = s0 as i32;
                     let dest = (temp as i64 + simm16 as i64) as i32;
                     self.write_to_sdst(sdst, dest as u32);
                     let temp_sign = ((temp >> 31) & 1) as u32;
@@ -240,7 +242,7 @@ impl CPU {
                     self.scc = ((temp_sign == simm_sign) && (temp_sign != dest_sign)) as u32;
                 }
                 16 => {
-                    let ret = (self.resolve_src(sdst) * simm16 as i32) as u32;
+                    let ret = (s0 as i32 * simm16 as i32) as u32;
                     self.write_to_sdst(sdst, ret);
                 }
                 _ => todo_instr!(instruction),
@@ -437,7 +439,7 @@ impl CPU {
                 .iter()
                 .for_each(|(op, s0, s1, dst)| {
                     self.vec_reg[*dst as usize] = match *op {
-                        0 | 1 | 3 | 4 | 5 | 10 => {
+                        0 | 1 | 3 | 4 | 5 | 6| 10 => {
                             let s0 = f32::from_bits(*s0 as u32);
                             let s1 = f32::from_bits(*s1 as u32);
                             match *op {
@@ -446,6 +448,7 @@ impl CPU {
                                 3 => s0 * s1,
                                 4 => s0 + s1,
                                 5 => s0 - s1,
+                                6 => s1 - s0,
                                 10 => f32::max(s0, s1),
                                 _ => panic!(),
                             }
@@ -700,6 +703,7 @@ impl CPU {
                                 _ => {
                                     assert_eq!(neg, 0);
                                     match op {
+                                        52 => (s0 as i16) > (s1 as i16),
                                         74 => s0 == s1,
                                         77 => s0 != s1,
                                         68 => s0 as i32 > s1 as i32,
@@ -763,7 +767,7 @@ impl CPU {
                                 _ => {
                                     assert_eq!(neg, 0);
                                     match op {
-                                        522 | 541 | 529 => {
+                                        522 | 541 | 529 | 814 => {
                                             let s0 = s0 as i32;
                                             let s1 = s1 as i32;
                                             let s2 = s2 as i32;
@@ -771,17 +775,11 @@ impl CPU {
                                                 522 => s0 * s1 + s2, // TODO 24 bit trunc
                                                 541 => i32::max(i32::max(s0, s1), s2),
                                                 529 => (s0 >> s1) & ((1 << s2) - 1),
+                                                814 => ((s0 as i64) * (s1 as i64) >> 32) as i32,
                                                 _ => panic!(),
                                             }) as u32
                                         }
 
-                                        523 => s0 * s1 + s2, // TODO 24 bit trunc
-                                        528 => (s0 >> s1) & ((1 << s2) - 1),
-                                        576 => s0 ^ s1 ^ s2,
-                                        582 => (s0 << s1) + s2,
-                                        597 => s0 + s1 + s2,
-                                        583 => (s0 + s1) << s2,
-                                        598 => (s0 << s1) | s2,
                                         771 | 772 | 773 | 824 => {
                                             let s0 = s0 as u16;
                                             let s1 = s1 as u16;
@@ -793,6 +791,15 @@ impl CPU {
                                                 _ => panic!(),
                                             }) as u32
                                         }
+
+                                        523 => s0 * s1 + s2, // TODO 24 bit trunc
+                                        528 => (s0 >> s1) & ((1 << s2) - 1),
+                                        576 => s0 ^ s1 ^ s2,
+                                        582 => (s0 << s1) + s2,
+                                        597 => s0 + s1 + s2,
+                                        583 => (s0 + s1) << s2,
+                                        598 => (s0 << s1) | s2,
+                                        812 => s0 * s1,
                                         _ => todo_instr!(instruction),
                                     }
                                 }
@@ -1309,6 +1316,18 @@ mod test_vop3 {
         cpu.vec_reg[0] = 100;
         cpu.interpret(&vec![0xD5010002, 0x41AA0102, END_PRG]);
         assert_eq!(cpu.vec_reg[2], 20);
+    }
+
+    #[test]
+    fn test_v_mul_hi_i32() {
+        let mut cpu = _helper_test_cpu("test_v_mul_hi_i32");
+        cpu.vec_reg[2] = -2i32 as u32;
+        cpu.interpret(&vec![0xD72E0003, 0x000204FF, 0x2E8BA2E9, END_PRG]);
+        assert_eq!(cpu.vec_reg[3] as i32, -1);
+
+        cpu.vec_reg[2] = 2;
+        cpu.interpret(&vec![0xD72E0003, 0x000204FF, 0x2E8BA2E9, END_PRG]);
+        assert_eq!(cpu.vec_reg[3], 0);
     }
 }
 
