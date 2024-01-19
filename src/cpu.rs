@@ -362,6 +362,7 @@ impl CPU {
                 1 => s0,
                 2 => {
                     assert!(self.exec_lo == 1);
+                    self.scalar_reg[vdst] = s0;
                     s0
                 }
                 5 => (s0 as i32 as f32).to_bits(),
@@ -1153,6 +1154,22 @@ mod test_vop1 {
     }
 
     #[test]
+    fn test_cast_f32_u32() {
+        let mut cpu = _helper_test_cpu("test_cast_f32_u32");
+        cpu.scalar_reg[4] = 2;
+        cpu.interpret(&vec![0x7E000C04, END_PRG]);
+        assert_eq!(cpu.vec_reg[0], 1073741824);
+    }
+
+    #[test]
+    fn test_cast_u32_f32() {
+        let mut cpu = _helper_test_cpu("test_cast_u32_f32");
+        cpu.vec_reg[0] = 1325400062;
+        cpu.interpret(&vec![0x7E000F00, END_PRG]);
+        assert_eq!(cpu.vec_reg[0], 2147483392);
+    }
+
+    #[test]
     fn test_cast_i32_f32() {
         let mut cpu = _helper_test_cpu("test_cast_f32_i32");
         [(10.0, 10i32), (-20.0, -20i32)]
@@ -1162,6 +1179,14 @@ mod test_vop1 {
                 cpu.interpret(&vec![0x7E000B00, END_PRG]);
                 assert_eq!(f32::from_bits(cpu.vec_reg[0]), *expected);
             })
+    }
+
+    #[test]
+    fn test_v_readfirstlane_b32_basic() {
+        let mut cpu = _helper_test_cpu("test_v_readfirstlane_b32");
+        cpu.vec_reg[0] = 2147483392;
+        cpu.interpret(&vec![0x7E060500, END_PRG]);
+        assert_eq!(cpu.scalar_reg[3], 2147483392);
     }
 }
 
