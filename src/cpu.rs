@@ -489,60 +489,10 @@ impl CPU {
                 println!("{} s0={} s1={} op={}", "VOPC".color("blue"), s0, s1, op);
             }
 
-            match op {
-                17 | 18 | 27 | 20 | 22 | 30 => {
-                    let s0 = f32::from_bits(s0);
-                    let s1 = f32::from_bits(s1);
-                    self.vcc.assign(match op {
-                        17 => s0 < s1,
-                        18 => s0 == s1,
-                        20 => s0 > s1,
-                        22 => s0 >= s1,
-                        27 => !(s0 > s1),
-                        30 => !(s0 < s1),
-                        _ => panic!(),
-                    });
-                }
-                155 | 158 => {
-                    let s0 = f32::from_bits(s0);
-                    let s1 = f32::from_bits(s1);
-                    self.exec = match op {
-                        155 => !(s0 > s1),
-                        158 => !(s0 < s1),
-                        _ => panic!(),
-                    } as u32;
-                }
-                57 | 58 | 60 | 62 => {
-                    let s0 = s0 as u16;
-                    let s1 = s1 as u16;
-
-                    self.vcc.assign(match op {
-                        58 => s0 == s1,
-                        57 => s0 < s1,
-                        60 => s0 > s1,
-                        62 => s0 >= s1,
-                        _ => panic!(),
-                    })
-                }
-
-                52 | 65 => {
-                    let s0 = s0 as i16;
-                    let s1 = s1 as i16;
-
-                    self.vcc.assign(match op {
-                        52 => s0 > s1,
-                        65 => s0 < s1,
-                        _ => panic!(),
-                    })
-                }
-
-                68 => self.vcc.assign(s0 as i32 > s1 as i32),
-                74 => self.vcc.assign(s0 == s1),
-                77 => self.vcc.assign(s0 != s1),
-                193 => self.exec = ((s0 as i32) < (s1 as i32)) as u32,
-                196 => self.exec = ((s0 as i32) > (s1 as i32)) as u32,
-                202 => self.exec = (s0 == s1) as u32,
-                _ => todo_instr!(instruction),
+            let ret = self.vopc(s0, s1, op, instruction);
+            match op >= 128 {
+                true => self.exec = ret as u32,
+                false => self.vcc.assign(ret),
             };
         }
         // vop2
@@ -723,46 +673,11 @@ impl CPU {
                                 17 | 18 | 27 | 20 | 22 | 30 | 126 | 155 => {
                                     let s0 = f32::from_bits(s0).negate(0, neg).absolute(0, abs);
                                     let s1 = f32::from_bits(s1).negate(1, neg).absolute(1, abs);
-                                    match op {
-                                        17 => s0 < s1,
-                                        18 => s0 == s1,
-                                        20 => s0 > s1,
-                                        22 => s0 >= s1,
-                                        27 | 155 => !(s0 > s1),
-                                        30 => !(s0 < s1),
-                                        126 => true,
-                                        _ => panic!(),
-                                    }
+                                    self.vopc(s0.to_bits(), s1.to_bits(), op as u32, instruction)
                                 }
                                 _ => {
                                     assert_eq!(neg, 0);
-                                    match op {
-                                        52 | 65 => {
-                                            let s0 = s0 as i16;
-                                            let s1 = s1 as i16;
-
-                                            match op {
-                                                52 => s0 > s1,
-                                                65 => s0 < s1,
-                                                _ => panic!(),
-                                            }
-                                        }
-                                        58 | 60 => {
-                                            let s0 = s0 as u16;
-                                            let s1 = s1 as u16;
-
-                                            match op {
-                                                58 => s0 == s1,
-                                                60 => s0 > s1,
-                                                _ => panic!(),
-                                            }
-                                        }
-                                        74 => s0 == s1,
-                                        76 => s0 > s1,
-                                        77 => s0 != s1,
-                                        68 => s0 as i32 > s1 as i32,
-                                        _ => todo_instr!(instruction),
-                                    }
+                                    self.vopc(s0, s1, op as u32, instruction)
                                 }
                             } as u32;
 
@@ -958,6 +873,62 @@ impl CPU {
             };
         } else {
             todo_instr!(instruction);
+        }
+    }
+
+    fn vopc(&self, s0: u32, s1: u32, op: u32, instruction: u32) -> bool {
+        match op {
+            17 | 18 | 27 | 20 | 22 | 30 | 126 | 155 | 158 => {
+                let s0 = f32::from_bits(s0);
+                let s1 = f32::from_bits(s1);
+                match op {
+                    17 => s0 < s1,
+                    18 => s0 == s1,
+                    20 => s0 > s1,
+                    22 => s0 >= s1,
+                    27 | 155 => !(s0 > s1),
+                    30 | 158 => !(s0 < s1),
+                    126 => true,
+                    _ => panic!(),
+                }
+            }
+            _ => match op {
+                52 | 65 => {
+                    let s0 = s0 as i16;
+                    let s1 = s1 as i16;
+                    match op {
+                        52 => s0 > s1,
+                        65 => s0 < s1,
+                        _ => panic!(),
+                    }
+                }
+                57 | 58 | 60 | 62 => {
+                    let s0 = s0 as u16;
+                    let s1 = s1 as u16;
+                    match op {
+                        58 => s0 == s1,
+                        57 => s0 < s1,
+                        60 => s0 > s1,
+                        62 => s0 >= s1,
+                        _ => panic!(),
+                    }
+                }
+                68 | 193 | 196 => {
+                    let s0 = s0 as i32;
+                    let s1 = s1 as i32;
+                    match op {
+                        68 => s0 > s1,
+                        193 => s0 < s1,
+                        196 => s0 > s1,
+                        _ => panic!(),
+                    }
+                }
+                74 => s0 == s1,
+                76 => s0 > s1,
+                77 => s0 != s1,
+                202 => s0 == s1,
+                _ => todo_instr!(instruction),
+            },
         }
     }
 
