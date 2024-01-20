@@ -60,7 +60,7 @@ pub struct VCC {
 }
 
 pub trait Assign<T> {
-    fn assign(&mut self, val: T) {}
+    fn assign(&mut self, val: T);
 }
 impl Assign<u32> for VCC {
     fn assign(&mut self, val: u32) {

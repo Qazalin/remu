@@ -3,7 +3,6 @@ use crate::alu_modifiers::VOPModifier;
 use crate::state::{Assign, Register, VCC, VGPR};
 use crate::todo_instr;
 use crate::utils::{as_signed, Colorize, DebugLevel, DEBUG};
-use std::collections::HashMap;
 
 pub const SGPR_COUNT: usize = 105;
 pub const VGPR_COUNT: usize = 256;
@@ -221,37 +220,55 @@ impl CPU {
         }
         // sopk
         else if instruction >> 28 == 0b1011 {
-            let simm16 = (instruction & 0xffff) as i16;
-            let sdst = (instruction >> 16) & 0x7f;
+            let simm = instruction & 0xffff;
+            let sdst = ((instruction >> 16) & 0x7f) as usize;
             let op = (instruction >> 23) & 0x1f;
-            let s0 = self.resolve_src(sdst);
+            let s0 = self.resolve_src(sdst as u32);
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
-                    "{} simm16={} sdst={} op={}",
+                    "{} simm={simm} sdst={sdst} s0={s0} op={op}",
                     "SOPK".color("blue"),
-                    simm16,
-                    s0,
-                    op
                 );
             }
 
+            if op == 0 {
+                self.scalar_reg[sdst] = simm as i16 as i32 as u32;
+                return;
+            }
+
             match op {
-                0 => self.scalar_reg[sdst as usize] = simm16 as i32 as u32,
-                3 => self.scc = (s0 as i32 as i64 == simm16 as i64) as u32,
-                4 => self.scc = (s0 as i32 as i64 != simm16 as i64) as u32,
+                3..=8 => {
+                    let s1 = simm as i16 as i64;
+                    let s0 = s0 as i32 as i64;
+                    self.scc = match op {
+                        3 => s0 == s1,
+                        4 => s0 != s1,
+                        5 => s0 > s1,
+                        _ => todo_instr!(instruction),
+                    } as u32
+                }
+                9..=14 => {
+                    let s1 = simm as u16 as u32;
+                    self.scc = match op {
+                        9 => s0 == s1,
+                        _ => todo_instr!(instruction),
+                    } as u32
+                }
                 15 => {
                     let temp = s0 as i32;
+                    let simm16 = simm as i16;
                     let dest = (temp as i64 + simm16 as i64) as i32;
-                    self.write_to_sdst(sdst, dest as u32);
+                    self.write_to_sdst(sdst as u32, dest as u32);
                     let temp_sign = ((temp >> 31) & 1) as u32;
                     let simm_sign = ((simm16 >> 15) & 1) as u32;
                     let dest_sign = ((dest >> 31) & 1) as u32;
                     self.scc = ((temp_sign == simm_sign) && (temp_sign != dest_sign)) as u32;
                 }
                 16 => {
+                    let simm16 = simm as i16;
                     let ret = (s0 as i32 * simm16 as i32) as u32;
-                    self.write_to_sdst(sdst, ret);
+                    self.write_to_sdst(sdst as u32, ret);
                 }
                 _ => todo_instr!(instruction),
             }
@@ -1059,6 +1076,33 @@ mod test_sop1 {
         cpu.scalar_reg[15] = 42;
         cpu.interpret(&vec![0xbe82000f, END_PRG]);
         assert_eq!(cpu.scalar_reg[2], 42);
+    }
+}
+
+#[cfg(test)]
+mod test_sopk {
+    use super::*;
+
+    #[test]
+    fn test_cmp_zero_extend() {
+        let mut cpu = _helper_test_cpu("sopk");
+        cpu.scalar_reg[20] = 0xcd14;
+        cpu.interpret(&vec![0xB494CD14, END_PRG]);
+        assert_eq!(cpu.scc, 1);
+
+        cpu.interpret(&vec![0xB194CD14, END_PRG]);
+        assert_eq!(cpu.scc, 0);
+    }
+
+    #[test]
+    fn test_cmp_sign_extend() {
+        let mut cpu = _helper_test_cpu("sopk");
+        cpu.scalar_reg[6] = 0x2db4;
+        cpu.interpret(&vec![0xB1862DB4, END_PRG]);
+        assert_eq!(cpu.scc, 1);
+
+        cpu.interpret(&vec![0xB1862DB4, END_PRG]);
+        assert_eq!(cpu.scc, 1);
     }
 }
 
