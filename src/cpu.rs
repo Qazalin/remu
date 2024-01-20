@@ -445,16 +445,29 @@ impl CPU {
                 );
             }
 
+            // there is only one simm per VOPD op
+            let mut simm: Option<f32> = None;
+            if sx == 255 {
+                simm = Some(f32::from_bits(srcx0));
+            }
+            if sy == 255 {
+                simm = Some(f32::from_bits(srcy0));
+            }
+
             ([(opx, srcx0, vsrcx1, vdstx), (opy, srcy0, vsrcy1, vdsty)])
                 .iter()
                 .for_each(|(op, s0, s1, dst)| {
                     self.vec_reg[*dst as usize] = match *op {
-                        0 | 1 | 3 | 4 | 5 | 6 | 10 => {
+                        0 | 1 | 2 | 3 | 4 | 5 | 6 | 10 => {
                             let s0 = f32::from_bits(*s0 as u32);
                             let s1 = f32::from_bits(*s1 as u32);
+                            if simm.is_none() && (*op == 1 || *op == 2) {
+                                simm = Some(f32::from_bits(self.simm()));
+                            }
                             match *op {
                                 0 => s0 * s1 + f32::from_bits(self.vec_reg[*dst as usize]),
-                                1 => s0 * s1 + f32::from_bits(self.simm()),
+                                1 => s0 * s1 + simm.unwrap(),
+                                2 => s0 * simm.unwrap() + s1,
                                 3 => s0 * s1,
                                 4 => s0 + s1,
                                 5 => s0 - s1,
@@ -1107,6 +1120,36 @@ mod test_vopd {
         cpu.interpret(&vec![0xC8C604FF, 0x020206FF, 0x3E800000, END_PRG]);
         assert_eq!(f32::from_bits(cpu.vec_reg[2]), 2.0 * constant);
         assert_eq!(f32::from_bits(cpu.vec_reg[3]), 4.0 * constant);
+    }
+
+    #[test]
+    fn test_simm_op_shared_1() {
+        let mut cpu = _helper_test_cpu("vopd");
+        cpu.vec_reg[23] = f32::to_bits(4.0);
+        cpu.vec_reg[12] = f32::to_bits(2.0);
+
+        cpu.vec_reg[13] = f32::to_bits(10.0);
+        cpu.vec_reg[24] = f32::to_bits(3.0);
+
+        let simm = f32::from_bits(0x3e000000);
+        cpu.interpret(&vec![0xC8841917, 0x0C0C1B18, 0x3E000000, END_PRG]);
+        assert_eq!(f32::from_bits(cpu.vec_reg[12]), 4.0 * simm + 2.0);
+        assert_eq!(f32::from_bits(cpu.vec_reg[13]), 3.0 * simm + 10.0);
+    }
+
+    #[test]
+    fn test_simm_op_shared_2() {
+        let mut cpu = _helper_test_cpu("vopd");
+        cpu.vec_reg[29] = f32::to_bits(4.0);
+        cpu.vec_reg[10] = f32::to_bits(2.0);
+
+        cpu.vec_reg[11] = f32::to_bits(10.0);
+        cpu.vec_reg[26] = f32::to_bits(6.5);
+
+        let simm = 0.125;
+        cpu.interpret(&vec![0xC880151D, 0x0A0A34FF, 0x3E000000, END_PRG]);
+        assert_eq!(f32::from_bits(cpu.vec_reg[10]), 4.0 * simm + 2.0);
+        assert_eq!(f32::from_bits(cpu.vec_reg[11]), simm * 6.5 + 10.0);
     }
 
     #[test]
