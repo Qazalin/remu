@@ -1,11 +1,11 @@
 use crate::allocator::BumpAllocator;
 use crate::alu_modifiers::VOPModifier;
-use crate::state::{Assign, RegisterGroup, VCC};
+use crate::state::{Assign, Register, VCC};
 use crate::todo_instr;
 use crate::utils::{as_signed, Colorize, DebugLevel, DEBUG};
 
-const SGPR_COUNT: u32 = 105;
-const VGPR_COUNT: u32 = 256;
+pub const SGPR_COUNT: usize = 105;
+pub const VGPR_COUNT: usize = 256;
 const NULL_SRC: u32 = 124;
 pub const END_PRG: u32 = 0xbfb00000;
 const NOOPS: [u32; 1] = [0xbfb60003];
@@ -14,8 +14,8 @@ pub struct CPU {
     pub pc: u64,
     pub gds: BumpAllocator,
     pub lds: BumpAllocator,
-    pub scalar_reg: RegisterGroup,
-    pub vec_reg: RegisterGroup,
+    pub scalar_reg: [u32; SGPR_COUNT],
+    pub vec_reg: [u32; VGPR_COUNT],
     pub scc: u32,
     pub vcc: VCC,
     pub exec: u32,
@@ -31,8 +31,8 @@ impl CPU {
             exec: 0,
             gds,
             lds,
-            scalar_reg: RegisterGroup::new(105, "SGPR"),
-            vec_reg: RegisterGroup::new(256, "VGPR"),
+            scalar_reg: [0; SGPR_COUNT],
+            vec_reg: [0; VGPR_COUNT],
             prg: vec![],
         };
     }
@@ -693,7 +693,7 @@ impl CPU {
                                 }
                             } as u32;
 
-                            match vdst as u32 {
+                            match vdst {
                                 0..=SGPR_COUNT => self.scalar_reg[vdst] = ret,
                                 106 => self.vcc.assign(ret),
                                 126 => self.exec = ret,
@@ -948,9 +948,9 @@ impl CPU {
 
     /* ALU utils */
     fn resolve_src(&mut self, ssrc_bf: u32) -> u32 {
-        match ssrc_bf {
+        match ssrc_bf as usize {
             0..=SGPR_COUNT => self.scalar_reg[ssrc_bf as usize],
-            VGPR_COUNT..=511 => self.vec_reg[(ssrc_bf - VGPR_COUNT) as usize],
+            VGPR_COUNT..=511 => self.vec_reg[(ssrc_bf as usize - VGPR_COUNT) as usize],
             106 => *self.vcc,
             126 => self.exec,
             128 => 0,
@@ -982,7 +982,7 @@ impl CPU {
     }
 
     fn write_to_sdst(&mut self, sdst_bf: u32, val: u32) {
-        match sdst_bf {
+        match sdst_bf as usize {
             0..=SGPR_COUNT => self.scalar_reg[sdst_bf as usize] = val,
             106 => {
                 self.vcc.assign(val);

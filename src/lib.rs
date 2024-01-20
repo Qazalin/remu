@@ -1,6 +1,6 @@
 use crate::allocator::BumpAllocator;
-use crate::cpu::CPU;
-use crate::state::Assign;
+use crate::cpu::{CPU, SGPR_COUNT, VGPR_COUNT};
+use crate::state::{Assign, Register};
 use crate::utils::{Colorize, DebugLevel, DEBUG, PROGRESS};
 use std::collections::HashMap;
 use std::os::raw::{c_char, c_void};
@@ -79,7 +79,10 @@ pub extern "C" fn hipModuleLaunchKernel(
     for gx in 0..grid_dim_x {
         for gy in 0..grid_dim_y {
             for gz in 0..grid_dim_z {
-                let mut thread_registers = HashMap::<[u32; 3], (Vec<u32>, Vec<u32>, u32)>::new();
+                let mut thread_registers: HashMap<
+                    [u32; 3],
+                    ([u32; SGPR_COUNT], [u32; VGPR_COUNT], u32),
+                > = HashMap::new();
                 for prg in prg.iter() {
                     for tx in 0..block_dim_x {
                         for ty in 0..block_dim_y {
@@ -112,7 +115,7 @@ fn launch_thread(
     local_size: [u32; 3],
     stack_ptr: u64,
     prg: &Vec<u32>,
-    thread_registers: &mut HashMap<[u32; 3], (Vec<u32>, Vec<u32>, u32)>,
+    thread_registers: &mut HashMap<[u32; 3], ([u32; SGPR_COUNT], [u32; VGPR_COUNT], u32)>,
 ) {
     if *DEBUG >= DebugLevel::MISC {
         println!(
@@ -129,8 +132,8 @@ fn launch_thread(
 
     match thread_registers.get(&thread_id) {
         Some(val) => {
-            cpu.scalar_reg.values = val.0.clone();
-            cpu.vec_reg.values = val.1.clone();
+            cpu.scalar_reg = val.0.clone();
+            cpu.vec_reg = val.1.clone();
             cpu.vcc.assign(val.2);
         }
         None => {
@@ -155,10 +158,7 @@ fn launch_thread(
     }
 
     cpu.interpret(prg);
-    thread_registers.insert(
-        thread_id,
-        (cpu.scalar_reg.values, cpu.vec_reg.values, *cpu.vcc),
-    );
+    thread_registers.insert(thread_id, (cpu.scalar_reg, cpu.vec_reg, *cpu.vcc));
 }
 
 #[no_mangle]
