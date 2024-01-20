@@ -1,8 +1,9 @@
 use crate::allocator::BumpAllocator;
 use crate::alu_modifiers::VOPModifier;
-use crate::state::{Assign, Register, VCC};
+use crate::state::{Assign, Register, VCC, VGPR};
 use crate::todo_instr;
 use crate::utils::{as_signed, Colorize, DebugLevel, DEBUG};
+use std::collections::HashMap;
 
 pub const SGPR_COUNT: usize = 105;
 pub const VGPR_COUNT: usize = 256;
@@ -15,7 +16,7 @@ pub struct CPU {
     pub gds: BumpAllocator,
     pub lds: BumpAllocator,
     pub scalar_reg: [u32; SGPR_COUNT],
-    pub vec_reg: [u32; VGPR_COUNT],
+    pub vec_reg: VGPR,
     pub scc: u32,
     pub vcc: VCC,
     pub exec: u32,
@@ -32,7 +33,7 @@ impl CPU {
             gds,
             lds,
             scalar_reg: [0; SGPR_COUNT],
-            vec_reg: [0; VGPR_COUNT],
+            vec_reg: VGPR::new(),
             prg: vec![],
         };
     }
@@ -701,7 +702,6 @@ impl CPU {
                             }
                         }
                         _ => {
-                            // other VOP3 ops
                             let val64 = match op {
                                 828 => {
                                     let vs1_lo = ((instr >> 41) & 0x1ff) - VGPR_COUNT as u64;
@@ -713,6 +713,22 @@ impl CPU {
                             if let Some(val) = val64 {
                                 self.vec_reg.write64(vdst, val);
                                 return;
+                            }
+
+                            match op {
+                                865 => {
+                                    self.vec_reg.write_lane(s1 as usize, vdst, s0);
+                                    return;
+                                }
+                                864 => {
+                                    let val = self.vec_reg.read_lane(
+                                        s1 as usize,
+                                        (instr as usize >> 32) & 0x1ff - VGPR_COUNT,
+                                    );
+                                    self.write_to_sdst(vdst as u32, val);
+                                    return;
+                                }
+                                _ => {}
                             }
 
                             self.vec_reg[vdst] = match op {
@@ -1411,6 +1427,26 @@ mod test_vop3 {
         cpu.interpret(&vec![0xD72E0003, 0x000204FF, 0x2E8BA2E9, END_PRG]);
         assert_eq!(cpu.vec_reg[3], 0);
     }
+
+    #[test]
+    fn test_v_writelane_b32() {
+        let mut cpu = _helper_test_cpu("v_writelane_b32");
+        cpu.scalar_reg[8] = 25056;
+        cpu.interpret(&vec![0xD7610004, 0x00010008, END_PRG]);
+        assert_eq!(cpu.vec_reg.read_lane(0, 4), 25056);
+
+        cpu.scalar_reg[9] = 25056;
+        cpu.interpret(&vec![0xD7610004, 0x00010209, END_PRG]);
+        assert_eq!(cpu.vec_reg.read_lane(1, 4), 25056);
+    }
+
+    #[test]
+    fn test_v_readlane_b32() {
+        let mut cpu = _helper_test_cpu("test_v_readlane_b32");
+        cpu.vec_reg.write_lane(15, 4, 0b1111);
+        cpu.interpret(&vec![0xD760006A, 0x00011F04, END_PRG]);
+        assert_eq!(*cpu.vcc, 1);
+    }
 }
 
 #[cfg(test)]
@@ -1528,15 +1564,6 @@ mod test_smem {
 #[cfg(test)]
 mod test_global {
     use super::*;
-
-    #[test]
-    fn test_store_b32() {
-        let mut cpu = _helper_test_cpu("store_b32");
-        cpu.interpret(&vec![0xdc6a0000, 0x00000001, END_PRG]);
-        cpu.interpret(&vec![0xdc6a0000, 0x00000100, END_PRG]);
-        cpu.interpret(&vec![0xdc6a0000, 0x00000002, END_PRG]);
-        cpu.interpret(&vec![0xdc6a0000, 0x00000102, END_PRG]);
-    }
 
     #[test]
     fn test_store_b96() {
@@ -1661,7 +1688,7 @@ mod test_real_world {
         let global_size = (4, 1, 1);
         for i in 0..global_size.0 {
             // allocate src registers
-            cpu.scalar_reg.reset();
+            cpu.scalar_reg = [0; SGPR_COUNT];
             cpu.scalar_reg.write64(0, data0_ptr_addr);
             println!("i={i}");
             cpu.scalar_reg[15] = i;

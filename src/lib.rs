@@ -1,6 +1,6 @@
 use crate::allocator::BumpAllocator;
-use crate::cpu::{CPU, SGPR_COUNT, VGPR_COUNT};
-use crate::state::{Assign, Register};
+use crate::cpu::{CPU, SGPR_COUNT};
+use crate::state::{Assign, Register, VGPR};
 use crate::utils::{Colorize, DebugLevel, DEBUG, PROGRESS};
 use std::collections::HashMap;
 use std::os::raw::{c_char, c_void};
@@ -79,10 +79,8 @@ pub extern "C" fn hipModuleLaunchKernel(
     for gx in 0..grid_dim_x {
         for gy in 0..grid_dim_y {
             for gz in 0..grid_dim_z {
-                let mut thread_registers: HashMap<
-                    [u32; 3],
-                    ([u32; SGPR_COUNT], [u32; VGPR_COUNT], u32),
-                > = HashMap::new();
+                let mut thread_registers: HashMap<[u32; 3], ([u32; SGPR_COUNT], VGPR, u32)> =
+                    HashMap::new();
                 for prg in prg.iter() {
                     for tx in 0..block_dim_x {
                         for ty in 0..block_dim_y {
@@ -115,7 +113,7 @@ fn launch_thread(
     local_size: [u32; 3],
     stack_ptr: u64,
     prg: &Vec<u32>,
-    thread_registers: &mut HashMap<[u32; 3], ([u32; SGPR_COUNT], [u32; VGPR_COUNT], u32)>,
+    thread_registers: &mut HashMap<[u32; 3], ([u32; SGPR_COUNT], VGPR, u32)>,
 ) {
     if *DEBUG >= DebugLevel::MISC {
         println!(

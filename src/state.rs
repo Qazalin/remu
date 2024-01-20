@@ -1,14 +1,15 @@
-#![allow(unused)]
-use crate::utils::{Colorize, DebugLevel, DEBUG, SGPR_INDEX};
+use std::collections::HashMap;
 use std::ops::{Index, IndexMut};
 
 pub trait Register {
     fn read64(&self, idx: usize) -> u64;
     fn write64(&mut self, idx: usize, addr: u64);
-    fn reset(&mut self);
 }
 
-impl<const N: usize> Register for [u32; N] {
+impl<T> Register for T
+where
+    T: Index<usize, Output = u32> + IndexMut<usize>,
+{
     fn read64(&self, idx: usize) -> u64 {
         let addr_lsb = self[idx];
         let addr_msb = self[idx + 1];
@@ -19,9 +20,37 @@ impl<const N: usize> Register for [u32; N] {
         self[idx] = (addr & 0xffffffff) as u32;
         self[idx + 1] = ((addr & (0xffffffff << 32)) >> 32) as u32;
     }
+}
 
-    fn reset(&mut self) {
-        self.iter_mut().for_each(|x| *x = 0);
+#[derive(Clone)]
+pub struct VGPR(pub HashMap<usize, [u32; 256]>);
+impl Index<usize> for VGPR {
+    type Output = u32;
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0.get(&0).unwrap()[index]
+    }
+}
+
+impl IndexMut<usize> for VGPR {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.0.entry(0).or_insert([0; 256])[index]
+    }
+}
+
+impl VGPR {
+    pub fn new() -> Self {
+        let mut map = HashMap::new();
+        let vals = [0; 256];
+        for key in 0..32 {
+            map.insert(key, vals);
+        }
+        VGPR(map)
+    }
+    pub fn read_lane(&self, lane: usize, idx: usize) -> u32 {
+        self.0.get(&lane).unwrap()[idx]
+    }
+    pub fn write_lane(&mut self, lane: usize, idx: usize, val: u32) {
+        self.0.get_mut(&lane).unwrap()[idx] = val;
     }
 }
 
