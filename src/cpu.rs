@@ -78,11 +78,7 @@ impl CPU {
         // smem
         if instruction >> 26 == 0b111101 {
             let instr = self.u64_instr();
-            // NOTE: sbase has an implied LSB of zero
-            /*
-             * In reads, the address-base comes from an SGPR-pair, it's always
-             * even-aligned. s[sbase:sbase+1]
-             */
+            /* addr: s[sbase:sbase+1] */
             let sbase = (instr & 0x3f) * 2;
             let sdata = ((instr >> 6) & 0x7f) as usize;
             let dlc = (instr >> 13) & 0x1;
@@ -90,7 +86,7 @@ impl CPU {
             let op = (instr >> 18) & 0xff;
             let offset = as_signed((instr >> 32) & 0x1fffff, 21);
             let soffset = match instr & 0x7F {
-                _ => 0, // TODO soffset is not implemented
+                _ => 0,
             };
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
@@ -118,7 +114,7 @@ impl CPU {
         }
         // sop1
         else if instruction >> 23 == 0b10_1111101 {
-            let s0 = self.resolve_src(instruction & 0xFF) as u32;
+            let s0 = self.resolve_src(instruction & 0xFF);
             let op = (instruction >> 8) & 0xFF;
             let sdst = (instruction >> 16) & 0x7F;
 
@@ -130,7 +126,7 @@ impl CPU {
                 0 => self.write_to_sdst(sdst, s0),
                 1 => self.scalar_reg.write64(sdst as usize, s0 as u64),
                 16 => {
-                    let sdst_val = self.resolve_src(sdst) as u32;
+                    let sdst_val = self.resolve_src(sdst);
                     self.write_to_sdst(sdst, sdst_val >> s0);
                 }
                 30 => self.write_to_sdst(sdst, !s0),
@@ -150,8 +146,8 @@ impl CPU {
         }
         // sopc
         else if (instruction >> 23) & 0x3ff == 0b101111110 {
-            let s0 = self.resolve_src(instruction & 0xff) as u32;
-            let s1 = self.resolve_src((instruction >> 8) & 0xff) as u32;
+            let s0 = self.resolve_src(instruction & 0xff);
+            let s1 = self.resolve_src((instruction >> 8) & 0xff);
             let op = (instruction >> 16) & 0x7f;
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
@@ -227,7 +223,7 @@ impl CPU {
             let simm16 = (instruction & 0xffff) as i16;
             let sdst = (instruction >> 16) & 0x7f;
             let op = (instruction >> 23) & 0x1f;
-            let s0 = self.resolve_src(sdst) as u32;
+            let s0 = self.resolve_src(sdst);
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
@@ -261,8 +257,8 @@ impl CPU {
         }
         // sop2
         else if instruction >> 30 == 0b10 {
-            let s0 = self.resolve_src(instruction & 0xFF) as u32;
-            let s1 = self.resolve_src((instruction >> 8) & 0xFF) as u32;
+            let s0 = self.resolve_src(instruction & 0xFF);
+            let s1 = self.resolve_src((instruction >> 8) & 0xFF);
             let sdst = (instruction >> 16) & 0x7F;
             let op = (instruction >> 23) & 0xFF;
 
@@ -325,9 +321,11 @@ impl CPU {
                     ret
                 }
                 18 | 20 => {
+                    let s0 = s0 as i32;
+                    let s1 = s1 as i32;
                     self.scc = match op {
-                        18 => (s0 as i32) < (s1 as i32),
-                        20 => (s0 as i32) > (s1 as i32),
+                        18 => s0 < s1,
+                        20 => s0 > s1,
                         _ => panic!(),
                     } as u32;
                     (match self.scc != 0 {
@@ -335,12 +333,13 @@ impl CPU {
                         false => s1,
                     }) as u32
                 }
-                22..=34 => {
+                22..=36 => {
                     let temp = match op {
                         22 => s0 & s1,
                         24 => s0 | s1,
                         26 => s0 ^ s1,
                         34 => s0 & !s1,
+                        36 => s0 | !s1,
                         _ => panic!(),
                     };
                     self.scc = (temp != 0) as u32;
@@ -357,7 +356,7 @@ impl CPU {
         }
         // vop1
         else if instruction >> 25 == 0b0111111 {
-            let s0 = self.resolve_src(instruction & 0x1ff) as u32;
+            let s0 = self.resolve_src(instruction & 0x1ff);
             let op = (instruction >> 9) & 0xff;
             let vdst = ((instruction >> 17) & 0xff) as usize;
 
@@ -411,7 +410,7 @@ impl CPU {
 
             let sx = instr & 0x1ff;
             let vx = (instr >> 9) & 0xff;
-            let srcx0 = self.resolve_src((sx) as u32) as u32;
+            let srcx0 = self.resolve_src(sx as u32);
             let vsrcx1 = self.vec_reg[(vx) as usize] as u32;
             let opy = (instr >> 17) & 0x1f;
 
@@ -421,9 +420,9 @@ impl CPU {
             let srcy0 = match sy {
                 255 => match sx {
                     255 => srcx0,
-                    _ => self.resolve_src(sy as u32) as u32,
+                    _ => self.resolve_src(sy as u32),
                 },
-                _ => self.resolve_src(sy as u32) as u32,
+                _ => self.resolve_src(sy as u32),
             };
             let vsrcy1 = self.vec_reg[(vy) as usize];
 
@@ -481,7 +480,7 @@ impl CPU {
         }
         // vopc
         else if instruction >> 25 == 0b0111110 {
-            let s0 = self.resolve_src(instruction & 0x1ff) as u32;
+            let s0 = self.resolve_src(instruction & 0x1ff);
             let s1 = self.vec_reg[((instruction >> 9) & 0xff) as usize] as u32;
             let op = (instruction >> 17) & 0xff;
 
@@ -497,7 +496,7 @@ impl CPU {
         }
         // vop2
         else if instruction >> 31 == 0b0 {
-            let s0 = self.resolve_src(instruction & 0x1FF) as u32;
+            let s0 = self.resolve_src(instruction & 0x1FF);
             let s1 = self.vec_reg[((instruction >> 9) & 0xFF) as usize];
             let vdst = (instruction >> 17) & 0xFF;
             let op = (instruction >> 25) & 0x3F;
@@ -587,9 +586,9 @@ impl CPU {
                 764 | 288 | 766 | 768 => {
                     let vdst = (instr & 0xff) as usize;
                     let sdst = ((instr >> 8) & 0x7f) as usize;
-                    let s0 = self.resolve_src(((instr >> 32) & 0x1ff) as u32) as u32;
-                    let s1 = self.resolve_src(((instr >> 41) & 0x1ff) as u32) as u32;
-                    let s2 = self.resolve_src(((instr >> 50) & 0x1ff) as u32) as u32;
+                    let s0 = self.resolve_src(((instr >> 32) & 0x1ff) as u32);
+                    let s1 = self.resolve_src(((instr >> 41) & 0x1ff) as u32);
+                    let s2 = self.resolve_src(((instr >> 50) & 0x1ff) as u32);
                     let omod = (instr >> 59) & 0x3;
                     let neg = (instr >> 61) & 0x7;
                     let clmp = (instr >> 15) & 0x1;
@@ -642,9 +641,9 @@ impl CPU {
                     let opsel = (instr >> 11) & 0xf;
                     let cm = (instr >> 15) & 0x1;
 
-                    let s0 = self.resolve_src(((instr >> 32) & 0x1ff) as u32) as u32;
-                    let s1 = self.resolve_src(((instr >> 41) & 0x1ff) as u32) as u32;
-                    let s2 = self.resolve_src(((instr >> 50) & 0x1ff) as u32) as u32;
+                    let s0 = self.resolve_src(((instr >> 32) & 0x1ff) as u32);
+                    let s1 = self.resolve_src(((instr >> 41) & 0x1ff) as u32);
+                    let s2 = self.resolve_src(((instr >> 50) & 0x1ff) as u32);
 
                     let omod = (instr >> 59) & 0x3;
                     let neg = ((instr >> 61) & 0x7) as usize;
@@ -771,6 +770,7 @@ impl CPU {
                                         576 => s0 ^ s1 ^ s2,
                                         582 => (s0 << s1) + s2,
                                         597 => s0 + s1 + s2,
+                                        581 => (s0 ^ s1) + s2,
                                         583 => (s0 + s1) << s2,
                                         598 => (s0 << s1) | s2,
                                         812 => s0 * s1,
@@ -846,7 +846,7 @@ impl CPU {
                 );
             }
 
-            let effective_addr = match self.resolve_src(saddr as u32) as u32 {
+            let effective_addr = match self.resolve_src(saddr as u32) {
                 0x7F | _ if saddr as u32 == NULL_SRC => {
                     self.vec_reg.read64(addr) as i64 + (offset as i64)
                 }
@@ -923,9 +923,10 @@ impl CPU {
                         _ => panic!(),
                     }
                 }
+                73 => s0 < s1,
                 74 => s0 == s1,
                 76 => s0 > s1,
-                77 => s0 != s1,
+                77 | 205 => s0 != s1,
                 202 => s0 == s1,
                 _ => todo_instr!(instruction),
             },
@@ -933,16 +934,16 @@ impl CPU {
     }
 
     /* ALU utils */
-    fn resolve_src(&mut self, ssrc_bf: u32) -> i32 {
+    fn resolve_src(&mut self, ssrc_bf: u32) -> u32 {
         match ssrc_bf {
-            0..=SGPR_COUNT => self.scalar_reg[ssrc_bf as usize] as i32,
-            VGPR_COUNT..=511 => self.vec_reg[(ssrc_bf - VGPR_COUNT) as usize] as i32,
-            106 => *self.vcc as i32,
-            126 => self.exec as i32,
+            0..=SGPR_COUNT => self.scalar_reg[ssrc_bf as usize],
+            VGPR_COUNT..=511 => self.vec_reg[(ssrc_bf - VGPR_COUNT) as usize],
+            106 => *self.vcc,
+            126 => self.exec,
             128 => 0,
-            124 => NULL_SRC as i32,
-            129..=192 => (ssrc_bf - 128) as i32,
-            193..=208 => (ssrc_bf - 192) as i32 * -1,
+            124 => NULL_SRC,
+            129..=192 => ssrc_bf - 128,
+            193..=208 => ((ssrc_bf - 192) as i32 * -1) as u32,
             240..=247 => [
                 (240, 0.5_f32),
                 (241, -0.5_f32),
@@ -957,8 +958,8 @@ impl CPU {
             .find(|x| x.0 == ssrc_bf)
             .unwrap()
             .1
-            .to_bits() as i32,
-            255 => self.simm() as i32,
+            .to_bits(),
+            255 => self.simm(),
             _ => todo!("resolve_src={ssrc_bf}"),
         }
     }
@@ -1011,8 +1012,8 @@ mod test_alu_utils {
         let mut cpu = _helper_test_cpu("test_resolve_src_negative_const");
         assert_eq!(cpu.resolve_src(129), 1);
         assert_eq!(cpu.resolve_src(192), 64);
-        assert_eq!(cpu.resolve_src(193), -1);
-        assert_eq!(cpu.resolve_src(208), -16);
+        assert_eq!(cpu.resolve_src(193), -1i32 as u32);
+        assert_eq!(cpu.resolve_src(208), -16i32 as u32);
 
         cpu.vec_reg[0] = 10;
         assert_eq!(cpu.resolve_src(256), 10);
