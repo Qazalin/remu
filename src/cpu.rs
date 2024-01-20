@@ -212,6 +212,7 @@ impl CPU {
                         35 => *self.vcc == 0,
                         36 => *self.vcc != 0,
                         37 => self.exec == 0,
+                        38 => self.exec != 0,
                         _ => todo_instr!(instruction),
                     };
                     if should_jump {
@@ -233,12 +234,13 @@ impl CPU {
                     "{} simm16={} sdst={} op={}",
                     "SOPK".color("blue"),
                     simm16,
-                    self.resolve_src(sdst),
+                    s0,
                     op
                 );
             }
 
             match op {
+                0 => self.scalar_reg[sdst as usize] = simm16 as i32 as u32,
                 3 => self.scc = (s0 as i32 as i64 == simm16 as i64) as u32,
                 4 => self.scc = (s0 as i32 as i64 != simm16 as i64) as u32,
                 15 => {
@@ -501,27 +503,42 @@ impl CPU {
                         _ => panic!(),
                     });
                 }
-                158 => {
+                155 | 158 => {
                     let s0 = f32::from_bits(s0);
                     let s1 = f32::from_bits(s1);
                     self.exec = match op {
+                        155 => !(s0 > s1),
                         158 => !(s0 < s1),
                         _ => panic!(),
                     } as u32;
                 }
-                57 | 58 | 62 => {
+                57 | 58 | 60 | 62 => {
                     let s0 = s0 as u16;
                     let s1 = s1 as u16;
 
                     self.vcc.assign(match op {
                         58 => s0 == s1,
                         57 => s0 < s1,
+                        60 => s0 > s1,
                         62 => s0 >= s1,
                         _ => panic!(),
                     })
                 }
+
+                52 | 65 => {
+                    let s0 = s0 as i16;
+                    let s1 = s1 as i16;
+
+                    self.vcc.assign(match op {
+                        52 => s0 > s1,
+                        65 => s0 < s1,
+                        _ => panic!(),
+                    })
+                }
+
                 68 => self.vcc.assign(s0 as i32 > s1 as i32),
                 74 => self.vcc.assign(s0 == s1),
+                77 => self.vcc.assign(s0 != s1),
                 193 => self.exec = ((s0 as i32) < (s1 as i32)) as u32,
                 196 => self.exec = ((s0 as i32) > (s1 as i32)) as u32,
                 202 => self.exec = (s0 == s1) as u32,
@@ -720,8 +737,28 @@ impl CPU {
                                 _ => {
                                     assert_eq!(neg, 0);
                                     match op {
-                                        52 => (s0 as i16) > (s1 as i16),
+                                        52 | 65 => {
+                                            let s0 = s0 as i16;
+                                            let s1 = s1 as i16;
+
+                                            match op {
+                                                52 => s0 > s1,
+                                                65 => s0 < s1,
+                                                _ => panic!(),
+                                            }
+                                        }
+                                        58 | 60 => {
+                                            let s0 = s0 as u16;
+                                            let s1 = s1 as u16;
+
+                                            match op {
+                                                58 => s0 == s1,
+                                                60 => s0 > s1,
+                                                _ => panic!(),
+                                            }
+                                        }
                                         74 => s0 == s1,
+                                        76 => s0 > s1,
                                         77 => s0 != s1,
                                         68 => s0 as i32 > s1 as i32,
                                         _ => todo_instr!(instruction),
@@ -752,7 +789,7 @@ impl CPU {
                             }
 
                             self.vec_reg[vdst] = match op {
-                                257 | 259 | 299 | 260 | 264 | 272 | 531 | 540 | 551 | 567 => {
+                                257 | 259 | 299 | 260 | 264 | 272 | 531 | 537 | 540 | 551 | 567 => {
                                     let s0 = f32::from_bits(s0).negate(0, neg).absolute(0, abs);
                                     let s1 = f32::from_bits(s1).negate(1, neg).absolute(1, abs);
                                     let s2 = f32::from_bits(s2).negate(2, neg).absolute(2, abs);
@@ -763,6 +800,7 @@ impl CPU {
                                         272 => f32::max(s0, s1),
                                         299 => s0 * s1 + f32::from_bits(self.vec_reg[vdst]),
                                         531 => s0 * s1 + s2,
+                                        537 => f32::min(f32::min(s0, s1), s2),
                                         540 => f32::max(f32::max(s0, s1), s2),
                                         551 => s2 / s1,
                                         567 => {
@@ -782,9 +820,11 @@ impl CPU {
                                     .to_bits()
                                 }
                                 _ => {
-                                    assert_eq!(neg, 0);
+                                    if neg != 0 {
+                                        todo_instr!(instruction)
+                                    }
                                     match op {
-                                        522 | 541 | 529 | 814 => {
+                                        522 | 541 | 529 | 814 | 826 => {
                                             let s0 = s0 as i32;
                                             let s1 = s1 as i32;
                                             let s2 = s2 as i32;
@@ -793,11 +833,12 @@ impl CPU {
                                                 541 => i32::max(i32::max(s0, s1), s2),
                                                 529 => (s0 >> s1) & ((1 << s2) - 1),
                                                 814 => ((s0 as i64) * (s1 as i64) >> 32) as i32,
+                                                826 => s1 >> s0,
                                                 _ => panic!(),
                                             }) as u32
                                         }
 
-                                        771 | 772 | 773 | 824 => {
+                                        771 | 772 | 773 | 824 | 825 => {
                                             let s0 = s0 as u16;
                                             let s1 = s1 as u16;
                                             (match op {
@@ -805,6 +846,7 @@ impl CPU {
                                                 772 => s0 - s1,
                                                 773 => s0 * s1,
                                                 824 => s1 << s0,
+                                                825 => s1 >> s0,
                                                 _ => panic!(),
                                             }) as u32
                                         }

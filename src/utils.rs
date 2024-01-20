@@ -1,6 +1,5 @@
 #![allow(unused)]
 use once_cell::sync::Lazy;
-use rusqlite::{params, Connection, Result};
 use std::collections::HashMap;
 use std::io::{self, Read};
 use std::io::{BufRead, BufReader, Write};
@@ -197,26 +196,12 @@ impl<'a> Colorize for &'a str {
 
 pub fn read_asm(lib: &Vec<u8>) -> (Vec<u32>, String) {
     if std::env::consts::OS == "macos" {
-        let connection = rusqlite::Connection::open("/Users/qazal/remu.db").unwrap();
-        let code = String::from_utf8(lib.to_vec()).unwrap();
-        let asm_src = env::var("ASM_SRC").unwrap();
-        let mut stmt = connection
-            .prepare(&format!("select asm from {asm_src} where prg = ?1"))
-            .unwrap();
-        let mut asm = "".to_string();
-        let mut rows = stmt.query(params![code]).unwrap();
-        if let Some(row) = rows.next().unwrap() {
-            asm = row.get(0).unwrap();
-        } else {
-            panic!("{}", code);
-        }
-
-        let (base_rdna3, name) = parse_rdna3(&asm.to_string());
+        let asm = String::from_utf8(lib.to_vec()).unwrap();
+        let (base_rdna3, name) = parse_rdna3(&asm);
         let prg = match std::fs::metadata(format!("/tmp/{name}.s")) {
             Ok(_) => parse_rdna3(&fs::read_to_string(format!("/tmp/{name}.s")).unwrap()).0,
             Err(_) => {
                 fs::write(format!("/tmp/{name}.s"), asm);
-                fs::write(format!("/tmp/{name}.c"), code);
                 base_rdna3
             }
         };

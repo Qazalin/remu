@@ -10,4 +10,3 @@ crate-type = ["cdylib"]
 indicatif = "0.17.7"
 lazy_static = "1.4.0"
 once_cell = "1.19.0"
-rusqlite = "0.30.0"
