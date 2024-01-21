@@ -51,6 +51,14 @@ pub extern "C" fn hipModuleLaunchKernel(
     kernel_args.iter().enumerate().for_each(|(i, x)| {
         gds.write_bytes(stack_ptr + i as u64 * 8, &x.to_le_bytes());
     });
+    if kernel_args.len() > 1 && kernel_args.len() % 2 != 0 {
+        (0..=1).into_iter().for_each(|i| {
+            gds.write_bytes(
+                stack_ptr + (kernel_args.len() + i) as u64 * 8,
+                &0u32.to_le_bytes(),
+            )
+        })
+    }
 
     if *DEBUG >= DebugLevel::NONE {
         println!(
