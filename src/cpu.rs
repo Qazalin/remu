@@ -86,9 +86,8 @@ impl CPU {
             let glc = (instr >> 14) & 0x1;
             let op = (instr >> 18) & 0xff;
             let offset = as_signed((instr >> 32) & 0x1fffff, 21);
-            let soffset = match instr & 0x7F {
-                _ => 0,
-            };
+            let soffset = instr & 0x7F;
+            assert_eq!(soffset, 0);
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
@@ -104,7 +103,7 @@ impl CPU {
                 );
             }
             let base_addr = self.scalar_reg.read64(sbase as usize);
-            let effective_addr = (base_addr as i64 + offset + soffset as i64) as u64;
+            let effective_addr = (base_addr as i64 + offset) as u64;
 
             match op {
                 0..=4 => (0..2_usize.pow(op as u32)).for_each(|i| {
