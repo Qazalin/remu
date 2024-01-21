@@ -1,5 +1,6 @@
 use crate::allocator::BumpAllocator;
 use crate::alu_modifiers::VOPModifier;
+use crate::dtype::IEEEClass;
 use crate::state::{Assign, Register, VCC, VGPR};
 use crate::todo_instr;
 use crate::utils::{as_signed, Colorize, DebugLevel, DEBUG};
@@ -934,7 +935,28 @@ impl CPU {
                     22 => s0 >= s1,
                     27 | 155 => !(s0 > s1),
                     30 | 158 => !(s0 < s1),
-                    126 => true,
+                    126 => {
+                        let offset = match s0 {
+                            _ if (s0 as f64).is_nan() => 1,
+                            _ if s0.exponent() == 255 => match s0.signum() == -1.0 {
+                                true => 2,
+                                false => 9,
+                            },
+                            _ if s0.exponent() > 0 => match s0.signum() == -1.0 {
+                                true => 3,
+                                false => 8,
+                            },
+                            _ if s0.abs() as f64 > 0.0 => match s0.signum() == -1.0 {
+                                true => 4,
+                                false => 7,
+                            },
+                            _ => match s0.signum() == -1.0 {
+                                true => 5,
+                                false => 6,
+                            },
+                        };
+                        return ((s1.to_bits() >> offset) & 1) != 0;
+                    }
                     _ => panic!(),
                 }
             }
@@ -1354,6 +1376,39 @@ mod test_vopc {
         cpu.vec_reg[3] = f32::to_bits(0.4);
         cpu.interpret(&vec![0x7D3C0700, END_PRG]);
         assert_eq!(cpu.exec, 1);
+    }
+
+    #[test]
+    fn test_cmp_class_f32() {
+        fn t(s0: f32, s1: u32) -> bool {
+            let cpu = _helper_test_cpu("vopc");
+            println!("{} {:0b}", f32::to_bits(s0), s1);
+            return cpu.vopc(f32::to_bits(s0), s1, 126, 0x1);
+        }
+
+        assert!(!t(f32::NAN, 0b00001));
+        assert!(t(f32::NAN, 0b00010));
+
+        assert!(t(f32::INFINITY, 0b00000000000000000000001000000000));
+        assert!(!t(f32::INFINITY, 0b00000000000000000000000000000010));
+
+        assert!(t(f32::NEG_INFINITY, 0b00000000000000000000000000000100));
+        assert!(!t(f32::NEG_INFINITY, 0b00000000000000000000010000000000));
+
+        assert!(!t(0.752, 0b00000000000000000000000000000000));
+        assert!(t(0.752, 0b00000000000000000000000100000000));
+
+        assert!(!t(-0.752, 0b00000000000000000000010000000000));
+        assert!(t(-0.752, 0b00000000000000000000010000001000));
+
+        assert!(!t(1.0e-42, 0b11111111111111111111111101111111));
+        assert!(t(1.0e-42, 0b00000000000000000000000010000000));
+
+        assert!(t(-1.0e-42, 0b00000000000000000000000000010000));
+        assert!(!t(-1.0e-42, 0b11111111111111111111111111101111));
+
+        assert!(t(-0.0, 0b00000000000000000000000000100000));
+        assert!(t(0.0, 0b00000000000000000000000001000000));
     }
 }
 #[cfg(test)]

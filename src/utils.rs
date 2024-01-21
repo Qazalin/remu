@@ -197,15 +197,22 @@ impl<'a> Colorize for &'a str {
 pub fn read_asm(lib: &Vec<u8>) -> (Vec<u32>, String) {
     if std::env::consts::OS == "macos" {
         let asm = String::from_utf8(lib.to_vec()).unwrap();
-        let (base_rdna3, name) = parse_rdna3(&asm);
-        let prg = match std::fs::metadata(format!("/tmp/{name}.s")) {
-            Ok(_) => parse_rdna3(&fs::read_to_string(format!("/tmp/{name}.s")).unwrap()).0,
-            Err(_) => {
-                fs::write(format!("/tmp/{name}.s"), asm);
-                base_rdna3
-            }
-        };
-        return (prg, name);
+        let mut prg = parse_rdna3(&asm);
+        let ci = env::var("REMU_CI")
+            .unwrap_or_default()
+            .parse::<i32>()
+            .unwrap_or(0);
+        if ci == 0 {
+            let fp = format!("/tmp/{}.s", prg.1);
+            prg = match std::fs::metadata(&fp) {
+                Ok(_) => parse_rdna3(&fs::read_to_string(fp).unwrap()),
+                Err(_) => {
+                    fs::write(fp, asm);
+                    prg
+                }
+            };
+        }
+        return prg;
     }
     let mut child = Command::new("/opt/rocm/llvm/bin/llvm-objdump")
         .args(&["-d", "-"])
