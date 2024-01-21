@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 use std::{env, fs, str};
 
 const END_PRG: u32 = 0xbfb00000;
-const WAIT_CNT_0: u32 = 0xBF89FC07;
+    const WAIT_CNT_0: u32 = 0xBF89FC07;
 
 #[derive(PartialEq, PartialOrd)]
 pub enum DebugLevel {
@@ -82,6 +82,7 @@ fn parse_rdna3(content: &str) -> (Vec<u32>, String) {
         .flatten()
         .map(|x| u32::from_str_radix(x, 16).unwrap())
         .collect::<Vec<u32>>();
+
     return (instructions, name.to_string());
 }
 
@@ -89,7 +90,9 @@ pub fn split_asm_by_thread_syncs(instructions: &Vec<u32>) -> Vec<Vec<u32>> {
     let mut parts: Vec<Vec<u32>> = vec![];
     let mut last_idx = 0;
     instructions.iter().enumerate().for_each(|(i, x)| {
-        if x == &WAIT_CNT_0 && instructions[i - 1] == WAIT_CNT_0 {
+        if (*x == WAIT_CNT_0 && instructions[i - 1] == WAIT_CNT_0)
+            || (*x == WAIT_CNT_0 && instructions[i - 1] == 0xBFBD0000 && *x == WAIT_CNT_0)
+        {
             let mut part = instructions[last_idx..=i - 2].to_vec();
             last_idx = i + 1;
             part.extend(vec![END_PRG]);
@@ -202,6 +205,7 @@ pub fn read_asm(lib: &Vec<u8>) -> (Vec<u32>, String) {
             .unwrap_or_default()
             .parse::<i32>()
             .unwrap_or(0);
+
         if ci == 0 {
             let fp = format!("/tmp/{}.s", prg.1);
             prg = match std::fs::metadata(&fp) {

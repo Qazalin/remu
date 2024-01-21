@@ -420,6 +420,17 @@ impl CPU {
                     }
                     .to_bits()
                 }
+                59 => {
+                    let mut ret = -1;
+                    let s0 = s0 as i32;
+                    for i in (1..=31).into_iter() {
+                        if s0 >> (31 - i as u32) != s0 >> 31 {
+                            ret = i;
+                            break;
+                        }
+                    }
+                    ret as u32
+                }
                 _ => todo_instr!(instruction),
             };
         }
@@ -579,7 +590,7 @@ impl CPU {
                 }
 
                 11 => s0 * s1,
-
+                19 => u32::min(s0, s1),
                 24 => s1 << s0,
                 29 => s0 ^ s1,
                 25 => s1 >> s0,
@@ -750,7 +761,8 @@ impl CPU {
                             }
 
                             self.vec_reg[vdst] = match op {
-                                257 | 259 | 299 | 260 | 264 | 272 | 531 | 537 | 540 | 551 | 567 => {
+                                257 | 259 | 299 | 260 | 264 | 272 | 531 | 537 | 540 | 551 | 567
+                                | 796 => {
                                     let s0 = f32::from_bits(s0).negate(0, neg).absolute(0, abs);
                                     let s1 = f32::from_bits(s1).negate(1, neg).absolute(1, abs);
                                     let s2 = f32::from_bits(s2).negate(2, neg).absolute(2, abs);
@@ -771,6 +783,7 @@ impl CPU {
                                                 false => ret,
                                             }
                                         }
+                                        796 => (s0 * 2.0).powi(s1.to_bits() as i32),
                                         // cnd_mask isn't a float alu but supports neg
                                         257 => match s2.to_bits() != 0 {
                                             true => s1,
@@ -907,11 +920,14 @@ impl CPU {
             match op {
                 // load
                 16 => self.vec_reg[vdst] = self.gds.read::<u8>(effective_addr) as u32,
+                17 => self.vec_reg[vdst] = self.gds.read::<i8>(effective_addr) as u32,
+                18 => self.vec_reg[vdst] = self.gds.read::<u16>(effective_addr) as u32,
                 20..=23 => (0..op - 19).for_each(|i| {
                     self.vec_reg[vdst + i] = self.gds.read(effective_addr + 4 * i as u64);
                 }),
                 // store
                 24 => self.gds.write(effective_addr, self.vec_reg[data] as u8),
+                25 => self.gds.write(effective_addr, self.vec_reg[data] as u16),
                 26..=29 => (0..op - 25).for_each(|i| {
                     self.gds
                         .write(effective_addr + 4 * i as u64, self.vec_reg[data + i]);
@@ -970,28 +986,30 @@ impl CPU {
                         _ => panic!(),
                     }
                 }
-                57 | 58 | 60 | 62 => {
+                57 | 58 | 60 | 61 | 62 => {
                     let s0 = s0 as u16;
                     let s1 = s1 as u16;
                     match op {
                         58 => s0 == s1,
                         57 => s0 < s1,
                         60 => s0 > s1,
+                        61 => s0 != s1,
                         62 => s0 >= s1,
                         _ => panic!(),
                     }
                 }
-                68 | 193 | 196 => {
+                68 | 70 | 193 | 196 => {
                     let s0 = s0 as i32;
                     let s1 = s1 as i32;
                     match op {
                         68 => s0 > s1,
+                        70 => s0 >= s1,
                         193 => s0 < s1,
                         196 => s0 > s1,
                         _ => panic!(),
                     }
                 }
-                73 => s0 < s1,
+                73 | 201 => s0 < s1,
                 74 => s0 == s1,
                 76 => s0 > s1,
                 77 | 205 => s0 != s1,
@@ -1349,6 +1367,23 @@ mod test_vop1 {
         cpu.vec_reg[0] = 2147483392;
         cpu.interpret(&vec![0x7E060500, END_PRG]);
         assert_eq!(cpu.scalar_reg[3], 2147483392);
+    }
+
+    #[test]
+    fn test_v_cls_i32() {
+        fn t(val: u32) -> u32 {
+            let mut cpu = _helper_test_cpu("vop1");
+            cpu.vec_reg[2] = val;
+            cpu.interpret(&vec![0x7E087702, END_PRG]);
+            return cpu.vec_reg[4];
+        }
+
+        assert_eq!(t(0x00000000), 0xffffffff);
+        assert_eq!(t(0x40000000), 1);
+        assert_eq!(t(0x80000000), 1);
+        assert_eq!(t(0x0fffffff), 4);
+        assert_eq!(t(0xffff0000), 16);
+        assert_eq!(t(0xfffffffe), 31);
     }
 }
 
