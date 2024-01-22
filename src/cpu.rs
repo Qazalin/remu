@@ -4,6 +4,7 @@ use crate::dtype::IEEEClass;
 use crate::state::{Assign, Register, VCC, VGPR};
 use crate::todo_instr;
 use crate::utils::{as_signed, Colorize, DebugLevel, DEBUG};
+use half::f16;
 
 pub const SGPR_COUNT: usize = 105;
 pub const VGPR_COUNT: usize = 256;
@@ -376,7 +377,7 @@ impl CPU {
         }
         // vop1
         else if instruction >> 25 == 0b0111111 {
-            let s0 = self.resolve_src(instruction & 0x1ff);
+            let s0 = (instruction & 0x1ff) as usize;
             let op = (instruction >> 9) & 0xff;
             let vdst = ((instruction >> 17) & 0xff) as usize;
 
@@ -390,6 +391,28 @@ impl CPU {
                 );
             }
 
+            let val64 = match op {
+                3 | 21 => {
+                    let s0 = f64::from_bits(self.val(s0));
+                    self.vec_reg[vdst] = match op {
+                        3 => s0 as i32 as u32,
+                        21 => s0 as u32,
+                        _ => panic!(),
+                    };
+                    Some(0)
+                }
+                23 => {
+                    let s0 = f64::from_bits(self.val(s0));
+                    self.vec_reg.write64(vdst, f64::trunc(s0) as u64);
+                    Some(0)
+                }
+                _ => None,
+            };
+            if val64.is_some() {
+                return;
+            }
+
+            let s0: u32 = self.val(s0);
             self.vec_reg[vdst] = match op {
                 1 => s0,
                 2 => {
@@ -534,10 +557,19 @@ impl CPU {
             }
 
             let ret = match op {
-                93 => {
+                93 | 45 => {
                     let s0: u64 = self.val(s0);
                     let s1: u64 = self.vec_reg.read64(s1);
-                    s0 != s1
+
+                    match op {
+                        45 => {
+                            let s0 = f64::from_bits(s0);
+                            let s1 = f64::from_bits(s1);
+                            s0 != s1
+                        }
+                        93 => s0 != s1,
+                        _ => panic!(),
+                    }
                 }
                 _ => {
                     let s0: u32 = self.val(s0);
@@ -698,9 +730,8 @@ impl CPU {
                     let opsel = (instr >> 11) & 0xf;
                     let cm = (instr >> 15) & 0x1;
 
-                    let s0 = self.resolve_src(((instr >> 32) & 0x1ff) as u32);
-                    let s1 = self.resolve_src(((instr >> 41) & 0x1ff) as u32);
-                    let s2 = self.resolve_src(((instr >> 50) & 0x1ff) as u32);
+                    let s = |n: usize| ((instr >> n) & 0x1ff) as usize;
+                    let src = (s(32), s(41), s(50));
 
                     let omod = (instr >> 59) & 0x3;
                     let neg = ((instr >> 61) & 0x7) as usize;
@@ -715,9 +746,9 @@ impl CPU {
                             abs,
                             opsel,
                             op,
-                            s0,
-                            s1,
-                            s2,
+                            src.0,
+                            src.1,
+                            src.2,
                             neg
                         );
                     }
@@ -725,6 +756,7 @@ impl CPU {
                     match op {
                         // VOPC using VOP3 encoding
                         0..=255 => {
+                            let (s0, s1) = (self.val(src.0), self.val(src.1));
                             let ret = match op {
                                 17 | 18 | 27 | 20 | 22 | 30 | 126 | 155 => {
                                     let s0 = f32::from_bits(s0).negate(0, neg).absolute(0, abs);
@@ -744,20 +776,17 @@ impl CPU {
                                 _ => todo_instr!(instruction),
                             }
                         }
-                        _ => {
-                            let val64 = match op {
-                                828 => {
-                                    let vs1_lo = ((instr >> 41) & 0x1ff) - VGPR_COUNT as u64;
-                                    let vsrc = self.vec_reg.read64(vs1_lo as usize);
-                                    Some(vsrc << (s0 as u64))
-                                }
-                                _ => None,
+                        828 => {
+                            let (s0, s1, _): (u64, u64, u64) =
+                                (self.val(src.0), self.val(src.1), self.val(src.2));
+                            let ret = match op {
+                                828 => s1 << s0,
+                                _ => panic!(),
                             };
-                            if let Some(val) = val64 {
-                                self.vec_reg.write64(vdst, val);
-                                return;
-                            }
-
+                            self.vec_reg.write64(vdst, ret)
+                        }
+                        _ => {
+                            let (s0, s1, s2) = (self.val(src.0), self.val(src.1), self.val(src.2));
                             match op {
                                 865 => {
                                     self.vec_reg.write_lane(s1 as usize, vdst, s0);
@@ -956,7 +985,15 @@ impl CPU {
 
     fn vopc(&self, s0: u32, s1: u32, op: u32, instruction: u32) -> bool {
         match op {
-            17 | 18 | 27 | 20 | 22 | 30 | 126 | 155 | 158 => {
+            13 => {
+                let s0 = f16::from_bits(s0 as u16);
+                let s1 = f16::from_bits(s1 as u16);
+                match op {
+                    13 => s0 != s1,
+                    _ => panic!(),
+                }
+            }
+            17 | 18 | 27 | 29 | 20 | 22 | 30 | 126 | 155 | 158 => {
                 let s0 = f32::from_bits(s0);
                 let s1 = f32::from_bits(s1);
                 match op {
@@ -965,6 +1002,7 @@ impl CPU {
                     20 => s0 > s1,
                     22 => s0 >= s1,
                     27 | 155 => !(s0 > s1),
+                    29 => s0 != s1,
                     30 | 158 => !(s0 < s1),
                     126 => {
                         let offset = match s0 {
