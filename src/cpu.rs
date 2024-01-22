@@ -391,73 +391,98 @@ impl CPU {
                 );
             }
 
-            let val64 = match op {
-                3 | 21 => {
-                    let s0 = f64::from_bits(self.val(s0));
-                    self.vec_reg[vdst] = match op {
-                        3 => s0 as i32 as u32,
-                        21 => s0 as u32,
-                        _ => panic!(),
-                    };
-                    Some(0)
-                }
-                23 => {
-                    let s0 = f64::from_bits(self.val(s0));
-                    self.vec_reg.write64(vdst, f64::trunc(s0) as u64);
-                    Some(0)
-                }
-                _ => None,
-            };
-            if val64.is_some() {
-                return;
-            }
-
-            let s0: u32 = self.val(s0);
-            self.vec_reg[vdst] = match op {
-                1 => s0,
-                2 => {
-                    assert!(self.exec == 1);
-                    self.scalar_reg[vdst] = s0;
-                    s0
-                }
-                5 => (s0 as i32 as f32).to_bits(),
-                6 => (s0 as f32).to_bits(),
-                7 => f32::from_bits(s0) as u32,
-                8 => f32::from_bits(s0) as i32 as u32,
-                17 => (s0 as f32).to_bits(),
-                56 => s0.reverse_bits(),
-                35..=51 => {
-                    let s0 = f32::from_bits(s0);
+            match op {
+                3 | 15 | 21 | 23 | 26 => {
+                    let s0: u64 = self.val(s0);
                     match op {
-                        35 => {
-                            let mut temp = f32::floor(s0 + 0.5);
-                            if f32::floor(s0) % 2.0 != 0.0 && f32::fract(s0) == 0.5 {
-                                temp -= 1.0;
+                        3 | 15 | 21 | 23 | 26 => {
+                            let s0 = f64::from_bits(s0);
+                            match op {
+                                23 | 26 => {
+                                    let ret = match op {
+                                        23 => f64::trunc(s0),
+                                        26 => f64::floor(s0),
+                                        _ => panic!(),
+                                    };
+                                    self.vec_reg.write64(vdst, ret.to_bits())
+                                }
+                                _ => {
+                                    self.vec_reg[vdst] = match op {
+                                        3 => s0 as i32 as u32,
+                                        15 => (s0 as f32).to_bits(),
+                                        21 => s0 as u32,
+                                        _ => panic!(),
+                                    };
+                                }
                             }
-                            temp
                         }
-                        37 => f32::exp2(s0),
-                        39 => f32::log2(s0),
-                        42 => 1.0 / s0,
-                        43 => 1.0 / s0,
-                        51 => f32::sqrt(s0),
                         _ => panic!(),
                     }
-                    .to_bits()
                 }
-                59 => {
-                    let mut ret: i32 = -1;
-                    let s0 = s0 as i32;
-                    for i in (1..=31).into_iter() {
-                        if s0 >> (31 - i as u32) != s0 >> 31 {
-                            ret = i;
-                            break;
+                _ => {
+                    let s0: u32 = self.val(s0);
+                    match op {
+                        4 | 16 | 22 => {
+                            let ret = match op {
+                                4 => (s0 as i32 as f64).to_bits(),
+                                22 => (s0 as f64).to_bits(),
+                                16 => (f32::from_bits(s0) as f64).to_bits(),
+                                _ => panic!(),
+                            };
+                            self.vec_reg.write64(vdst, ret)
+                        }
+                        _ => {
+                            self.vec_reg[vdst] = match op {
+                                1 => s0,
+                                2 => {
+                                    assert!(self.exec == 1);
+                                    self.scalar_reg[vdst] = s0;
+                                    s0
+                                }
+                                5 => (s0 as i32 as f32).to_bits(),
+                                6 => (s0 as f32).to_bits(),
+                                7 => f32::from_bits(s0) as u32,
+                                8 => f32::from_bits(s0) as i32 as u32,
+                                11 => f32::from(f16::from_bits(s0 as u16)).to_bits(),
+                                17 => (s0 as f32).to_bits(),
+                                56 => s0.reverse_bits(),
+                                35..=51 => {
+                                    let s0 = f32::from_bits(s0);
+                                    match op {
+                                        35 => {
+                                            let mut temp = f32::floor(s0 + 0.5);
+                                            if f32::floor(s0) % 2.0 != 0.0 && f32::fract(s0) == 0.5
+                                            {
+                                                temp -= 1.0;
+                                            }
+                                            temp
+                                        }
+                                        37 => f32::exp2(s0),
+                                        39 => f32::log2(s0),
+                                        42 => 1.0 / s0,
+                                        43 => 1.0 / s0,
+                                        51 => f32::sqrt(s0),
+                                        _ => panic!(),
+                                    }
+                                    .to_bits()
+                                }
+                                59 => {
+                                    let mut ret: i32 = -1;
+                                    let s0 = s0 as i32;
+                                    for i in (1..=31).into_iter() {
+                                        if s0 >> (31 - i as u32) != s0 >> 31 {
+                                            ret = i;
+                                            break;
+                                        }
+                                    }
+                                    ret as u32
+                                }
+                                _ => todo_instr!(instruction),
+                            }
                         }
                     }
-                    ret as u32
                 }
-                _ => todo_instr!(instruction),
-            };
+            }
         }
         // vopd
         else if instruction >> 26 == 0b110010 {
@@ -776,10 +801,26 @@ impl CPU {
                                 _ => todo_instr!(instruction),
                             }
                         }
-                        828 => {
-                            let (s0, s1, _): (u64, u64, u64) =
+                        808 | 807 | 811 | 828 | 532 => {
+                            let (s0, s1, s2): (u64, u64, u64) =
                                 (self.val(src.0), self.val(src.1), self.val(src.2));
                             let ret = match op {
+                                532 | 808 | 807 | 811 => {
+                                    let (s0, s1, s2) = (
+                                        f64::from_bits(s0).negate(0, neg).absolute(0, abs),
+                                        f64::from_bits(s1).negate(1, neg).absolute(1, abs),
+                                        f64::from_bits(s2).negate(2, neg).absolute(2, abs),
+                                    );
+
+                                    match op {
+                                        532 => s0 * s1 + s2,
+                                        808 => s0 * s1,
+                                        811 => (s0 * 2.0).powi(s1.to_bits() as i32),
+                                        807 => s0 + s1,
+                                        _ => panic!(),
+                                    }
+                                    .to_bits()
+                                }
                                 828 => s1 << s0,
                                 _ => panic!(),
                             };
@@ -841,13 +882,24 @@ impl CPU {
                                         todo_instr!(instruction)
                                     }
                                     match op {
-                                        522 | 541 | 529 | 814 | 826 => {
+                                        522 | 541 | 529 | 544 | 814 | 826 => {
                                             let s0 = s0 as i32;
                                             let s1 = s1 as i32;
                                             let s2 = s2 as i32;
+
                                             (match op {
                                                 522 => s0 * s1 + s2, // TODO 24 bit trunc
                                                 541 => i32::max(i32::max(s0, s1), s2),
+                                                544 => {
+                                                    if (i32::max(i32::max(s0, s1), s2)) == s0 {
+                                                        i32::max(s1, s2)
+                                                    } else if (i32::max(i32::max(s0, s1), s2)) == s1
+                                                    {
+                                                        i32::max(s0, s2)
+                                                    } else {
+                                                        i32::max(s0, s1)
+                                                    }
+                                                }
                                                 529 => (s0 >> s1) & ((1 << s2) - 1),
                                                 814 => ((s0 as i64) * (s1 as i64) >> 32) as i32,
                                                 826 => s1 >> s0,
@@ -876,6 +928,7 @@ impl CPU {
                                         581 => (s0 ^ s1) + s2,
                                         583 => (s0 + s1) << s2,
                                         598 => (s0 << s1) | s2,
+                                        599 => (s0 & s1) | s2,
                                         812 => s0 * s1,
                                         _ => todo_instr!(instruction),
                                     }
@@ -1073,12 +1126,9 @@ impl CPU {
     }
 
     /* ALU utils */
+    // TODO delete the fn below
     fn resolve_src(&mut self, ssrc_bf: u32) -> u32 {
-        match ssrc_bf as usize {
-            0..=SGPR_COUNT => self.scalar_reg[ssrc_bf as usize],
-            VGPR_COUNT..=511 => self.vec_reg[(ssrc_bf as usize - VGPR_COUNT) as usize],
-            _ => self._common_srcs(ssrc_bf),
-        }
+        self.val(ssrc_bf as usize)
     }
     fn _common_srcs(&mut self, code: u32) -> u32 {
         match code {
@@ -1086,23 +1136,6 @@ impl CPU {
             126 => self.exec,
             128 => 0,
             124 => NULL_SRC,
-            129..=192 => code - 128,
-            193..=208 => ((code - 192) as i32 * -1) as u32,
-            240..=247 => [
-                (240, 0.5_f32),
-                (241, -0.5_f32),
-                (242, 1_f32),
-                (243, -1.0_f32),
-                (244, 2.0_f32),
-                (245, -2.0_f32),
-                (246, 4.0_f32),
-                (247, -4.0_f32),
-            ]
-            .iter()
-            .find(|x| x.0 == code)
-            .unwrap()
-            .1
-            .to_bits(),
             255 => self.simm(),
             _ => todo!("resolve_src={code}"),
         }
@@ -1134,6 +1167,23 @@ impl ALUSrc<u32> for CPU {
         match code {
             0..=SGPR_COUNT => self.scalar_reg[code],
             VGPR_COUNT..=511 => self.vec_reg[code - VGPR_COUNT],
+            129..=192 => (code - 128) as u32,
+            193..=208 => ((code - 192) as i32 * -1) as u32,
+            240..=247 => [
+                (240, 0.5_f32),
+                (241, -0.5_f32),
+                (242, 1_f32),
+                (243, -1.0_f32),
+                (244, 2.0_f32),
+                (245, -2.0_f32),
+                (246, 4.0_f32),
+                (247, -4.0_f32),
+            ]
+            .iter()
+            .find(|x| x.0 == code)
+            .unwrap()
+            .1
+            .to_bits(),
             _ => self._common_srcs(code as u32),
         }
     }
@@ -1143,6 +1193,23 @@ impl ALUSrc<u64> for CPU {
         match code {
             0..=SGPR_COUNT => self.scalar_reg.read64(code),
             VGPR_COUNT..=511 => self.vec_reg.read64(code - VGPR_COUNT),
+            129..=192 => (code - 128) as u64,
+            193..=208 => ((code - 192) as i64 * -1) as u64,
+            240..=247 => [
+                (240, 0.5_f64),
+                (241, -0.5_f64),
+                (242, 1_f64),
+                (243, -1.0_f64),
+                (244, 2.0_f64),
+                (245, -2.0_f64),
+                (246, 4.0_f64),
+                (247, -4.0_f64),
+            ]
+            .iter()
+            .find(|x| x.0 == code)
+            .unwrap()
+            .1
+            .to_bits(),
             _ => self._common_srcs(code as u32) as u64,
         }
     }

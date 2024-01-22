@@ -1,9 +1,9 @@
-pub trait VOPModifier {
-    fn negate(&self, pos: usize, modifier: usize) -> f32;
-    fn absolute(&self, pos: usize, modifier: usize) -> f32;
+pub trait VOPModifier<T> {
+    fn negate(&self, pos: usize, modifier: usize) -> T;
+    fn absolute(&self, pos: usize, modifier: usize) -> T;
 }
 
-impl VOPModifier for f32 {
+impl VOPModifier<f32> for f32 {
     fn negate(&self, pos: usize, modifier: usize) -> f32 {
         match (modifier >> pos) & 1 {
             1 => -(*self),
@@ -13,6 +13,21 @@ impl VOPModifier for f32 {
     fn absolute(&self, pos: usize, modifier: usize) -> f32 {
         match (modifier >> pos) & 1 {
             1 => f32::abs(*self),
+            _ => *self,
+        }
+    }
+}
+
+impl VOPModifier<f64> for f64 {
+    fn negate(&self, pos: usize, modifier: usize) -> f64 {
+        match (modifier >> pos) & 1 {
+            1 => -(*self),
+            _ => *self,
+        }
+    }
+    fn absolute(&self, pos: usize, modifier: usize) -> f64 {
+        match (modifier >> pos) & 1 {
+            1 => f64::abs(*self),
             _ => *self,
         }
     }
