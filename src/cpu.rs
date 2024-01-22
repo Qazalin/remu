@@ -401,6 +401,7 @@ impl CPU {
                 6 => (s0 as f32).to_bits(),
                 7 => f32::from_bits(s0) as u32,
                 8 => f32::from_bits(s0) as i32 as u32,
+                17 => (s0 as f32).to_bits(),
                 56 => s0.reverse_bits(),
                 35..=51 => {
                     let s0 = f32::from_bits(s0);
@@ -422,7 +423,7 @@ impl CPU {
                     .to_bits()
                 }
                 59 => {
-                    let mut ret = -1;
+                    let mut ret: i32 = -1;
                     let s0 = s0 as i32;
                     for i in (1..=31).into_iter() {
                         if s0 >> (31 - i as u32) != s0 >> 31 {
@@ -524,15 +525,27 @@ impl CPU {
         }
         // vopc
         else if instruction >> 25 == 0b0111110 {
-            let s0 = self.resolve_src(instruction & 0x1ff);
-            let s1 = self.vec_reg[((instruction >> 9) & 0xff) as usize] as u32;
+            let s0 = instruction as usize & 0x1ff;
+            let s1 = ((instruction >> 9) & 0xff) as usize;
             let op = (instruction >> 17) & 0xff;
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!("{} s0={} s1={} op={}", "VOPC".color("blue"), s0, s1, op);
             }
 
-            let ret = self.vopc(s0, s1, op, instruction);
+            let ret = match op {
+                93 => {
+                    let s0: u64 = self.val(s0);
+                    let s1: u64 = self.vec_reg.read64(s1);
+                    s0 != s1
+                }
+                _ => {
+                    let s0: u32 = self.val(s0);
+                    let s1: u32 = self.vec_reg[s1];
+                    self.vopc(s0, s1, op, instruction)
+                }
+            };
+
             match op >= 128 {
                 true => self.exec = ret as u32,
                 false => self.vcc.assign(ret),
@@ -923,6 +936,7 @@ impl CPU {
                 16 => self.vec_reg[vdst] = self.gds.read::<u8>(effective_addr) as u32,
                 17 => self.vec_reg[vdst] = self.gds.read::<i8>(effective_addr) as u32,
                 18 => self.vec_reg[vdst] = self.gds.read::<u16>(effective_addr) as u32,
+                19 => self.vec_reg[vdst] = self.gds.read::<i16>(effective_addr) as u32,
                 20..=23 => (0..op - 19).for_each(|i| {
                     self.vec_reg[vdst + i] = self.gds.read(effective_addr + 4 * i as u64);
                 }),
@@ -1025,12 +1039,17 @@ impl CPU {
         match ssrc_bf as usize {
             0..=SGPR_COUNT => self.scalar_reg[ssrc_bf as usize],
             VGPR_COUNT..=511 => self.vec_reg[(ssrc_bf as usize - VGPR_COUNT) as usize],
+            _ => self._common_srcs(ssrc_bf),
+        }
+    }
+    fn _common_srcs(&mut self, code: u32) -> u32 {
+        match code {
             106 => *self.vcc,
             126 => self.exec,
             128 => 0,
             124 => NULL_SRC,
-            129..=192 => ssrc_bf - 128,
-            193..=208 => ((ssrc_bf - 192) as i32 * -1) as u32,
+            129..=192 => code - 128,
+            193..=208 => ((code - 192) as i32 * -1) as u32,
             240..=247 => [
                 (240, 0.5_f32),
                 (241, -0.5_f32),
@@ -1042,19 +1061,18 @@ impl CPU {
                 (247, -4.0_f32),
             ]
             .iter()
-            .find(|x| x.0 == ssrc_bf)
+            .find(|x| x.0 == code)
             .unwrap()
             .1
             .to_bits(),
             255 => self.simm(),
-            _ => todo!("resolve_src={ssrc_bf}"),
+            _ => todo!("resolve_src={code}"),
         }
     }
     fn simm(&mut self) -> u32 {
         self.pc += 1;
         self.prg[self.pc as usize - 1]
     }
-
     fn write_to_sdst(&mut self, sdst_bf: u32, val: u32) {
         match sdst_bf as usize {
             0..=SGPR_COUNT => self.scalar_reg[sdst_bf as usize] = val,
@@ -1066,6 +1084,28 @@ impl CPU {
             }
             126 => self.exec = val,
             _ => todo!("write to sdst {}", sdst_bf),
+        }
+    }
+}
+
+pub trait ALUSrc<T> {
+    fn val(&mut self, code: usize) -> T;
+}
+impl ALUSrc<u32> for CPU {
+    fn val(&mut self, code: usize) -> u32 {
+        match code {
+            0..=SGPR_COUNT => self.scalar_reg[code],
+            VGPR_COUNT..=511 => self.vec_reg[code - VGPR_COUNT],
+            _ => self._common_srcs(code as u32),
+        }
+    }
+}
+impl ALUSrc<u64> for CPU {
+    fn val(&mut self, code: usize) -> u64 {
+        match code {
+            0..=SGPR_COUNT => self.scalar_reg.read64(code),
+            VGPR_COUNT..=511 => self.vec_reg.read64(code - VGPR_COUNT),
+            _ => self._common_srcs(code as u32) as u64,
         }
     }
 }

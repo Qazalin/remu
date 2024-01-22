@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 use std::{env, fs, str};
 
 const END_PRG: u32 = 0xbfb00000;
-    const WAIT_CNT_0: u32 = 0xBF89FC07;
+const WAIT_CNT_0: u32 = 0xBF89FC07;
 
 #[derive(PartialEq, PartialOrd)]
 pub enum DebugLevel {
@@ -201,13 +201,13 @@ pub fn read_asm(lib: &Vec<u8>) -> (Vec<u32>, String) {
     if std::env::consts::OS == "macos" {
         let asm = String::from_utf8(lib.to_vec()).unwrap();
         let mut prg = parse_rdna3(&asm);
-        let ci = env::var("REMU_CI")
+        let isolate = env::var("REMU_ISOLATE")
             .unwrap_or_default()
             .parse::<i32>()
             .unwrap_or(0);
 
-        if ci == 0 {
-            let fp = format!("/tmp/{}.s", prg.1);
+        let fp = format!("/tmp/{}.s", prg.1);
+        if isolate == 1 {
             prg = match std::fs::metadata(&fp) {
                 Ok(_) => parse_rdna3(&fs::read_to_string(fp).unwrap()),
                 Err(_) => {
@@ -215,6 +215,8 @@ pub fn read_asm(lib: &Vec<u8>) -> (Vec<u32>, String) {
                     prg
                 }
             };
+        } else {
+            fs::write(fp, asm);
         }
         return prg;
     }

@@ -4,7 +4,7 @@ macro_rules! impl_dtype_for {
         $(impl DType for $t {})*
     };
 }
-impl_dtype_for!(u8, i8, u16, u32, u64);
+impl_dtype_for!(u8, i8, u16, i16, u32, u64);
 
 pub trait IEEEClass {
     fn exponent(&self) -> u32;
