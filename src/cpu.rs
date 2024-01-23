@@ -3,7 +3,7 @@ use crate::alu_modifiers::VOPModifier;
 use crate::dtype::IEEEClass;
 use crate::state::{Assign, Register, VCC, VGPR};
 use crate::todo_instr;
-use crate::utils::{as_signed, Colorize, DebugLevel, DEBUG};
+use crate::utils::{as_signed, f16_hi, f16_lo, nth, Colorize, DebugLevel, DEBUG};
 use half::f16;
 
 pub const SGPR_COUNT: usize = 105;
@@ -378,6 +378,41 @@ impl CPU {
             };
             self.write_to_sdst(sdst, ret);
         }
+        // vopp
+        else if instruction >> 24 == 0b11001100 {
+            let instr = self.u64_instr();
+            let vdst = instr & 0xff;
+            let neg_hi = (instr >> 8) & 0x7;
+            let clmp = (instr >> 15) & 0x1;
+            let opsel = ((instr >> 11) & 0x7) as u32;
+            let op = (instr >> 16) & 0x7f;
+            let mut src = |x: u64| -> u32 { self.val(((instr >> x) & 0x1ff) as usize) };
+            let src = [src(32), src(41), src(50)];
+            let opsel_hi = ((instr >> 59) & 0x3) as u32;
+            let neg = (instr >> 61) & 0x7;
+            assert_eq!([clmp, neg, neg_hi], [0; 3]);
+
+            if *DEBUG >= DebugLevel::INSTRUCTION {
+                println!("{} vdst={} neg_hi={} opsel={} op={} src0={} src1={} src2={} opsel_hi={} neg={}", "VOPP".color("blue"), vdst, neg_hi, opsel, op, src[0], src[1], src[2], opsel_hi, neg);
+            }
+
+            let mut input: [f32; 3] = [0.0; 3];
+            for i in 0..=2 {
+                input[i] = if nth(opsel_hi, i) == 0 {
+                    f32::from_bits(src[i])
+                } else if nth(opsel, i) == 1 {
+                    f32::from(f16_hi(src[i]))
+                } else {
+                    f32::from(f16_lo(src[i]))
+                }
+            }
+            let ret = match op {
+                32 => (input[0] * input[1] + input[2]).to_bits(),
+                33 => f16::from_f32(input[0] * input[1] + input[2]).to_bits() as u32,
+                _ => todo_instr!(instruction),
+            };
+            self.vec_reg[vdst as usize] = ret;
+        }
         // vop1
         else if instruction >> 25 == 0b0111111 {
             let s0 = (instruction & 0x1ff) as usize;
@@ -619,9 +654,9 @@ impl CPU {
         }
         // vop2
         else if instruction >> 31 == 0b0 {
-            let s0 = self.resolve_src(instruction & 0x1FF);
+            let s0 = self.val((instruction & 0x1FF) as usize);
             let s1 = self.vec_reg[((instruction >> 9) & 0xFF) as usize];
-            let vdst = (instruction >> 17) & 0xFF;
+            let vdst = ((instruction >> 17) & 0xFF) as usize;
             let op = (instruction >> 25) & 0x3F;
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
@@ -635,20 +670,28 @@ impl CPU {
                 );
             }
 
-            self.vec_reg[vdst as usize] = match op {
+            self.vec_reg[vdst] = match op {
                 1 => match *self.vcc != 0 {
                     true => s1,
                     false => s0,
                 },
-
-                50 => {
+                2 => {
+                    let mut acc = f32::from_bits(self.vec_reg[vdst]);
+                    acc += f32::from(f16_lo(s0)) * f32::from(f16_lo(s1));
+                    acc += f32::from(f16_hi(s0)) * f32::from(f16_hi(s1));
+                    acc.to_bits()
+                }
+                50..=60 => {
                     let s0 = f16::from_bits(s0 as u16);
                     let s1 = f16::from_bits(s1 as u16);
                     match op {
-                        50 => s0 + s1,
-                        _ => panic!(),
+                        _ => match op {
+                            50 => s0 + s1,
+                            53 => s0 * s1,
+                            _ => todo_instr!(instruction),
+                        }
+                        .to_bits() as u32,
                     }
-                    .to_bits() as u32
                 }
 
                 3 | 4 | 8 | 16 | 43 | 44 | 45 => {
@@ -659,7 +702,7 @@ impl CPU {
                         4 => s0 - s1,
                         8 => s0 * s1,
                         16 => f32::max(s0, s1),
-                        43 => s0 * s1 + f32::from_bits(self.vec_reg[vdst as usize]),
+                        43 => s0 * s1 + f32::from_bits(self.vec_reg[vdst]),
                         44 => s0 * f32::from_bits(self.simm()) + s1,
                         45 => s0 * s1 + f32::from_bits(self.simm()),
                         _ => panic!(),
@@ -969,6 +1012,10 @@ impl CPU {
                                         583 => (s0 + s1) << s2,
                                         598 => (s0 << s1) | s2,
                                         599 => (s0 & s1) | s2,
+                                        785 => {
+                                            (f16::from_bits(s1 as u16).to_bits() as u32) << 16
+                                                | f16::from_bits(s0 as u16).to_bits() as u32
+                                        }
                                         812 => s0 * s1,
                                         _ => todo_instr!(instruction),
                                     }

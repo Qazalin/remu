@@ -1,5 +1,6 @@
 #![allow(unused)]
 use once_cell::sync::Lazy;
+use half::f16;
 use std::collections::HashMap;
 use std::io::{self, Read};
 use std::io::{BufRead, BufReader, Write};
@@ -50,6 +51,15 @@ pub static SGPR_INDEX: Lazy<Option<i32>> = Lazy::new(|| {
 pub fn parse_rdna3_file(file_path: &str) -> Vec<u32> {
     let content = fs::read_to_string(file_path).unwrap();
     parse_rdna3(&content).0
+}
+pub fn nth(val: u32, pos: usize) -> u32 {
+    return (val >> (31 - pos as u32)) & 1;
+}
+pub fn f16_lo(val: u32) -> f16 {
+    f16::from_bits((val & 0xffff) as u16)
+}
+pub fn f16_hi(val: u32) -> f16 {
+    f16::from_bits(((val >> 16) & 0xffff) as u16)
 }
 
 fn parse_rdna3(content: &str) -> (Vec<u32>, String) {
