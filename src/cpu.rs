@@ -128,6 +128,8 @@ impl CPU {
             match op {
                 0 => self.write_to_sdst(sdst, s0),
                 1 => self.scalar_reg.write64(sdst as usize, s0 as u64),
+                10 => self.write_to_sdst(sdst, self.clz_i32_u32(s0)),
+                12 => self.write_to_sdst(sdst, self.cls_i32(s0)),
                 16 => {
                     let sdst_val = self.resolve_src(sdst);
                     self.write_to_sdst(sdst, sdst_val >> s0);
@@ -335,7 +337,7 @@ impl CPU {
                         8 => s0 << s1,
                         9 => ((s0 as u64) << (s1 as u64 & 0x1F)) as u32,
                         10 => s0 >> s1,
-                        12 => ((s0 as i32) >> (s1 as i32)) as u32,
+                        12 => ((s0 as i32) >> (s1 as i32)) as i32 as u32,
                         _ => panic!(),
                     };
                     self.scc = (ret != 0) as u32;
@@ -354,6 +356,7 @@ impl CPU {
                         false => s1,
                     }) as u32
                 }
+                19 => u32::min(s0, s1),
                 22..=36 => {
                     let temp = match op {
                         22 => s0 & s1,
@@ -443,9 +446,14 @@ impl CPU {
                                 6 => (s0 as f32).to_bits(),
                                 7 => f32::from_bits(s0) as u32,
                                 8 => f32::from_bits(s0) as i32 as u32,
+                                10 => f16::from_f32(f32::from_bits(s0)).to_bits() as u32,
                                 11 => f32::from(f16::from_bits(s0 as u16)).to_bits(),
-                                17 => (s0 as f32).to_bits(),
+                                17 => ((s0 & 0xff) as f32).to_bits(),
+                                18 => (((s0 >> 8) & 0xff) as f32).to_bits(),
+                                19 => (((s0 >> 16) & 0xff) as f32).to_bits(),
+                                20 => (((s0 >> 24) & 0xff) as f32).to_bits(),
                                 56 => s0.reverse_bits(),
+                                57 => self.clz_i32_u32(s0),
                                 35..=51 => {
                                     let s0 = f32::from_bits(s0);
                                     match op {
@@ -466,17 +474,7 @@ impl CPU {
                                     }
                                     .to_bits()
                                 }
-                                59 => {
-                                    let mut ret: i32 = -1;
-                                    let s0 = s0 as i32;
-                                    for i in (1..=31).into_iter() {
-                                        if s0 >> (31 - i as u32) != s0 >> 31 {
-                                            ret = i;
-                                            break;
-                                        }
-                                    }
-                                    ret as u32
-                                }
+                                59 => self.cls_i32(s0),
                                 _ => todo_instr!(instruction),
                             }
                         }
@@ -582,7 +580,7 @@ impl CPU {
             }
 
             let ret = match op {
-                93 | 45 => {
+                45 | 84 | 89 | 90 | 93 => {
                     let s0: u64 = self.val(s0);
                     let s1: u64 = self.vec_reg.read64(s1);
 
@@ -592,6 +590,13 @@ impl CPU {
                             let s1 = f64::from_bits(s1);
                             s0 != s1
                         }
+                        84 => {
+                            let s0 = s0 as i64;
+                            let s1 = s1 as i64;
+                            s0 > s1
+                        }
+                        89 => s0 < s1,
+                        90 => s0 == s1,
                         93 => s0 != s1,
                         _ => panic!(),
                     }
@@ -697,7 +702,7 @@ impl CPU {
 
             let op = (instr >> 16) & 0x3ff;
             match op {
-                764 | 288 | 766 | 768 => {
+                764 | 288 | 289 | 766 | 768 | 769 => {
                     let vdst = (instr & 0xff) as usize;
                     let sdst = ((instr >> 8) & 0x7f) as usize;
                     let s0 = self.resolve_src(((instr >> 32) & 0x1ff) as u32);
@@ -730,6 +735,11 @@ impl CPU {
                             let ret = s0 as u64 + s1 as u64 + *VCC::from(s2) as u64;
                             (ret as u32, ret >= 0x100000000)
                         }
+                        289 => {
+                            let vcc = *VCC::from(s2) as u64;
+                            let ret = s0 as u64 - s1 as u64 - vcc;
+                            (ret as u32, s1 as u64 + vcc > s0 as u64)
+                        }
                         764 => (0, false), // NOTE: div scaling isn't required
                         766 => {
                             let ret = s0 as u64 * s1 as u64 + s2 as u64;
@@ -739,6 +749,10 @@ impl CPU {
                         768 => {
                             let ret = s0 as u64 + s1 as u64;
                             (ret as u32, ret >= 0x100000000)
+                        }
+                        769 => {
+                            let ret = s0 - s1;
+                            (ret as u32, s0 > s1)
                         }
                         _ => todo_instr!(instruction),
                     };
@@ -801,7 +815,7 @@ impl CPU {
                                 _ => todo_instr!(instruction),
                             }
                         }
-                        808 | 807 | 811 | 828 | 532 => {
+                        808 | 807 | 811 | 828 | 829 | 532 => {
                             let (s0, s1, s2): (u64, u64, u64) =
                                 (self.val(src.0), self.val(src.1), self.val(src.2));
                             let ret = match op {
@@ -822,6 +836,7 @@ impl CPU {
                                     .to_bits()
                                 }
                                 828 => s1 << s0,
+                                829 => s1 >> s0,
                                 _ => panic!(),
                             };
                             self.vec_reg.write64(vdst, ret)
@@ -867,7 +882,7 @@ impl CPU {
                                                 false => ret,
                                             }
                                         }
-                                        796 => (s0 * 2.0).powi(s1.to_bits() as i32),
+                                        796 => s0 * 2f32.powi(s1.to_bits() as i32),
                                         // cnd_mask isn't a float alu but supports neg
                                         257 => match s2.to_bits() != 0 {
                                             true => s1,
@@ -1124,6 +1139,27 @@ impl CPU {
             },
         }
     }
+    fn cls_i32(&self, s0: u32) -> u32 {
+        let mut ret: i32 = -1;
+        let s0 = s0 as i32;
+        for i in (1..=31).into_iter() {
+            if s0 >> (31 - i as u32) != s0 >> 31 {
+                ret = i;
+                break;
+            }
+        }
+        ret as u32
+    }
+    fn clz_i32_u32(&self, s0: u32) -> u32 {
+        let mut ret: i32 = -1;
+        for i in (0..=31).into_iter() {
+            if s0 >> (31 - i as u32) == 1 {
+                ret = i;
+                break;
+            }
+        }
+        ret as u32
+    }
 
     /* ALU utils */
     // TODO delete the fn below
@@ -1249,6 +1285,17 @@ mod test_alu_utils {
 
         cpu.vec_reg[0] = 10;
         assert_eq!(cpu.resolve_src(256), 10);
+    }
+
+    #[test]
+    fn test_clz_i32_u32() {
+        let cpu = _helper_test_cpu("alu");
+        assert_eq!(cpu.clz_i32_u32(0x00000000), 0xffffffff);
+        assert_eq!(cpu.clz_i32_u32(0x0000cccc), 16);
+        assert_eq!(cpu.clz_i32_u32(0xffff3333), 0);
+        assert_eq!(cpu.clz_i32_u32(0x7fffffff), 1);
+        assert_eq!(cpu.clz_i32_u32(0x80000000), 0);
+        assert_eq!(cpu.clz_i32_u32(0xffffffff), 0);
     }
 }
 
