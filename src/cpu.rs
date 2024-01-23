@@ -475,6 +475,10 @@ impl CPU {
                                     .to_bits()
                                 }
                                 59 => self.cls_i32(s0),
+                                80 => f16::from_f32(s0 as u16 as f32).to_bits() as u32,
+                                81 => f16::from_f32(s0 as i16 as u16 as f32).to_bits() as u32,
+                                82 => f32::from(f16::from_bits(s0 as u16)) as i16 as u32,
+                                83 => f32::from(f16::from_bits(s0 as u16)) as u32,
                                 _ => todo_instr!(instruction),
                             }
                         }
@@ -636,6 +640,16 @@ impl CPU {
                     true => s1,
                     false => s0,
                 },
+
+                50 => {
+                    let s0 = f16::from_bits(s0 as u16);
+                    let s1 = f16::from_bits(s1 as u16);
+                    match op {
+                        50 => s0 + s1,
+                        _ => panic!(),
+                    }
+                    .to_bits() as u32
+                }
 
                 3 | 4 | 8 | 16 | 43 | 44 | 45 => {
                     let s0 = f32::from_bits(s0);
@@ -860,6 +874,17 @@ impl CPU {
                             }
 
                             self.vec_reg[vdst] = match op {
+                                306 => {
+                                    let s0 =
+                                        f16::from_bits(s0 as u16).negate(0, neg).absolute(0, abs);
+                                    let s1 =
+                                        f16::from_bits(s1 as u16).negate(1, neg).absolute(1, abs);
+                                    match op {
+                                        306 => s0 + s1,
+                                        _ => panic!(),
+                                    }
+                                    .to_bits() as u32
+                                }
                                 257 | 259 | 299 | 260 | 264 | 272 | 531 | 537 | 540 | 551 | 567
                                 | 796 => {
                                     let s0 = f32::from_bits(s0).negate(0, neg).absolute(0, abs);

@@ -1,33 +1,22 @@
+use num_traits::float::FloatCore;
+
 pub trait VOPModifier<T> {
     fn negate(&self, pos: usize, modifier: usize) -> T;
     fn absolute(&self, pos: usize, modifier: usize) -> T;
 }
-
-impl VOPModifier<f32> for f32 {
-    fn negate(&self, pos: usize, modifier: usize) -> f32 {
+impl<T> VOPModifier<T> for T
+where
+    T: FloatCore,
+{
+    fn negate(&self, pos: usize, modifier: usize) -> T {
         match (modifier >> pos) & 1 {
-            1 => -(*self),
+            1 => -*self,
             _ => *self,
         }
     }
-    fn absolute(&self, pos: usize, modifier: usize) -> f32 {
+    fn absolute(&self, pos: usize, modifier: usize) -> T {
         match (modifier >> pos) & 1 {
-            1 => f32::abs(*self),
-            _ => *self,
-        }
-    }
-}
-
-impl VOPModifier<f64> for f64 {
-    fn negate(&self, pos: usize, modifier: usize) -> f64 {
-        match (modifier >> pos) & 1 {
-            1 => -(*self),
-            _ => *self,
-        }
-    }
-    fn absolute(&self, pos: usize, modifier: usize) -> f64 {
-        match (modifier >> pos) & 1 {
-            1 => f64::abs(*self),
+            1 => self.abs(),
             _ => *self,
         }
     }
