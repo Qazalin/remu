@@ -386,27 +386,38 @@ impl CPU {
             let clmp = (instr >> 15) & 0x1;
             let opsel = ((instr >> 11) & 0x7) as u32;
             let op = (instr >> 16) & 0x7f;
-            let mut src = |x: u64| -> u32 { self.val(((instr >> x) & 0x1ff) as usize) };
+            let mut src = |x: u64| -> (u16, u16, u32) {
+                let val: u32 = self.val(((instr >> x) & 0x1ff) as usize);
+                (val as u16, (val >> 16) as u16, val)
+            };
             let src = [src(32), src(41), src(50)];
             let opsel_hi = ((instr >> 59) & 0x3) as u32;
             let neg = (instr >> 61) & 0x7;
             assert_eq!([clmp, neg, neg_hi], [0; 3]);
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
-                println!("{} vdst={} neg_hi={} opsel={} op={} src0={} src1={} src2={} opsel_hi={} neg={}", "VOPP".color("blue"), vdst, neg_hi, opsel, op, src[0], src[1], src[2], opsel_hi, neg);
+                println!("{} op={} vdst={} neg_hi={} opsel={} src0={:?} src1={:?} src2={:?} opsel_hi={} neg={}", "VOPP".color("blue"), op, vdst, neg_hi, opsel, src[0], src[1], src[2], opsel_hi, neg);
             }
 
             let mut input: [f32; 3] = [0.0; 3];
             for i in 0..=2 {
                 input[i] = if nth(opsel_hi, i) == 0 {
-                    f32::from_bits(src[i])
+                    f32::from_bits(src[i].2)
                 } else if nth(opsel, i) == 1 {
-                    f32::from(f16_hi(src[i]))
+                    f32::from(f16::from_bits(src[i].1))
                 } else {
-                    f32::from(f16_lo(src[i]))
+                    f32::from(f16::from_bits(src[i].0))
                 }
             }
             let ret = match op {
+                1 | 10 => {
+                    let fxn = |x, y| match op {
+                        1 => x * y,
+                        10 => x + y,
+                        _ => todo_instr!(instruction),
+                    };
+                    (fxn(src[0].1, src[1].1) as u32) << 16 | fxn(src[0].0, src[0].0) as u32
+                }
                 32 => (input[0] * input[1] + input[2]).to_bits(),
                 33 => f16::from_f32(input[0] * input[1] + input[2]).to_bits() as u32,
                 _ => todo_instr!(instruction),
@@ -918,10 +929,9 @@ impl CPU {
 
                             self.vec_reg[vdst] = match op {
                                 306 => {
-                                    let s0 =
-                                        f16::from_bits(s0 as u16).negate(0, neg).absolute(0, abs);
-                                    let s1 =
-                                        f16::from_bits(s1 as u16).negate(1, neg).absolute(1, abs);
+                                    let (s0, s1) = (self.val(src.0), self.val(src.1));
+                                    let s0 = f16::from_bits(s0).negate(0, neg).absolute(0, abs);
+                                    let s1 = f16::from_bits(s1).negate(1, neg).absolute(1, abs);
                                     match op {
                                         306 => s0 + s1,
                                         _ => panic!(),
@@ -1269,6 +1279,34 @@ impl CPU {
 
 pub trait ALUSrc<T> {
     fn val(&mut self, code: usize) -> T;
+}
+impl ALUSrc<u16> for CPU {
+    fn val(&mut self, code: usize) -> u16 {
+        match code {
+            0..=SGPR_COUNT => self.scalar_reg[code] as u16,
+            VGPR_COUNT..=511 => self.vec_reg[code - VGPR_COUNT] as u16,
+            129..=192 => (code - 128) as u16,
+            193..=208 => ((code - 192) as i16 * -1) as u16,
+            240..=247 => f16::from_f32(
+                [
+                    (240, 0.5_f32),
+                    (241, -0.5_f32),
+                    (242, 1_f32),
+                    (243, -1.0_f32),
+                    (244, 2.0_f32),
+                    (245, -2.0_f32),
+                    (246, 4.0_f32),
+                    (247, -4.0_f32),
+                ]
+                .iter()
+                .find(|x| x.0 == code)
+                .unwrap()
+                .1,
+            )
+            .to_bits(),
+            _ => self._common_srcs(code as u32) as u16,
+        }
+    }
 }
 impl ALUSrc<u32> for CPU {
     fn val(&mut self, code: usize) -> u32 {
