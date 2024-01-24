@@ -280,8 +280,8 @@ impl CPU {
         }
         // sop2
         else if instruction >> 30 == 0b10 {
-            let s0 = self.resolve_src(instruction & 0xFF);
-            let s1 = self.resolve_src((instruction >> 8) & 0xFF);
+            let s0 = (instruction & 0xFF) as usize;
+            let s1 = ((instruction >> 8) & 0xFF) as usize;
             let sdst = (instruction >> 16) & 0x7F;
             let op = (instruction >> 23) & 0xFF;
 
@@ -296,87 +296,100 @@ impl CPU {
                 );
             }
 
-            let ret64 = match op {
-                9 => {
-                    let s0 = self.scalar_reg.read64(instruction as usize & 0xFF);
-                    Some(s0 << (s1 as u64))
-                }
-                _ => None,
-            };
-            if let Some(ret64) = ret64 {
-                self.scalar_reg.write64(sdst as usize, ret64);
-                return;
-            }
-
-            let ret = match op {
-                0 | 4 => {
-                    let s0 = s0 as u64;
-                    let s1 = s1 as u64;
-                    let temp = match op {
-                        0 => s0 + s1,
-                        4 => s0 + s1 + self.scc as u64,
-                        _ => panic!(),
-                    };
-                    self.scc = (temp >= 0x100000000) as u32;
-                    temp as u32
-                }
-                2 | 3 | 44 | 46 => {
-                    let s0 = s0 as i32;
-                    let s1 = s1 as i32;
-                    let temp = match op {
-                        2 => s0 + s1,
-                        3 => s0 - s1,
-                        44 => s0 * s1,
-                        46 => ((s0 as i64 * s1 as i64) >> 32) as i32,
-                        _ => panic!(),
-                    };
-                    temp as u32
-                }
-                8 | 10 | 9 | 12 => {
+            match op {
+                9 | 41 => {
+                    let (s0, s1): (u64, u64) = (self.val(s0), self.val(s1));
                     let ret = match op {
-                        8 => s0 << s1,
-                        9 => ((s0 as u64) << (s1 as u64 & 0x1F)) as u32,
-                        10 => s0 >> s1,
-                        12 => ((s0 as i32) >> (s1 as i32)) as i32 as u32,
+                        9 => {
+                            let ret = s0 << (s1 & 0x1f);
+                            (ret, Some(ret != 0))
+                        }
                         _ => panic!(),
                     };
-                    self.scc = (ret != 0) as u32;
-                    ret
+                    self.scalar_reg.write64(sdst as usize, ret.0);
+                    if let Some(val) = ret.1 {
+                        self.scc = val as u32
+                    }
                 }
-                18 | 20 => {
-                    let s0 = s0 as i32;
-                    let s1 = s1 as i32;
-                    self.scc = match op {
-                        18 => s0 < s1,
-                        20 => s0 > s1,
-                        _ => panic!(),
-                    } as u32;
-                    (match self.scc != 0 {
-                        true => s0,
-                        false => s1,
-                    }) as u32
-                }
-                19 => u32::min(s0, s1),
-                22..=36 => {
-                    let temp = match op {
-                        22 => s0 & s1,
-                        24 => s0 | s1,
-                        26 => s0 ^ s1,
-                        34 => s0 & !s1,
-                        36 => s0 | !s1,
-                        _ => panic!(),
+                _ => {
+                    let (s0, s1): (u32, u32) = (self.val(s0), self.val(s1));
+                    let ret = match op {
+                        0 | 4 => {
+                            let s0 = s0 as u64;
+                            let s1 = s1 as u64;
+                            let ret = match op {
+                                0 => s0 + s1,
+                                4 => s0 + s1 + self.scc as u64,
+                                _ => panic!(),
+                            };
+                            (ret as u32, Some(ret >= 0x100000000))
+                        }
+                        2 | 3 => {
+                            let s0 = s0 as i32 as i64;
+                            let s1 = s1 as i32 as i64;
+                            let ret = match op {
+                                2 => s0 + s1,
+                                3 => s0 - s1,
+                                _ => panic!(),
+                            };
+                            let overflow = (nth(s0 as u32, 31) == nth(s1 as u32, 31))
+                                && (nth(s0 as u32, 31) != nth(ret as u32, 31));
+
+                            (ret as i32 as u32, Some(overflow))
+                        }
+                        (8..=17) => {
+                            let s1 = s1 & 0x1f;
+                            let ret = match op {
+                                8 => s0 << s1,
+                                10 => s0 >> s1,
+                                12 => ((s0 as i32) >> (s1 as i32)) as u32,
+                                _ => todo_instr!(instruction),
+                            };
+                            (ret, Some(ret != 0))
+                        }
+                        (18..=21) => {
+                            let scc = match op {
+                                18 => (s0 as i32) < (s1 as i32),
+                                19 => s0 < s1,
+                                20 => (s0 as i32) > (s1 as i32),
+                                _ => panic!(),
+                            };
+                            let ret = match scc {
+                                true => s0,
+                                false => s1,
+                            };
+                            (ret, Some(scc))
+                        }
+                        (22..=26) | 34 | 36 => {
+                            let ret = match op {
+                                22 => s0 & s1,
+                                24 => s0 | s1,
+                                26 => s0 ^ s1,
+                                34 => s0 & !s1,
+                                36 => s0 | !s1,
+                                _ => panic!(),
+                            };
+                            (ret, Some(ret != 0))
+                        }
+                        44 => (((s0 as i32) * (s1 as i32)) as u32, None),
+                        45 => (((s0 as u64) * (s1 as u64) >> 32) as u32, None),
+                        46 => (
+                            (((s0 as i32 as i64 * s1 as i32 as i64) as u64) >> 32u64) as i32 as u32,
+                            None,
+                        ),
+                        48 => match self.scc != 0 {
+                            true => (s0, None),
+                            false => (s1, None),
+                        },
+                        _ => todo_instr!(instruction),
                     };
-                    self.scc = (temp != 0) as u32;
-                    temp as u32
+
+                    self.write_to_sdst(sdst, ret.0);
+                    if let Some(val) = ret.1 {
+                        self.scc = val as u32
+                    }
                 }
-                45 => ((s0 as u64) * (s1 as u64) >> 32) as u32,
-                48 => match self.scc != 0 {
-                    true => s0,
-                    false => s1,
-                },
-                _ => todo_instr!(instruction),
-            };
-            self.write_to_sdst(sdst, ret);
+            }
         }
         // vopp
         else if instruction >> 24 == 0b11001100 {
@@ -388,7 +401,7 @@ impl CPU {
             let op = (instr >> 16) & 0x7f;
             let mut src = |x: u64| -> (u16, u16, u32) {
                 let val: u32 = self.val(((instr >> x) & 0x1ff) as usize);
-                (val as u16, (val >> 16) as u16, val)
+                ((val & 0x1ffff) as u16, ((val >> 16) & 0x1ffff) as u16, val)
             };
             let src = [src(32), src(41), src(50)];
             let opsel_hi = ((instr >> 59) & 0x3) as u32;
@@ -410,13 +423,14 @@ impl CPU {
                 }
             }
             let ret = match op {
-                1 | 10 => {
+                1 | (10..=13) => {
                     let fxn = |x, y| match op {
                         1 => x * y,
                         10 => x + y,
+                        11 => x - y,
                         _ => todo_instr!(instruction),
                     };
-                    (fxn(src[0].1, src[1].1) as u32) << 16 | fxn(src[0].0, src[0].0) as u32
+                    (fxn(src[0].1, src[1].1) as u32) << 16 | fxn(src[0].0, src[1].0) as u32
                 }
                 32 => (input[0] * input[1] + input[2]).to_bits(),
                 33 => f16::from_f32(input[0] * input[1] + input[2]).to_bits() as u32,
@@ -1455,37 +1469,148 @@ mod test_sop2 {
 
     #[test]
     fn test_s_add_u32() {
-        let mut cpu = _helper_test_cpu("s_add_u32");
-        cpu.scalar_reg[2] = 42;
-        cpu.scalar_reg[6] = 13;
-        cpu.interpret(&vec![0x80060206, END_PRG]);
-        assert_eq!(cpu.scalar_reg[6], 55);
+        [
+            [10, 20, 30, 0],
+            [u32::MAX, 10, 9, 1],
+            [u32::MAX, 0, u32::MAX, 0],
+        ]
+        .iter()
+        .for_each(|[a, b, expected, scc]| {
+            let mut cpu = _helper_test_cpu("sop2");
+            cpu.scalar_reg[2] = *a;
+            cpu.scalar_reg[6] = *b;
+            cpu.interpret(&vec![0x80060206, END_PRG]);
+            assert_eq!(cpu.scalar_reg[6], *expected);
+            assert_eq!(cpu.scc, *scc);
+        });
     }
 
     #[test]
     fn test_s_addc_u32() {
-        let mut cpu = _helper_test_cpu("s_addc_u32");
-        cpu.scalar_reg[7] = 42;
-        cpu.scalar_reg[3] = 13;
-        cpu.scc = 1;
-        cpu.interpret(&vec![0x82070307, END_PRG]);
-        assert_eq!(cpu.scalar_reg[7], 56);
+        [
+            [10, 20, 31, 1, 0],
+            [10, 20, 30, 0, 0],
+            [u32::MAX, 10, 10, 1, 1],
+        ]
+        .iter()
+        .for_each(|[a, b, expected, scc_before, scc_after]| {
+            let mut cpu = _helper_test_cpu("sop2");
+            cpu.scc = *scc_before;
+            cpu.scalar_reg[7] = *a;
+            cpu.scalar_reg[3] = *b;
+            cpu.interpret(&vec![0x82070307, END_PRG]);
+            assert_eq!(cpu.scalar_reg[7], *expected);
+            assert_eq!(cpu.scc, *scc_after);
+        });
     }
 
     #[test]
-    fn test_s_ashr_i32() {
-        let mut cpu = _helper_test_cpu("s_ashr_i32");
-        cpu.scalar_reg[15] = 42;
-        cpu.interpret(&vec![0x86039f0f, END_PRG]);
-        assert_eq!(cpu.scalar_reg[3], 0);
+    fn test_s_add_i32() {
+        [[-10, 20, 10, 0], [i32::MAX, 1, -2147483648, 1]]
+            .iter()
+            .for_each(|[a, b, expected, scc]| {
+                let mut cpu = _helper_test_cpu("sop2");
+                cpu.scalar_reg[14] = *a as u32;
+                cpu.scalar_reg[10] = *b as u32;
+                cpu.interpret(&vec![0x81060E0A, END_PRG]);
+                assert_eq!(cpu.scalar_reg[6], *expected as u32);
+                assert_eq!(cpu.scc, *scc as u32);
+            });
+    }
+
+    #[test]
+    fn test_s_sub_i32() {
+        [[-10, 20, -30, 0], [i32::MAX, -1, -2147483648, 1]]
+            .iter()
+            .for_each(|[a, b, expected, scc]| {
+                let mut cpu = _helper_test_cpu("sop2");
+                cpu.scalar_reg[13] = *a as u32;
+                cpu.scalar_reg[8] = *b as u32;
+                cpu.interpret(&vec![0x818C080D, END_PRG]);
+                assert_eq!(cpu.scalar_reg[12], *expected as u32);
+                assert_eq!(cpu.scc, *scc as u32);
+            });
+    }
+
+    #[test]
+    fn test_s_lshl_b32() {
+        [[20, 40, 1], [0, 0, 0]]
+            .iter()
+            .for_each(|[a, expected, scc]| {
+                let mut cpu = _helper_test_cpu("sop2");
+                cpu.scalar_reg[15] = *a as u32;
+                cpu.interpret(&vec![0x8408810F, END_PRG]);
+                assert_eq!(cpu.scalar_reg[8], *expected as u32);
+                assert_eq!(cpu.scc, *scc as u32);
+            });
     }
 
     #[test]
     fn test_s_lshl_b64() {
-        let mut cpu = _helper_test_cpu("s_lshl_b64");
-        cpu.scalar_reg[2] = 42;
+        let mut cpu = _helper_test_cpu("sop2");
+        cpu.scalar_reg.write64(2, u64::MAX - 30);
         cpu.interpret(&vec![0x84828202, END_PRG]);
-        assert_eq!(cpu.scalar_reg[2], 42 << 2);
+        assert_eq!(cpu.scalar_reg[2], 4294967172);
+        assert_eq!(cpu.scalar_reg[3], 4294967295);
+        assert_eq!(cpu.scc, 1);
+    }
+
+    #[test]
+    fn test_s_ashr_i32() {
+        let mut cpu = _helper_test_cpu("sop2");
+        cpu.scalar_reg[2] = 36855;
+        cpu.interpret(&vec![0x86039F02, END_PRG]);
+        assert_eq!(cpu.scalar_reg[3], 0);
+        assert_eq!(cpu.scc, 0);
+    }
+
+    #[test]
+    fn test_s_min_i32() {
+        let mut cpu = _helper_test_cpu("sop2");
+        cpu.scalar_reg[2] = -42i32 as u32;
+        cpu.scalar_reg[3] = -92i32 as u32;
+        cpu.interpret(&vec![0x89020203, END_PRG]);
+        assert_eq!(cpu.scalar_reg[2], -92i32 as u32);
+        assert_eq!(cpu.scc, 1);
+    }
+
+    #[test]
+    fn test_s_mul_hi_u32() {
+        [[u32::MAX, 10, 9], [u32::MAX / 2, 4, 1]]
+            .iter()
+            .for_each(|[a, b, expected]| {
+                let mut cpu = _helper_test_cpu("sop2");
+                cpu.scalar_reg[0] = *a;
+                cpu.scalar_reg[8] = *b;
+                cpu.interpret(&vec![0x96810800, END_PRG]);
+                assert_eq!(cpu.scalar_reg[1], *expected);
+            });
+    }
+
+    #[test]
+    fn test_s_mul_hi_i32() {
+        [[(u64::MAX) as i32, (u64::MAX / 2) as i32, 0], [2, -2, -1]]
+            .iter()
+            .for_each(|[a, b, expected]| {
+                let mut cpu = _helper_test_cpu("sop2");
+                cpu.scalar_reg[0] = *a as u32;
+                cpu.scalar_reg[8] = *b as u32;
+                cpu.interpret(&vec![0x97010800, END_PRG]);
+                assert_eq!(cpu.scalar_reg[1], *expected as u32);
+            });
+    }
+
+    #[test]
+    fn test_s_mul_i32() {
+        [[40, 2, 80], [-10, -10, 100]]
+            .iter()
+            .for_each(|[a, b, expected]| {
+                let mut cpu = _helper_test_cpu("sop2");
+                cpu.scalar_reg[0] = *a as u32;
+                cpu.scalar_reg[6] = *b as u32;
+                cpu.interpret(&vec![0x96000600, END_PRG]);
+                assert_eq!(cpu.scalar_reg[0], *expected as u32);
+            });
     }
 }
 
