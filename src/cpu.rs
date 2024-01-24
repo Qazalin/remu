@@ -297,12 +297,23 @@ impl CPU {
             }
 
             match op {
-                9 | 41 => {
-                    let (s0, s1): (u64, u64) = (self.val(s0), self.val(s1));
+                9 | 40 | 41 => {
+                    let (s0, s1): (u64, u32) = (self.val(s0), self.val(s1));
                     let ret = match op {
                         9 => {
-                            let ret = s0 << (s1 & 0x1f);
+                            let ret = s0 << (s1 & 0x3f);
                             (ret, Some(ret != 0))
+                        }
+                        40 => {
+                            let ret = (s0 >> (s1 & 0x3f)) & ((1 << ((s1 >> 16) & 0x7f)) - 1);
+                            (ret as u64, Some(ret != 0))
+                        }
+                        41 => {
+                            let s0 = s0 as i64;
+                            let mut ret = (s0 >> (s1 & 0x3f)) & ((1 << ((s1 >> 16) & 0x7f)) - 1);
+                            let shift = 64 - ((s1 >> 16) & 0x7f);
+                            ret = (ret << shift) >> shift;
+                            (ret as u64, Some(ret != 0))
                         }
                         _ => panic!(),
                     };
@@ -369,6 +380,10 @@ impl CPU {
                                 36 => s0 | !s1,
                                 _ => panic!(),
                             };
+                            (ret, Some(ret != 0))
+                        }
+                        38 => {
+                            let ret = (s0 >> (s1 & 0x1f)) & ((1 << ((s1 >> 16) & 0x7f)) - 1);
                             (ret, Some(ret != 0))
                         }
                         44 => (((s0 as i32) * (s1 as i32)) as u32, None),
@@ -1007,7 +1022,9 @@ impl CPU {
                                                         i32::max(s0, s1)
                                                     }
                                                 }
-                                                529 => (s0 >> s1) & ((1 << s2) - 1),
+                                                529 => {
+                                                    (s0 >> (s1 & 0x1f)) & ((1 << (s2 & 0x1f)) - 1)
+                                                }
                                                 814 => ((s0 as i64) * (s1 as i64) >> 32) as i32,
                                                 826 => s1 >> s0,
                                                 _ => panic!(),
@@ -1611,6 +1628,58 @@ mod test_sop2 {
                 cpu.interpret(&vec![0x96000600, END_PRG]);
                 assert_eq!(cpu.scalar_reg[0], *expected as u32);
             });
+    }
+
+    #[test]
+    fn test_s_bfe_u64() {
+        [
+            [2, 4, 2, 0],
+            [800, 400, 32, 0],
+            [-10i32 as u32, 3, 246, 0],
+            [u32::MAX, u32::MAX, 255, 0],
+        ]
+        .iter()
+        .for_each(|[a_lo, a_hi, ret_lo, ret_hi]| {
+            println!("{a_lo} {a_hi}");
+            let mut cpu = _helper_test_cpu("sop2");
+            cpu.scalar_reg[6] = *a_lo;
+            cpu.scalar_reg[7] = *a_hi;
+            cpu.interpret(&vec![0x940cff06, 524288, END_PRG]);
+            assert_eq!(cpu.scalar_reg[12], *ret_lo);
+            assert_eq!(cpu.scalar_reg[13], *ret_hi);
+        });
+    }
+
+    #[test]
+    fn test_s_bfe_i64() {
+        [[-2, 0, -2, -1], [2, 0, 2, 0]]
+            .iter()
+            .for_each(|[a_lo, a_hi, ret_lo, ret_hi]| {
+                let mut cpu = _helper_test_cpu("sop2");
+                cpu.scalar_reg[6] = *a_lo as u32;
+                cpu.scalar_reg[7] = *a_hi as u32;
+                cpu.interpret(&vec![0x948cff06, 524288, END_PRG]);
+                assert_eq!(cpu.scalar_reg[12], *ret_lo as u32);
+                assert_eq!(cpu.scalar_reg[13], *ret_hi as u32);
+            });
+    }
+
+    #[test]
+    fn test_s_bfe_u32() {
+        [
+            [67305985, 2],
+            [0b100000000110111111100000001, 0b1111111],
+            [0b100000000100000000000000001, 0b0],
+            [0b100000000111000000000000001, 0b10000000],
+            [0b100000000111111111100000001, 0b11111111],
+        ]
+        .iter()
+        .for_each(|[a, ret]| {
+            let mut cpu = _helper_test_cpu("sop2");
+            cpu.scalar_reg[0] = *a;
+            cpu.interpret(&vec![0x9303FF00, 0x00080008, END_PRG]);
+            assert_eq!(cpu.scalar_reg[3], *ret);
+        });
     }
 }
 
