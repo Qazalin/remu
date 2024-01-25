@@ -509,14 +509,13 @@ impl CPU {
                             };
                             self.vec_reg.write64(vdst, ret)
                         }
+                        2 => {
+                            assert!(self.exec == 1);
+                            self.scalar_reg[vdst] = s0;
+                        }
                         _ => {
                             self.vec_reg[vdst] = match op {
                                 1 => s0,
-                                2 => {
-                                    assert!(self.exec == 1);
-                                    self.scalar_reg[vdst] = s0;
-                                    s0
-                                }
                                 5 => (s0 as i32 as f32).to_bits(),
                                 6 => (s0 as f32).to_bits(),
                                 7 => f32::from_bits(s0) as u32,
@@ -848,8 +847,8 @@ impl CPU {
                             (ret as u32, ret >= 0x100000000)
                         }
                         769 => {
-                            let ret = s0 - s1;
-                            (ret as u32, s0 > s1)
+                            let ret = s0.wrapping_sub(s1);
+                            (ret as u32, s1 > s0)
                         }
                         _ => todo_instr!(instruction),
                     };
@@ -912,7 +911,17 @@ impl CPU {
                                 _ => todo_instr!(instruction),
                             }
                         }
-                        808 | 807 | 811 | 828 | 829 | 532 => {
+                        828 | 829 => {
+                            let (s0, s1, _s2): (u32, u64, u64) =
+                                (self.val(src.0), self.val(src.1), self.val(src.2));
+                            let ret = match op {
+                                828 => s1 << (s0 & 0x3f),
+                                829 => s1 >> (s0 & 0x3f),
+                                _ => todo_instr!(instruction),
+                            };
+                            self.vec_reg.write64(vdst, ret)
+                        }
+                        808 | 807 | 811 | 532 => {
                             let (s0, s1, s2): (u64, u64, u64) =
                                 (self.val(src.0), self.val(src.1), self.val(src.2));
                             let ret = match op {
@@ -932,8 +941,6 @@ impl CPU {
                                     }
                                     .to_bits()
                                 }
-                                828 => s1 << s0,
-                                829 => s1 >> s0,
                                 _ => panic!(),
                             };
                             self.vec_reg.write64(vdst, ret)
@@ -990,7 +997,7 @@ impl CPU {
                                             }
                                         }
                                         796 => s0 * 2f32.powi(s1.to_bits() as i32),
-                                        // cnd_mask isn't a float alu but supports neg
+                                        // cnd_mask isn't a float only ALU but supports neg
                                         257 => match s2.to_bits() != 0 {
                                             true => s1,
                                             false => s0,
@@ -1652,16 +1659,20 @@ mod test_sop2 {
 
     #[test]
     fn test_s_bfe_i64() {
-        [[-2, 0, -2, -1], [2, 0, 2, 0]]
-            .iter()
-            .for_each(|[a_lo, a_hi, ret_lo, ret_hi]| {
-                let mut cpu = _helper_test_cpu("sop2");
-                cpu.scalar_reg[6] = *a_lo as u32;
-                cpu.scalar_reg[7] = *a_hi as u32;
-                cpu.interpret(&vec![0x948cff06, 524288, END_PRG]);
-                assert_eq!(cpu.scalar_reg[12], *ret_lo as u32);
-                assert_eq!(cpu.scalar_reg[13], *ret_hi as u32);
-            });
+        [
+            [131073, 0, 1, 0, 0x100000],
+            [-2, 0, -2, -1, 524288],
+            [2, 0, 2, 0, 524288],
+        ]
+        .iter()
+        .for_each(|[a_lo, a_hi, ret_lo, ret_hi, shift]| {
+            let mut cpu = _helper_test_cpu("sop2");
+            cpu.scalar_reg[6] = *a_lo as u32;
+            cpu.scalar_reg[7] = *a_hi as u32;
+            cpu.interpret(&vec![0x948cff06, *shift as u32, END_PRG]);
+            assert_eq!(cpu.scalar_reg[12], *ret_lo as u32);
+            assert_eq!(cpu.scalar_reg[13], *ret_hi as u32);
+        });
     }
 
     #[test]
@@ -1975,6 +1986,25 @@ mod test_vop2 {
 }
 
 #[cfg(test)]
+mod test_vopsd {
+    use super::*;
+
+    #[test]
+    fn test_v_sub_co_u32() {
+        [[69, 0, 69, 0], [100, 200, 4294967196, 1]]
+            .iter()
+            .for_each(|[a, b, ret, scc]| {
+                let mut cpu = _helper_test_cpu("vopsd");
+                cpu.vec_reg[4] = *a;
+                cpu.vec_reg[15] = *b;
+                cpu.interpret(&vec![0xD7016A04, 0x00021F04, END_PRG]);
+                assert_eq!(cpu.vec_reg[4], *ret);
+                assert_eq!(*cpu.vcc, *scc);
+            })
+    }
+}
+
+#[cfg(test)]
 mod test_vop3 {
     use super::*;
 
@@ -2048,6 +2078,19 @@ mod test_vop3 {
     }
 
     #[test]
+    fn test_v_cndmask_b32_e64_neg() {
+        [[0.0f32, 0.0], [1.0f32, -1.0], [-1.0f32, 1.0]]
+            .iter()
+            .for_each(|[input, ret]| {
+                let mut cpu = _helper_test_cpu("vop3");
+                cpu.scalar_reg[0] = false as u32;
+                cpu.vec_reg[3] = input.to_bits();
+                cpu.interpret(&vec![0xD5010003, 0x2001FF03, 0x80000000, END_PRG]);
+                assert_eq!(cpu.vec_reg[3], ret.to_bits());
+            });
+    }
+
+    #[test]
     fn test_v_mul_hi_i32() {
         let mut cpu = _helper_test_cpu("test_v_mul_hi_i32");
         cpu.vec_reg[2] = -2i32 as u32;
@@ -2077,6 +2120,24 @@ mod test_vop3 {
         cpu.vec_reg.write_lane(15, 4, 0b1111);
         cpu.interpret(&vec![0xD760006A, 0x00011F04, END_PRG]);
         assert_eq!(*cpu.vcc, 1);
+    }
+
+    #[test]
+    fn test_v_lshlrev_b64() {
+        let mut cpu = _helper_test_cpu("vop3");
+        cpu.vec_reg.write64(2, 100);
+        cpu.vec_reg[4] = 2;
+        cpu.interpret(&vec![0xD73C0002, 0x00020504, END_PRG]);
+        assert_eq!(cpu.vec_reg.read64(2), 400);
+    }
+
+    #[test]
+    fn test_v_lshrrev_b64() {
+        let mut cpu = _helper_test_cpu("vop3");
+        cpu.vec_reg.write64(2, 100);
+        cpu.vec_reg[4] = 2;
+        cpu.interpret(&vec![0xd73d0002, 0x00020504, END_PRG]);
+        assert_eq!(cpu.vec_reg.read64(2), 25);
     }
 }
 
