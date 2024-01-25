@@ -80,34 +80,25 @@ impl<'a> CPU<'a> {
             /* addr: s[sbase:sbase+1] */
             let sbase = (instr & 0x3f) * 2;
             let sdata = ((instr >> 6) & 0x7f) as usize;
-            let dlc = (instr >> 13) & 0x1;
-            let glc = (instr >> 14) & 0x1;
             let op = (instr >> 18) & 0xff;
             let offset = as_signed((instr >> 32) & 0x1fffff, 21);
-            let soffset = match self.resolve_src(((instr >> 57) & 0x7f) as u32) {
+            let soffset = match self.val(((instr >> 57) & 0x7f) as usize) {
                 NULL_SRC => 0,
                 val => val,
             };
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
-                    "{} sbase={} sdata={} dlc={} glc={} op={} offset={} soffset={}",
+                    "{} sbase={sbase} sdata={sdata} op={op} offset={offset} soffset={soffset}",
                     "SMEM".color("blue"),
-                    sbase,
-                    sdata,
-                    dlc,
-                    glc,
-                    op,
-                    offset,
-                    soffset
                 );
             }
             let base_addr = self.scalar_reg.read64(sbase as usize);
-            let effective_addr = (base_addr as i64 + offset) as u64;
+            let addr = (base_addr as i64 + offset) as u64;
 
             match op {
                 0..=4 => (0..2_usize.pow(op as u32)).for_each(|i| unsafe {
-                    self.scalar_reg[sdata + i] = *((effective_addr + (4 * i as u64)) as *const u32);
+                    self.scalar_reg[sdata + i] = *((addr + (4 * i as u64)) as *const u32);
                 }),
                 _ => todo_instr!(instruction),
             }
@@ -166,18 +157,12 @@ impl<'a> CPU<'a> {
         }
         // sopc
         else if (instruction >> 23) & 0x3ff == 0b101111110 {
-            let s0 = self.resolve_src(instruction & 0xff);
-            let s1 = self.resolve_src((instruction >> 8) & 0xff);
+            let s0: u32 = self.val((instruction & 0xff) as usize);
+            let s1: u32 = self.val(((instruction >> 8) & 0xff) as usize);
             let op = (instruction >> 16) & 0x7f;
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
-                println!(
-                    "{} ssrc0={} ssrc1={} op={}",
-                    "SOPC".color("blue"),
-                    s0,
-                    s1,
-                    op
-                );
+                println!("{} s0={s0} ssrc1={s1} op={op}", "SOPC".color("blue"));
             }
 
             self.scc = match op {
@@ -199,10 +184,6 @@ impl<'a> CPU<'a> {
                 },
                 _ => todo_instr!(instruction),
             } as u32;
-
-            if *DEBUG >= DebugLevel::STATE {
-                println!("{} {}", "SCC".color("pink"), self.scc);
-            }
         }
         // sopp
         else if instruction >> 23 == 0b10_1111111 {
@@ -211,10 +192,8 @@ impl<'a> CPU<'a> {
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
-                    "{} simm16={} op={} pc={}",
+                    "{} simm16={simm16} op={op} pc={}",
                     "SOPP".color("blue"),
-                    simm16,
-                    op,
                     self.pc
                 );
             }
@@ -243,7 +222,7 @@ impl<'a> CPU<'a> {
             let simm = instruction & 0xffff;
             let sdst = ((instruction >> 16) & 0x7f) as usize;
             let op = (instruction >> 23) & 0x1f;
-            let s0 = self.resolve_src(sdst as u32);
+            let s0: u32 = self.val(sdst);
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
@@ -252,12 +231,8 @@ impl<'a> CPU<'a> {
                 );
             }
 
-            if op == 0 {
-                self.scalar_reg[sdst] = simm as i16 as i32 as u32;
-                return;
-            }
-
             match op {
+                0 => self.write_to_sdst(sdst as u32, simm as i16 as i32 as u32),
                 3..=8 => {
                     let s1 = simm as i16 as i64;
                     let s0 = s0 as i32 as i64;
@@ -302,12 +277,8 @@ impl<'a> CPU<'a> {
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
-                    "{} ssrc0={} ssrc1={} sdst={} op={}",
+                    "{} s0={s0} s1={s1} sdst={sdst} op={op}",
                     "SOP2".color("blue"),
-                    s0,
-                    s1,
-                    sdst,
-                    op
                 );
             }
 
@@ -475,13 +446,7 @@ impl<'a> CPU<'a> {
             let vdst = ((instruction >> 17) & 0xff) as usize;
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
-                println!(
-                    "{} src={} op={} vdst={}",
-                    "VOP1".color("blue"),
-                    s0,
-                    op,
-                    vdst,
-                );
+                println!("{} src={s0} op={op} vdst={vdst}", "VOP1".color("blue"),);
             }
 
             match op {
@@ -578,22 +543,20 @@ impl<'a> CPU<'a> {
         // vopd
         else if instruction >> 26 == 0b110010 {
             let instr = self.u64_instr();
-
             let sx = instr & 0x1ff;
             let vx = (instr >> 9) & 0xff;
-            let srcx0 = self.resolve_src(sx as u32);
+            let srcx0 = self.val(sx as usize);
             let vsrcx1 = self.vec_reg[(vx) as usize] as u32;
             let opy = (instr >> 17) & 0x1f;
-
             let sy = (instr >> 32) & 0x1ff;
             let vy = (instr >> 41) & 0xff;
             let opx = (instr >> 22) & 0xf;
             let srcy0 = match sy {
                 255 => match sx {
                     255 => srcx0,
-                    _ => self.resolve_src(sy as u32),
+                    _ => self.val(sy as usize),
                 },
-                _ => self.resolve_src(sy as u32),
+                _ => self.val(sy as usize),
             };
             let vsrcy1 = self.vec_reg[(vy) as usize];
 
@@ -603,16 +566,8 @@ impl<'a> CPU<'a> {
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
-                    "{} X=[op={}, dest={} src({sx})={}, vsrc({vx})={}] Y=[op={}, dest={}, src({sy})={}, vsrc({vy})={}]",
+                    "{} X=[op={opx}, dest={vdstx} src({sx})={srcx0}, vsrc({vx})={vsrcx1}] Y=[op={opy}, dest={vdsty}, src({sy})={srcy0}, vsrc({vy})={vsrcy1}]",
                     "VOPD".color("blue"),
-                    opx,
-                    vdstx,
-                    srcx0,
-                    vsrcx1,
-                    opy,
-                    vdsty,
-                    srcy0,
-                    vsrcy1,
                 );
             }
 
@@ -674,18 +629,14 @@ impl<'a> CPU<'a> {
 
             let ret = match op {
                 45 | 84 | 89 | 90 | 93 => {
-                    let s0: u64 = self.val(s0);
-                    let s1: u64 = self.vec_reg.read64(s1);
-
+                    let (s0, s1) = (self.val(s0), self.vec_reg.read64(s1));
                     match op {
                         45 => {
-                            let s0 = f64::from_bits(s0);
-                            let s1 = f64::from_bits(s1);
+                            let (s0, s1) = (f64::from_bits(s0), f64::from_bits(s1));
                             s0 != s1
                         }
                         84 => {
-                            let s0 = s0 as i64;
-                            let s1 = s1 as i64;
+                            let (s0, s1) = (s0 as i64, s1 as i64);
                             s0 > s1
                         }
                         89 => s0 < s1,
@@ -694,9 +645,12 @@ impl<'a> CPU<'a> {
                         _ => panic!(),
                     }
                 }
+                13 => {
+                    let (s0, s1): (u16, u16) = (self.val(s0), self.vec_reg[s1] as u16);
+                    self.vopc(s0 as u32, s1 as u32, op, instruction)
+                }
                 _ => {
-                    let s0: u32 = self.val(s0);
-                    let s1: u32 = self.vec_reg[s1];
+                    let (s0, s1) = (self.val(s0), self.vec_reg[s1]);
                     self.vopc(s0, s1, op, instruction)
                 }
             };
@@ -715,12 +669,8 @@ impl<'a> CPU<'a> {
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
-                    "{} ssrc0={} vsrc1={} vdst={} op={}",
+                    "{} s0={s0} s1={s1} vdst={vdst} op={op}",
                     "VOP2".color("blue"),
-                    s0,
-                    s1,
-                    vdst,
-                    op
                 );
             }
 
@@ -736,8 +686,7 @@ impl<'a> CPU<'a> {
                     acc.to_bits()
                 }
                 50..=60 => {
-                    let s0 = f16::from_bits(s0 as u16);
-                    let s1 = f16::from_bits(s1 as u16);
+                    let (s0, s1) = (f16::from_bits(s0 as u16), f16::from_bits(s1 as u16));
                     match op {
                         _ => match op {
                             50 => s0 + s1,
@@ -749,8 +698,7 @@ impl<'a> CPU<'a> {
                 }
 
                 3 | 4 | 8 | 16 | 43 | 44 | 45 => {
-                    let s0 = f32::from_bits(s0);
-                    let s1 = f32::from_bits(s1);
+                    let (s0, s1) = (f32::from_bits(s0), f32::from_bits(s1));
                     match op {
                         3 => s0 + s1,
                         4 => s0 - s1,
@@ -765,9 +713,7 @@ impl<'a> CPU<'a> {
                 }
 
                 9 | 18 | 26 => {
-                    let s0 = s0 as i32;
-                    let s1 = s1 as i32;
-
+                    let (s0, s1) = (s0 as i32, s1 as i32);
                     (match op {
                         9 => s0 * s1,
                         18 => i32::max(s0, s1),
@@ -775,15 +721,6 @@ impl<'a> CPU<'a> {
                         _ => panic!(),
                     }) as u32
                 }
-
-                11 => s0 * s1,
-                19 => u32::min(s0, s1),
-                24 => s1 << s0,
-                29 => s0 ^ s1,
-                25 => s1 >> s0,
-                27 => s0 & s1,
-                28 => s0 | s1,
-
                 32 => {
                     let temp = s0 as u64 + s1 as u64 + *self.vcc as u64;
                     self.vcc.assign(if temp >= 0x100000000 { 1 } else { 0 });
@@ -799,11 +736,16 @@ impl<'a> CPU<'a> {
                         .assign(((s1 as u64 + *self.vcc as u64) > s0 as u64) as u32);
                     temp
                 }
-
+                11 => s0 * s1,
+                19 => u32::min(s0, s1),
+                24 => s1 << s0,
+                29 => s0 ^ s1,
+                25 => s1 >> s0,
+                27 => s0 & s1,
+                28 => s0 | s1,
                 37 => s0 + s1,
                 38 => s0 - s1,
                 39 => s1 - s0,
-
                 _ => todo_instr!(instruction),
             };
         }
@@ -816,9 +758,8 @@ impl<'a> CPU<'a> {
                 764 | 288 | 289 | 766 | 768 | 769 => {
                     let vdst = (instr & 0xff) as usize;
                     let sdst = ((instr >> 8) & 0x7f) as usize;
-                    let s0 = self.resolve_src(((instr >> 32) & 0x1ff) as u32);
-                    let s1 = self.resolve_src(((instr >> 41) & 0x1ff) as u32);
-                    let s2 = self.resolve_src(((instr >> 50) & 0x1ff) as u32);
+                    let mut s = |i: u32| -> u32 { self.val(((instr >> i) & 0x1ff) as usize) };
+                    let (s0, s1, s2) = (s(32), s(41), s(50));
                     let omod = (instr >> 59) & 0x3;
                     let neg = (instr >> 61) & 0x7;
                     let clmp = (instr >> 15) & 0x1;
@@ -828,17 +769,10 @@ impl<'a> CPU<'a> {
 
                     if *DEBUG >= DebugLevel::INSTRUCTION {
                         println!(
-                            "{} vdst={} sdst={} op={} s0={} s1={} s2={} omod={} neg={}",
+                            "vdst={} sdst={sdst} op={op} src={:?}",
                             "VOPSD".color("blue"),
-                            vdst,
-                            sdst,
-                            op,
-                            s0,
-                            s1,
-                            s2,
-                            omod,
-                            neg
-                        )
+                            (s0, s1, s2)
+                        );
                     }
 
                     let (ret, vcc) = match op {
@@ -890,15 +824,9 @@ impl<'a> CPU<'a> {
 
                     if *DEBUG >= DebugLevel::INSTRUCTION {
                         println!(
-                            "{} vdst={} abs={} opsel={} op={} s0={} src1={} src2={} neg=0b{:03b}",
+                            "{} vdst={vdst} abs={abs} opsel={opsel} op={op} src={:?} neg=0b{:03b}",
                             "VOP3".color("blue"),
-                            vdst,
-                            abs,
-                            opsel,
-                            op,
-                            src.0,
-                            src.1,
-                            src.2,
+                            src,
                             neg
                         );
                     }
@@ -1100,15 +1028,8 @@ impl<'a> CPU<'a> {
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
-                    "{} offset0={} offset1={} op={} addr={} data0={} data1={} vdst={}",
+                    "{} offset0={offset0} offset1={offset1} op={op} addr={addr} data0={data0} data1={data1} vdst={vdst}",
                     "LDS".color("blue"),
-                    offset0,
-                    offset1,
-                    op,
-                    addr,
-                    data0,
-                    data1,
-                    vdst
                 );
             }
             let addr = (self.vec_reg[addr as usize] as u64 + offset0) as usize;
@@ -1164,8 +1085,8 @@ impl<'a> CPU<'a> {
                 );
             }
 
-            let addr = match self.resolve_src(saddr as u32) {
-                0x7F | _ if saddr as u32 == NULL_SRC => {
+            let addr = match self.val(saddr) {
+                0x7Fu32 | _ if saddr as u32 == NULL_SRC => {
                     self.vec_reg.read64(addr) as i64 + (offset as i64)
                 }
                 _ => {
@@ -1203,16 +1124,14 @@ impl<'a> CPU<'a> {
     fn vopc(&self, s0: u32, s1: u32, op: u32, instruction: u32) -> bool {
         match op {
             13 => {
-                let s0 = f16::from_bits(s0 as u16);
-                let s1 = f16::from_bits(s1 as u16);
+                let (s0, s1) = (f16::from_bits(s0 as u16), f16::from_bits(s1 as u16));
                 match op {
                     13 => s0 != s1,
                     _ => panic!(),
                 }
             }
             17 | 18 | 27 | 29 | 20 | 22 | 30 | 126 | 155 | 158 => {
-                let s0 = f32::from_bits(s0);
-                let s1 = f32::from_bits(s1);
+                let (s0, s1) = (f32::from_bits(s0), f32::from_bits(s1));
                 match op {
                     17 => s0 < s1,
                     18 => s0 == s1,
@@ -1248,8 +1167,7 @@ impl<'a> CPU<'a> {
             }
             _ => match op {
                 52 | 65 => {
-                    let s0 = s0 as i16;
-                    let s1 = s1 as i16;
+                    let (s0, s1) = (s0 as i16, s1 as i16);
                     match op {
                         52 => s0 > s1,
                         65 => s0 < s1,
@@ -1257,8 +1175,7 @@ impl<'a> CPU<'a> {
                     }
                 }
                 57 | 58 | 60 | 61 | 62 => {
-                    let s0 = s0 as u16;
-                    let s1 = s1 as u16;
+                    let (s0, s1) = (s0 as u16, s1 as u16);
                     match op {
                         58 => s0 == s1,
                         57 => s0 < s1,
@@ -1269,8 +1186,7 @@ impl<'a> CPU<'a> {
                     }
                 }
                 68 | 70 | 193 | 196 => {
-                    let s0 = s0 as i32;
-                    let s1 = s1 as i32;
+                    let (s0, s1) = (s0 as i32, s1 as i32);
                     match op {
                         68 => s0 > s1,
                         70 => s0 >= s1,
@@ -1311,10 +1227,6 @@ impl<'a> CPU<'a> {
     }
 
     /* ALU utils */
-    // TODO delete the fn below
-    fn resolve_src(&mut self, ssrc_bf: u32) -> u32 {
-        self.val(ssrc_bf as usize)
-    }
     fn _common_srcs(&mut self, code: u32) -> u32 {
         match code {
             106 => *self.vcc,
@@ -1332,12 +1244,7 @@ impl<'a> CPU<'a> {
     fn write_to_sdst(&mut self, sdst_bf: u32, val: u32) {
         match sdst_bf as usize {
             0..=SGPR_COUNT => self.scalar_reg[sdst_bf as usize] = val,
-            106 => {
-                self.vcc.assign(val);
-                if *DEBUG >= DebugLevel::STATE {
-                    println!("{} {:?}", "VCC".color("pink"), self.vcc);
-                }
-            }
+            106 => self.vcc.assign(val),
             126 => self.exec = val,
             _ => todo!("write to sdst {}", sdst_bf),
         }
@@ -1451,18 +1358,6 @@ mod test_alu_utils {
         let val = 0b1011101011011011111011101111;
         cpu.write_to_sdst(106, val);
         assert_eq!(*cpu.vcc, 1);
-    }
-
-    #[test]
-    fn test_resolve_src() {
-        let mut cpu = _helper_test_cpu("test_resolve_src_negative_const");
-        assert_eq!(cpu.resolve_src(129), 1);
-        assert_eq!(cpu.resolve_src(192), 64);
-        assert_eq!(cpu.resolve_src(193), -1i32 as u32);
-        assert_eq!(cpu.resolve_src(208), -16i32 as u32);
-
-        cpu.vec_reg[0] = 10;
-        assert_eq!(cpu.resolve_src(256), 10);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 #![allow(unused)]
-use once_cell::sync::Lazy;
 use half::f16;
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::io::{self, Read};
 use std::io::{BufRead, BufReader, Write};
@@ -14,8 +14,6 @@ const WAIT_CNT_0: u32 = 0xBF89FC07;
 pub enum DebugLevel {
     NONE,
     INSTRUCTION,
-    MEMORY,
-    STATE,
     MISC,
 }
 
@@ -27,9 +25,7 @@ pub static DEBUG: Lazy<DebugLevel> = Lazy::new(|| {
     match var {
         0 => DebugLevel::NONE,
         1 => DebugLevel::INSTRUCTION,
-        2 => DebugLevel::MEMORY,
-        3 => DebugLevel::STATE,
-        4 => DebugLevel::MISC,
+        2 => DebugLevel::MISC,
         _ => panic!(),
     }
 });

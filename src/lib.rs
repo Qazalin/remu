@@ -1,6 +1,6 @@
 use crate::cpu::{CPU, SGPR_COUNT};
 use crate::state::{Assign, Register, VGPR};
-use crate::utils::{Colorize, DebugLevel, DEBUG, PROGRESS};
+use crate::utils::{DebugLevel, DEBUG, PROGRESS};
 use std::collections::HashMap;
 use std::os::raw::{c_char, c_void};
 mod alu_modifiers;
@@ -31,7 +31,6 @@ pub extern "C" fn hipModuleLaunchKernel(
             lib_bytes.push(*lib.offset(i as isize) as u8);
         }
     }
-
     let mut kernel_args: Vec<u64> = Vec::new();
     unsafe {
         for i in 0..args_len {
@@ -41,7 +40,6 @@ pub extern "C" fn hipModuleLaunchKernel(
     }
 
     let (prg, function_name) = &utils::read_asm(&lib_bytes);
-
     if *DEBUG >= DebugLevel::NONE {
         println!(
             "[remu] launching kernel {function_name} with global_size {} {} {} local_size {} {} {} args {:?}",
@@ -107,15 +105,6 @@ fn launch_thread(
     lds: &mut Vec<u8>,
     thread_registers: &mut HashMap<[u32; 3], ([u32; SGPR_COUNT], VGPR, u32)>,
 ) {
-    if *DEBUG >= DebugLevel::NONE {
-        println!(
-            "{}={:?}, {}={:?}",
-            "block".color("jade"),
-            grid_id,
-            "thread".color("jade"),
-            thread_id
-        );
-    }
     let mut cpu = CPU::new(lds);
     match thread_registers.get(&thread_id) {
         Some(val) => {
