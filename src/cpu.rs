@@ -114,36 +114,54 @@ impl<'a> CPU<'a> {
         }
         // sop1
         else if instruction >> 23 == 0b10_1111101 {
-            let s0 = self.resolve_src(instruction & 0xFF);
+            let src = (instruction & 0xFF) as usize;
             let op = (instruction >> 8) & 0xFF;
             let sdst = (instruction >> 16) & 0x7F;
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
-                println!("{} s0={} sdst={} op={}", "SOP1".color("blue"), s0, sdst, op,);
+                println!("{} src={src} sdst={sdst} op={op}", "SOP1".color("blue"));
             }
 
             match op {
-                0 => self.write_to_sdst(sdst, s0),
-                1 => self.scalar_reg.write64(sdst as usize, s0 as u64),
-                10 => self.write_to_sdst(sdst, self.clz_i32_u32(s0)),
-                12 => self.write_to_sdst(sdst, self.cls_i32(s0)),
-                16 => {
-                    let sdst_val = self.resolve_src(sdst);
-                    self.write_to_sdst(sdst, sdst_val >> s0);
-                }
-                30 => self.write_to_sdst(sdst, !s0),
-                32 | 34 | 48 => {
-                    let saveexec = self.exec;
-                    self.exec = match op {
-                        32 => s0 & self.exec,
-                        34 => s0 | self.exec,
-                        48 => s0 & !self.exec,
+                1 => {
+                    let s0 = self.val(src);
+                    let ret = match op {
+                        1 => s0,
                         _ => panic!(),
                     };
-                    self.scc = (self.exec != 0) as u32;
-                    self.write_to_sdst(sdst, saveexec)
+                    self.scalar_reg.write64(sdst as usize, ret);
                 }
-                _ => todo_instr!(instruction),
+                _ => {
+                    let s0 = self.val(src);
+                    let ret = match op {
+                        0 => s0,
+                        10 => self.clz_i32_u32(s0),
+                        12 => self.cls_i32(s0),
+                        16 => {
+                            let sdst: u32 = self.val(sdst as usize);
+                            sdst & !(1 << (s0 & 0x1f))
+                        }
+                        30 => {
+                            let ret = !s0;
+                            self.scc = (ret != 0) as u32;
+                            ret
+                        }
+                        32 | 34 | 48 => {
+                            let saveexec = self.exec;
+                            self.exec = match op {
+                                32 => s0 & self.exec,
+                                34 => s0 | self.exec,
+                                48 => s0 & !self.exec,
+                                _ => panic!(),
+                            };
+                            self.scc = (self.exec != 0) as u32;
+                            saveexec
+                        }
+                        _ => todo_instr!(instruction),
+                    };
+
+                    self.write_to_sdst(sdst, ret);
+                }
             };
         }
         // sopc
@@ -1415,6 +1433,7 @@ pub fn _helper_test_cpu(_wave_id: &str) -> CPU<'static> {
     let static_ref: &'static mut Vec<u8> = Box::leak(mock_lds);
     CPU::new(static_ref)
 }
+
 #[cfg(test)]
 mod test_alu_utils {
     use super::*;
@@ -1456,6 +1475,16 @@ mod test_alu_utils {
         assert_eq!(cpu.clz_i32_u32(0x80000000), 0);
         assert_eq!(cpu.clz_i32_u32(0xffffffff), 0);
     }
+
+    #[test]
+    fn test_cls_i32() {
+        let cpu = _helper_test_cpu("alu");
+        assert_eq!(cpu.cls_i32(0x00000000), 0xffffffff);
+        assert_eq!(cpu.cls_i32(0x0000cccc), 16);
+        assert_eq!(cpu.cls_i32(0xffff3333), 16);
+        assert_eq!(cpu.cls_i32(0x7fffffff), 1);
+        assert_eq!(cpu.cls_i32(0x80000000), 1);
+    }
 }
 
 #[cfg(test)]
@@ -1463,11 +1492,56 @@ mod test_sop1 {
     use super::*;
 
     #[test]
+    fn test_s_mov_b64() {
+        let mut cpu = _helper_test_cpu("sop1");
+        cpu.scalar_reg.write64(16, 5236523008);
+        cpu.interpret(&vec![0xBE880110, END_PRG]);
+        assert_eq!(cpu.scalar_reg.read64(8), 5236523008)
+    }
+
+    #[test]
     fn test_s_mov_b32() {
         let mut cpu = _helper_test_cpu("s_mov_b32");
         cpu.scalar_reg[15] = 42;
         cpu.interpret(&vec![0xbe82000f, END_PRG]);
         assert_eq!(cpu.scalar_reg[2], 42);
+    }
+
+    #[test]
+    fn test_s_bitset0_b32() {
+        [
+            [
+                0b11111111111111111111111111111111,
+                0b00000000000000000000000000000001,
+                0b11111111111111111111111111111101,
+            ],
+            [
+                0b11111111111111111111111111111111,
+                0b00000000000000000000000000000010,
+                0b11111111111111111111111111111011,
+            ],
+        ]
+        .iter()
+        .for_each(|[a, b, ret]| {
+            let mut cpu = _helper_test_cpu("sop1");
+            cpu.scalar_reg[20] = *a;
+            cpu.scalar_reg[10] = *b;
+            cpu.interpret(&vec![0xBE94100A, END_PRG]);
+            assert_eq!(cpu.scalar_reg[20], *ret);
+        });
+    }
+
+    #[test]
+    fn test_s_not_b32() {
+        [[0, 4294967295, 1], [1, 4294967294, 1], [u32::MAX, 0, 0]]
+            .iter()
+            .for_each(|[a, ret, scc]| {
+                let mut cpu = _helper_test_cpu("sop1");
+                cpu.scalar_reg[10] = *a;
+                cpu.interpret(&vec![0xBE8A1E0A, END_PRG]);
+                assert_eq!(cpu.scalar_reg[10], *ret);
+                assert_eq!(cpu.scc, *scc);
+            });
     }
 }
 
