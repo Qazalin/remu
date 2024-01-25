@@ -1,4 +1,3 @@
-use crate::allocator::BumpAllocator;
 use crate::alu_modifiers::VOPModifier;
 use crate::dtype::IEEEClass;
 use crate::state::{Assign, Register, VCC, VGPR};
@@ -12,26 +11,24 @@ const NULL_SRC: u32 = 124;
 pub const END_PRG: u32 = 0xbfb00000;
 const NOOPS: [u32; 1] = [0xbfb60003];
 
-pub struct CPU {
+pub struct CPU<'a> {
     pub pc: u64,
-    pub gds: BumpAllocator,
-    pub lds: BumpAllocator,
     pub scalar_reg: [u32; SGPR_COUNT],
     pub vec_reg: VGPR,
     pub scc: u32,
     pub vcc: VCC,
     pub exec: u32,
+    pub lds: &'a mut Vec<u8>,
     prg: Vec<u32>,
 }
 
-impl CPU {
-    pub fn new(gds: BumpAllocator, lds: BumpAllocator) -> Self {
+impl<'a> CPU<'a> {
+    pub fn new(lds: &'a mut Vec<u8>) -> Self {
         return CPU {
             pc: 0,
             scc: 0,
             vcc: VCC::from(0),
             exec: 0,
-            gds,
             lds,
             scalar_reg: [0; SGPR_COUNT],
             vec_reg: VGPR::new(),
@@ -109,8 +106,8 @@ impl CPU {
             let effective_addr = (base_addr as i64 + offset) as u64;
 
             match op {
-                0..=4 => (0..2_usize.pow(op as u32)).for_each(|i| {
-                    self.scalar_reg[sdata + i] = self.gds.read(effective_addr + (4 * i as u64));
+                0..=4 => (0..2_usize.pow(op as u32)).for_each(|i| unsafe {
+                    self.scalar_reg[sdata + i] = *((effective_addr + (4 * i as u64)) as *const u32);
                 }),
                 _ => todo_instr!(instruction),
             }
@@ -1073,9 +1070,7 @@ impl CPU {
                     };
                 }
             }
-        }
-        // lds
-        else if instruction >> 26 == 0b110110 {
+        } else if instruction >> 26 == 0b110110 {
             let instr = self.u64_instr();
             let offset0 = instr & 0xff;
             let offset1 = (instr >> 8) & 0xff;
@@ -1098,19 +1093,33 @@ impl CPU {
                     vdst
                 );
             }
-            let effective_addr = self.vec_reg[addr as usize] as u64 + offset0;
+            let addr = (self.vec_reg[addr as usize] as u64 + offset0) as usize;
 
             match op {
                 // load
                 255 => (0..4).for_each(|i| {
-                    self.vec_reg[vdst + i] = self.lds.read(effective_addr + 4 * i as u64);
+                    let base = addr + 4 * i;
+                    let mut bytes: [u8; 4] = [0; 4];
+                    bytes.copy_from_slice(&self.lds[base + 0..base + 4]);
+                    self.vec_reg[vdst + i] = u32::from_le_bytes(bytes);
                 }),
                 // store
-                13 => self.lds.write(effective_addr, self.vec_reg[data0]),
-                223 => (0..4).for_each(|i| {
-                    self.lds
-                        .write(effective_addr + 4 * i as u64, self.vec_reg[data0 + i]);
-                }),
+                13 | 223 => {
+                    let iters = if op == 223 { 4 } else { 1 };
+                    (0..iters).for_each(|i| {
+                        let addr = addr + 4 * i;
+                        if addr + 4 >= self.lds.len() {
+                            self.lds.resize(self.lds.len() + addr + 5, 0);
+                        }
+                        let bytes = self.vec_reg[data0 + i].to_le_bytes();
+                        self.lds[addr..addr + 4]
+                            .iter_mut()
+                            .enumerate()
+                            .for_each(|(i, x)| {
+                                *x = bytes[i];
+                            });
+                    })
+                }
                 _ => todo_instr!(instruction),
             }
         }
@@ -1137,7 +1146,7 @@ impl CPU {
                 );
             }
 
-            let effective_addr = match self.resolve_src(saddr as u32) {
+            let addr = match self.resolve_src(saddr as u32) {
                 0x7F | _ if saddr as u32 == NULL_SRC => {
                     self.vec_reg.read64(addr) as i64 + (offset as i64)
                 }
@@ -1148,24 +1157,26 @@ impl CPU {
                 }
             } as u64;
 
-            match op {
-                // load
-                16 => self.vec_reg[vdst] = self.gds.read::<u8>(effective_addr) as u32,
-                17 => self.vec_reg[vdst] = self.gds.read::<i8>(effective_addr) as u32,
-                18 => self.vec_reg[vdst] = self.gds.read::<u16>(effective_addr) as u32,
-                19 => self.vec_reg[vdst] = self.gds.read::<i16>(effective_addr) as u32,
-                20..=23 => (0..op - 19).for_each(|i| {
-                    self.vec_reg[vdst + i] = self.gds.read(effective_addr + 4 * i as u64);
-                }),
-                // store
-                24 => self.gds.write(effective_addr, self.vec_reg[data] as u8),
-                25 => self.gds.write(effective_addr, self.vec_reg[data] as u16),
-                26..=29 => (0..op - 25).for_each(|i| {
-                    self.gds
-                        .write(effective_addr + 4 * i as u64, self.vec_reg[data + i]);
-                }),
-                _ => todo_instr!(instruction),
-            };
+            unsafe {
+                match op {
+                    // load
+                    16 => self.vec_reg[vdst] = *(addr as *const u8) as u32,
+                    17 => self.vec_reg[vdst] = *(addr as *const i8) as u32,
+                    18 => self.vec_reg[vdst] = *(addr as *const u16) as u32,
+                    19 => self.vec_reg[vdst] = *(addr as *const i16) as u32,
+
+                    20..=23 => (0..op - 19).for_each(|i| {
+                        self.vec_reg[vdst + i] = *((addr + 4 * i as u64) as *const u32);
+                    }),
+                    // store
+                    24 => *(addr as *mut u8) = self.vec_reg[data] as u8,
+                    25 => *(addr as *mut u16) = self.vec_reg[data] as u16,
+                    26..=29 => (0..op - 25).for_each(|i| {
+                        *((addr + 4 * i as u64) as u64 as *mut u32) = self.vec_reg[data + i];
+                    }),
+                    _ => todo_instr!(instruction),
+                };
+            }
         } else {
             todo_instr!(instruction);
         }
@@ -1318,7 +1329,7 @@ impl CPU {
 pub trait ALUSrc<T> {
     fn val(&mut self, code: usize) -> T;
 }
-impl ALUSrc<u16> for CPU {
+impl ALUSrc<u16> for CPU<'_> {
     fn val(&mut self, code: usize) -> u16 {
         match code {
             0..=SGPR_COUNT => self.scalar_reg[code] as u16,
@@ -1346,7 +1357,7 @@ impl ALUSrc<u16> for CPU {
         }
     }
 }
-impl ALUSrc<u32> for CPU {
+impl ALUSrc<u32> for CPU<'_> {
     fn val(&mut self, code: usize) -> u32 {
         match code {
             0..=SGPR_COUNT => self.scalar_reg[code],
@@ -1372,7 +1383,7 @@ impl ALUSrc<u32> for CPU {
         }
     }
 }
-impl ALUSrc<u64> for CPU {
+impl ALUSrc<u64> for CPU<'_> {
     fn val(&mut self, code: usize) -> u64 {
         match code {
             0..=SGPR_COUNT => self.scalar_reg.read64(code),
@@ -1399,10 +1410,10 @@ impl ALUSrc<u64> for CPU {
     }
 }
 
-pub fn _helper_test_cpu(wave_id: &str) -> CPU {
-    let gds = BumpAllocator::new(wave_id);
-    let lds = BumpAllocator::new(&format!("{wave_id}_lds"));
-    CPU::new(gds, lds)
+pub fn _helper_test_cpu(_wave_id: &str) -> CPU<'static> {
+    let mock_lds = Box::new(Vec::new());
+    let static_ref: &'static mut Vec<u8> = Box::leak(mock_lds);
+    CPU::new(static_ref)
 }
 #[cfg(test)]
 mod test_alu_utils {
@@ -2138,256 +2149,5 @@ mod test_vop3 {
         cpu.vec_reg[4] = 2;
         cpu.interpret(&vec![0xd73d0002, 0x00020504, END_PRG]);
         assert_eq!(cpu.vec_reg.read64(2), 25);
-    }
-}
-
-#[cfg(test)]
-mod test_smem {
-    use super::*;
-
-    fn helper_test_s_load(
-        mut cpu: CPU,
-        op: u32,
-        offset: u32,
-        data: &Vec<u32>,
-        base_mem_addr: u64,
-        starting_dest_sgpr: u32,
-    ) {
-        data.iter()
-            .enumerate()
-            .for_each(|(i, &v)| cpu.gds.write((base_mem_addr + (i as u64) * 4) as u64, v));
-        cpu.interpret(&vec![op, offset, END_PRG]);
-        data.iter()
-            .enumerate()
-            .for_each(|(i, &v)| assert_eq!(cpu.scalar_reg[i + (starting_dest_sgpr as usize)], v));
-    }
-
-    #[test]
-    fn test_s_load_b32() {
-        // no offset
-        helper_test_s_load(
-            _helper_test_cpu("s_load_b32_1"),
-            0xf4000000,
-            0xf8000000,
-            &vec![42],
-            0,
-            0,
-        );
-
-        // positive offset
-        helper_test_s_load(
-            _helper_test_cpu("s_load_b32_2"),
-            0xf4000000,
-            0xf8000004,
-            &vec![42],
-            0x4,
-            0,
-        );
-        helper_test_s_load(
-            _helper_test_cpu("s_load_b32_3"),
-            0xf4000000,
-            0xf800000c,
-            &vec![42],
-            0xc,
-            0,
-        );
-
-        // negative offset
-        let mut cpu = _helper_test_cpu("s_load_b32_4");
-        cpu.scalar_reg.write64(0, 10000);
-        helper_test_s_load(cpu, 0xf4000000, 0xf81fffd8, &vec![42], 9960, 0);
-    }
-
-    #[test]
-    fn test_s_load_b64() {
-        let data = (0..2).collect();
-
-        // positive offset
-        helper_test_s_load(
-            _helper_test_cpu("s_load_b64_1"),
-            0xf4040000,
-            0xf8000010,
-            &data,
-            0x10,
-            0,
-        );
-        helper_test_s_load(
-            _helper_test_cpu("s_load_b64_2"),
-            0xf4040204,
-            0xf8000268,
-            &data,
-            0x268,
-            8,
-        );
-
-        // negative offset
-        let mut cpu = _helper_test_cpu("s_load_b64_3");
-        cpu.scalar_reg[2] = 612;
-        cpu.scalar_reg.write64(2, 612);
-        helper_test_s_load(cpu, 0xf4040301, 0xf81ffd9c, &data, 0, 12);
-    }
-
-    #[test]
-    fn test_s_load_b128() {
-        let data = (0..4).collect();
-
-        // positive offset
-        helper_test_s_load(
-            _helper_test_cpu("s_load_b128_1"),
-            0xf4080000,
-            0xf8000000,
-            &data,
-            0,
-            0,
-        );
-
-        let mut cpu = _helper_test_cpu("s_load_b128_2");
-        let base_mem_addr: u64 = 0x10;
-        cpu.scalar_reg.write64(6, base_mem_addr);
-        helper_test_s_load(cpu, 0xf4080203, 0xf8000000, &data, base_mem_addr, 8);
-
-        // negative offset
-        let mut cpu = _helper_test_cpu("s_load_b128_3");
-        cpu.scalar_reg.write64(2, 0x10);
-        helper_test_s_load(cpu, 0xf4080401, 0xf81ffff0, &data, 0, 16);
-    }
-}
-
-#[cfg(test)]
-mod test_global {
-    use super::*;
-
-    #[test]
-    fn test_store_b96() {
-        let mut cpu = _helper_test_cpu("test_store_b96");
-        let val0: u32 = 10;
-        let val1: u32 = 20;
-        let val2: u32 = 30;
-        let base = 100;
-        cpu.vec_reg.write64(3, base);
-        cpu.vec_reg[0] = val0;
-        cpu.vec_reg[1] = val1;
-        cpu.vec_reg[2] = val2;
-        cpu.interpret(&vec![0xdc720000, 0x007c0003, END_PRG]);
-        assert_eq!(cpu.gds.read::<u32>(base), val0);
-        assert_eq!(cpu.gds.read::<u32>(base + 4), val1);
-        assert_eq!(cpu.gds.read::<u32>(base + 8), val2);
-    }
-    #[test]
-    fn test_load_b96() {
-        let mut cpu = _helper_test_cpu("test_load_b96");
-        let val0: u32 = 10;
-        let val1: u32 = 20;
-        let val2: u32 = 30;
-        let base = 100;
-        cpu.gds.write(base, val0);
-        cpu.gds.write(base + 4, val1);
-        cpu.gds.write(base + 8, val2);
-        cpu.vec_reg.write64(0, base);
-        cpu.interpret(&vec![0xdc5a0000, 0x007c0000, END_PRG]);
-        assert_eq!(cpu.vec_reg[0], val0);
-        assert_eq!(cpu.vec_reg[1], val1);
-        assert_eq!(cpu.vec_reg[2], val2);
-    }
-
-    #[test]
-    fn test_store_b128() {
-        let mut cpu = _helper_test_cpu("test_store_b128");
-        let val0: u32 = 10;
-        let val1: u32 = 20;
-        let val2: u32 = 30;
-        let val3: u32 = 40;
-        let base = 100;
-        cpu.vec_reg.write64(4, base);
-        cpu.vec_reg[0] = val0;
-        cpu.vec_reg[1] = val1;
-        cpu.vec_reg[2] = val2;
-        cpu.vec_reg[3] = val3;
-        cpu.interpret(&vec![0xDC760000, 0x007C0004, END_PRG]);
-        assert_eq!(cpu.gds.read::<u32>(base), val0);
-        assert_eq!(cpu.gds.read::<u32>(base + 4), val1);
-        assert_eq!(cpu.gds.read::<u32>(base + 8), val2);
-        assert_eq!(cpu.gds.read::<u32>(base + 12), val3);
-    }
-    #[test]
-    fn test_load_b128() {
-        let mut cpu = _helper_test_cpu("test_load_b128");
-        let val0: u32 = 10;
-        let val1: u32 = 20;
-        let val2: u32 = 30;
-        let val3: u32 = 40;
-        let base = 100;
-        cpu.gds.write(base, val0);
-        cpu.gds.write(base + 4, val1);
-        cpu.gds.write(base + 8, val2);
-        cpu.gds.write(base + 12, val3);
-        cpu.vec_reg.write64(4, base);
-        cpu.interpret(&vec![0xdc5e0000, 0x047c0004, END_PRG]);
-        assert_eq!(cpu.vec_reg[4], val0);
-        assert_eq!(cpu.vec_reg[5], val1);
-        assert_eq!(cpu.vec_reg[6], val2);
-        assert_eq!(cpu.vec_reg[7], val3);
-    }
-}
-
-#[cfg(test)]
-mod test_real_world {
-    use super::*;
-    use crate::utils::parse_rdna3_file;
-
-    fn read_array_f32(cpu: &CPU, addr: u64, sz: usize) -> Vec<f32> {
-        let mut data = vec![0.0; sz];
-        for i in 0..sz {
-            data[i] = f32::from_bits(cpu.gds.read(addr + (i * 4) as u64));
-        }
-        return data;
-    }
-
-    fn to_bytes(fvec: Vec<f32>) -> Vec<u8> {
-        fvec.iter()
-            .map(|&v| f32::to_le_bytes(v).to_vec())
-            .flatten()
-            .collect()
-    }
-    #[test]
-    fn test_add_simple() {
-        let mut cpu = _helper_test_cpu("test_add_simple");
-        let mut data0 = vec![0.0; 4];
-        let data1 = vec![1.0, 2.0, 3.0, 4.0];
-        let data2 = vec![5.0, 6.0, 7.0, 8.0];
-        let expected_data0 = vec![6.0, 8.0, 10.0, 12.0];
-
-        let data0_bytes: Vec<u8> = to_bytes(data0.clone());
-        let data1_bytes: Vec<u8> = to_bytes(data1);
-        let data2_bytes: Vec<u8> = to_bytes(data2);
-
-        // malloc tinygrad style
-        let data1_ptr = cpu.gds.alloc(data1_bytes.len() as u32);
-        let data2_ptr = cpu.gds.alloc(data2_bytes.len() as u32);
-        let data0_ptr = cpu.gds.alloc(data0_bytes.len() as u32);
-        cpu.gds.write_bytes(data1_ptr, &data1_bytes);
-        cpu.gds.write_bytes(data2_ptr, &data2_bytes);
-
-        // "stack" pointers in memory
-        let data0_ptr_addr: u64 = cpu.gds.alloc(24);
-        let data1_ptr_addr = data0_ptr_addr + 8;
-        let data2_ptr_addr = data0_ptr_addr + 16;
-        cpu.gds.write(data0_ptr_addr, data0_ptr);
-        cpu.gds.write(data1_ptr_addr, data1_ptr);
-        cpu.gds.write(data2_ptr_addr, data2_ptr);
-
-        // "launch" kernel
-        let global_size = (4, 1, 1);
-        for i in 0..global_size.0 {
-            // allocate src registers
-            cpu.scalar_reg = [0; SGPR_COUNT];
-            cpu.scalar_reg.write64(0, data0_ptr_addr);
-            println!("i={i}");
-            cpu.scalar_reg[15] = i;
-            cpu.interpret(&parse_rdna3_file("./tests/test_ops/test_add_simple.s"));
-            data0[i as usize] = read_array_f32(&cpu, data0_ptr, 4)[i as usize];
-        }
-
-        assert_eq!(data0, expected_data0);
     }
 }

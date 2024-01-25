@@ -1,17 +1,13 @@
-use crate::allocator::BumpAllocator;
 use crate::cpu::{CPU, SGPR_COUNT};
 use crate::state::{Assign, Register, VGPR};
 use crate::utils::{Colorize, DebugLevel, DEBUG, PROGRESS};
 use std::collections::HashMap;
 use std::os::raw::{c_char, c_void};
-mod allocator;
 mod alu_modifiers;
 mod cpu;
 mod dtype;
 mod state;
 mod utils;
-
-const WAVE_ID: &str = "wave_id";
 
 #[no_mangle]
 pub extern "C" fn hipModuleLaunchKernel(
@@ -46,20 +42,6 @@ pub extern "C" fn hipModuleLaunchKernel(
 
     let (prg, function_name) = &utils::read_asm(&lib_bytes);
 
-    let mut gds = BumpAllocator::new(WAVE_ID);
-    let stack_ptr = gds.alloc(kernel_args.len() as u32 * 8);
-    kernel_args.iter().enumerate().for_each(|(i, x)| {
-        gds.write_bytes(stack_ptr + i as u64 * 8, &x.to_le_bytes());
-    });
-    if kernel_args.len() > 1 && kernel_args.len() % 2 != 0 {
-        (0..=1).into_iter().for_each(|i| {
-            gds.write_bytes(
-                stack_ptr + (kernel_args.len() + i) as u64 * 8,
-                &0u32.to_le_bytes(),
-            )
-        })
-    }
-
     if *DEBUG >= DebugLevel::NONE {
         println!(
             "[remu] launching kernel {function_name} with global_size {} {} {} local_size {} {} {} args {:?}",
@@ -87,8 +69,8 @@ pub extern "C" fn hipModuleLaunchKernel(
     for gx in 0..grid_dim_x {
         for gy in 0..grid_dim_y {
             for gz in 0..grid_dim_z {
-                let mut thread_registers: HashMap<[u32; 3], ([u32; SGPR_COUNT], VGPR, u32)> =
-                    HashMap::new();
+                let mut thread_registers = HashMap::new();
+                let mut lds = Vec::new();
                 for prg in prg.iter() {
                     for tx in 0..block_dim_x {
                         for ty in 0..block_dim_y {
@@ -98,8 +80,9 @@ pub extern "C" fn hipModuleLaunchKernel(
                                     [tx, ty, tz],
                                     [grid_dim_x, grid_dim_y, grid_dim_z],
                                     [block_dim_x, block_dim_y, block_dim_z],
-                                    stack_ptr,
+                                    kernel_args.as_ptr() as u64,
                                     &prg,
+                                    &mut lds,
                                     &mut thread_registers,
                                 );
                                 if let Some(ref _pb) = pb {
@@ -121,9 +104,10 @@ fn launch_thread(
     local_size: [u32; 3],
     stack_ptr: u64,
     prg: &Vec<u32>,
+    lds: &mut Vec<u8>,
     thread_registers: &mut HashMap<[u32; 3], ([u32; SGPR_COUNT], VGPR, u32)>,
 ) {
-    if *DEBUG >= DebugLevel::MISC {
+    if *DEBUG >= DebugLevel::NONE {
         println!(
             "{}={:?}, {}={:?}",
             "block".color("jade"),
@@ -132,10 +116,7 @@ fn launch_thread(
             thread_id
         );
     }
-    let lds = BumpAllocator::new(&format!("{WAVE_ID}_lds_{:?}", grid_id));
-    let gds = BumpAllocator::new(WAVE_ID);
-    let mut cpu = CPU::new(gds, lds);
-
+    let mut cpu = CPU::new(lds);
     match thread_registers.get(&thread_id) {
         Some(val) => {
             cpu.scalar_reg = val.0.clone();
@@ -162,45 +143,6 @@ fn launch_thread(
             }
         }
     }
-
     cpu.interpret(prg);
     thread_registers.insert(thread_id, (cpu.scalar_reg, cpu.vec_reg, *cpu.vcc));
 }
-
-#[no_mangle]
-pub extern "C" fn hipMalloc(ptr: *mut c_void, size: u32) {
-    let mut gds = BumpAllocator::new(WAVE_ID);
-
-    unsafe {
-        let data_ptr = ptr as *mut u64;
-        *data_ptr = gds.alloc(size);
-    }
-
-    if *DEBUG >= DebugLevel::MISC {
-        println!("[remu] hipMalloc({})", size);
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn hipMemcpy(dest: *const c_void, src: *const c_void, size: u32, mode: u32) {
-    let mut gds = BumpAllocator::new(WAVE_ID);
-
-    match mode {
-        1 => {
-            let bytes =
-                unsafe { std::slice::from_raw_parts(src as *const u8, size as usize) }.to_vec();
-            gds.write_bytes(dest as u64, &bytes);
-        }
-        2 => {
-            let bytes = &gds.read_bytes(src as u64, size as usize);
-            unsafe {
-                let dest = dest as *mut u8;
-                std::slice::from_raw_parts_mut(dest, bytes.len()).copy_from_slice(&bytes);
-            }
-        }
-        _ => panic!("invalid mode"),
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn hipFree(_ptr: u64) {}
