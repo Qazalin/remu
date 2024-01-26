@@ -645,7 +645,7 @@ impl<'a> CPU<'a> {
                         _ => panic!(),
                     }
                 }
-                13 => {
+                2 | 13 => {
                     let (s0, s1): (u16, u16) = (self.val(s0), self.vec_reg[s1] as u16);
                     self.vopc(s0 as u32, s1 as u32, op, instruction)
                 }
@@ -690,6 +690,7 @@ impl<'a> CPU<'a> {
                     match op {
                         _ => match op {
                             50 => s0 + s1,
+                            51 => s0 - s1,
                             53 => s0 * s1,
                             _ => todo_instr!(instruction),
                         }
@@ -1122,24 +1123,54 @@ impl<'a> CPU<'a> {
     }
 
     fn vopc(&self, s0: u32, s1: u32, op: u32, instruction: u32) -> bool {
+        fn cmpf<T>(s0: T, s1: T, offset: u32) -> bool
+        where
+            T: PartialOrd + PartialEq,
+        {
+            return match offset {
+                0 => true,
+                1 => s0 < s1,
+                2 => s0 == s1,
+                3 => s0 <= s1,
+                4 => s0 > s1,
+                5 => s0 != s1,
+                6 => s0 >= s1,
+                9 => !(s0 >= s1),
+                10 => !(s0 != s1),
+                11 => !(s0 > s1),
+                12 => !(s0 <= s1),
+                13 => !(s0 == s1),
+                14 => !(s0 < s1),
+                15 => true,
+                _ => panic!("{offset}"),
+            };
+        }
+
+        fn cmpi<T>(s0: T, s1: T, offset: u32) -> bool
+        where
+            T: PartialOrd + PartialEq,
+        {
+            return match offset {
+                0 => false,
+                1 => s0 < s1,
+                2 => s0 == s1,
+                3 => s0 <= s1,
+                4 => s0 > s1,
+                5 => s0 != s1,
+                6 => s0 >= s1,
+                7 => true,
+                _ => panic!("{offset}"),
+            };
+        }
+        let dest_offset = if op >= 128 { 128 } else { 0 };
         match op {
-            13 => {
+            (0..=15) | (128..=143) => {
                 let (s0, s1) = (f16::from_bits(s0 as u16), f16::from_bits(s1 as u16));
-                match op {
-                    13 => s0 != s1,
-                    _ => panic!(),
-                }
+                cmpf(s0, s1, op - dest_offset)
             }
-            17 | 18 | 27 | 29 | 20 | 22 | 30 | 126 | 155 | 158 => {
+            (16..=31) | 126 | (144..=159) => {
                 let (s0, s1) = (f32::from_bits(s0), f32::from_bits(s1));
                 match op {
-                    17 => s0 < s1,
-                    18 => s0 == s1,
-                    20 => s0 > s1,
-                    22 => s0 >= s1,
-                    27 | 155 => !(s0 > s1),
-                    29 => s0 != s1,
-                    30 | 158 => !(s0 < s1),
                     126 => {
                         let offset = match s0 {
                             _ if (s0 as f64).is_nan() => 1,
@@ -1162,46 +1193,14 @@ impl<'a> CPU<'a> {
                         };
                         return ((s1.to_bits() >> offset) & 1) != 0;
                     }
-                    _ => panic!(),
+                    _ => cmpf(s0, s1, op - 16 - dest_offset),
                 }
             }
-            _ => match op {
-                52 | 65 => {
-                    let (s0, s1) = (s0 as i16, s1 as i16);
-                    match op {
-                        52 => s0 > s1,
-                        65 => s0 < s1,
-                        _ => panic!(),
-                    }
-                }
-                57 | 58 | 60 | 61 | 62 => {
-                    let (s0, s1) = (s0 as u16, s1 as u16);
-                    match op {
-                        58 => s0 == s1,
-                        57 => s0 < s1,
-                        60 => s0 > s1,
-                        61 => s0 != s1,
-                        62 => s0 >= s1,
-                        _ => panic!(),
-                    }
-                }
-                68 | 70 | 193 | 196 => {
-                    let (s0, s1) = (s0 as i32, s1 as i32);
-                    match op {
-                        68 => s0 > s1,
-                        70 => s0 >= s1,
-                        193 => s0 < s1,
-                        196 => s0 > s1,
-                        _ => panic!(),
-                    }
-                }
-                73 | 201 => s0 < s1,
-                74 => s0 == s1,
-                76 => s0 > s1,
-                77 | 205 => s0 != s1,
-                202 => s0 == s1,
-                _ => todo_instr!(instruction),
-            },
+            (49..=54) | (177..=182) => cmpi(s0 as i16, s1 as i16, op - 48 - dest_offset),
+            (57..=62) | (185..=190) => cmpi(s0 as u16, s1 as u16, op - 56 - dest_offset),
+            (64..=71) | (192..=199) => cmpi(s0 as i32, s1 as i32, op - 64 - dest_offset),
+            (72..=79) | (200..=207) => cmpi(s0, s1, op - 72 - dest_offset),
+            _ => todo_instr!(instruction),
         }
     }
     fn cls_i32(&self, s0: u32) -> u32 {
