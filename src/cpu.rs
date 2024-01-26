@@ -162,31 +162,40 @@ impl<'a> CPU<'a> {
         }
         // sopc
         else if (instruction >> 23) & 0x3ff == 0b101111110 {
-            let s0: u32 = self.val((instruction & 0xff) as usize);
-            let s1: u32 = self.val(((instruction >> 8) & 0xff) as usize);
+            let s0 = (instruction & 0xff) as usize;
+            let s1 = ((instruction >> 8) & 0xff) as usize;
             let op = (instruction >> 16) & 0x7f;
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!("{} s0={s0} ssrc1={s1} op={op}", "SOPC".color("blue"));
             }
 
-            self.scc = match op {
-                0..=4 => {
-                    let s0 = s0 as i32;
-                    let s1 = s1 as i32;
-                    match op {
-                        2 => s0 > s1,
-                        4 => s0 < s1,
-                        _ => todo_instr!(instruction),
-                    }
+            fn scmp<T>(s0: T, s1: T, offset: u32, op: u32) -> bool
+            where
+                T: PartialOrd + PartialEq,
+            {
+                match op - offset {
+                    0 => s0 == s1,
+                    1 => s0 != s1,
+                    2 => s0 > s1,
+                    3 => s0 >= s1,
+                    4 => s0 < s1,
+                    _ => s0 <= s1,
                 }
-                5..=11 => match op {
-                    6 => s0 == s1,
-                    8 => s0 > s1,
-                    9 => s0 >= s1,
-                    10 => s0 < s1,
-                    _ => todo_instr!(instruction),
-                },
+            }
+            self.scc = match op {
+                0..=5 => {
+                    let (s0, s1): (u32, u32) = (self.val(s0), self.val(s1));
+                    scmp(s0 as i32, s1 as i32, 0, op)
+                }
+                6..=11 => {
+                    let (s0, s1): (u32, u32) = (self.val(s0), self.val(s1));
+                    scmp(s0, s1, 6, op)
+                }
+                16 | 17 => {
+                    let (s0, s1): (u64, u64) = (self.val(s0), self.val(s1));
+                    scmp(s0, s1, 16, op)
+                }
                 _ => todo_instr!(instruction),
             } as u32;
         }
@@ -288,6 +297,12 @@ impl<'a> CPU<'a> {
             }
 
             match op {
+                27 => {
+                    let (s0, s1): (u64, u64) = (self.val(s0), self.val(s1));
+                    let ret = s0 ^ s1;
+                    self.scalar_reg.write64(sdst as usize, ret);
+                    self.scc = (ret != 0) as u32;
+                }
                 9 | 40 | 41 => {
                     let (s0, s1): (u64, u32) = (self.val(s0), self.val(s1));
                     let ret = match op {
@@ -317,8 +332,7 @@ impl<'a> CPU<'a> {
                     let (s0, s1): (u32, u32) = (self.val(s0), self.val(s1));
                     let ret = match op {
                         0 | 4 => {
-                            let s0 = s0 as u64;
-                            let s1 = s1 as u64;
+                            let (s0, s1) = (s0 as u64, s1 as u64);
                             let ret = match op {
                                 0 => s0 + s1,
                                 4 => s0 + s1 + self.scc as u64,
@@ -326,6 +340,11 @@ impl<'a> CPU<'a> {
                             };
                             (ret as u32, Some(ret >= 0x100000000))
                         }
+                        1 => (s0 - s1, Some(s1 > s0)),
+                        5 => (
+                            s0 - s1 - self.scc,
+                            Some((s1 as u64 + self.scc as u64) > s0 as u64),
+                        ),
                         2 | 3 => {
                             let s0 = s0 as i32 as i64;
                             let s1 = s1 as i32 as i64;
