@@ -129,9 +129,13 @@ impl<'a> CPU<'a> {
                         0 => s0,
                         10 => self.clz_i32_u32(s0),
                         12 => self.cls_i32(s0),
-                        16 => {
+                        16 | 18 => {
                             let sdst: u32 = self.val(sdst as usize);
-                            sdst & !(1 << (s0 & 0x1f))
+                            if op == 16 {
+                                sdst & !(1 << (s0 & 0x1f))
+                            } else {
+                                sdst | (1 << (s0 & 0x1f))
+                            }
                         }
                         30 => {
                             let ret = !s0;
@@ -638,40 +642,62 @@ impl<'a> CPU<'a> {
         }
         // vopc
         else if instruction >> 25 == 0b0111110 {
-            let s0 = instruction as usize & 0x1ff;
+            let s0 = (instruction & 0x1ff) as usize;
             let s1 = ((instruction >> 9) & 0xff) as usize;
             let op = (instruction >> 17) & 0xff;
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
-                println!("{} s0={} s1={} op={}", "VOPC".color("blue"), s0, s1, op);
+                println!("{} src={:?} op={}", "VOPC".color("blue"), (s0, s1), op);
             }
 
+            let dest_offset = if op >= 128 { 128 } else { 0 };
             let ret = match op {
-                45 | 84 | 89 | 90 | 93 => {
-                    let (s0, s1) = (self.val(s0), self.vec_reg.read64(s1));
+                (0..=15) | 125 | (128..=143) => {
+                    let s0 = f16::from_bits(self.val(s0));
+                    let s1 = f16::from_bits(self.vec_reg[s1] as u16);
                     match op {
-                        45 => {
-                            let (s0, s1) = (f64::from_bits(s0), f64::from_bits(s1));
-                            s0 != s1
-                        }
-                        84 => {
-                            let (s0, s1) = (s0 as i64, s1 as i64);
-                            s0 > s1
-                        }
-                        89 => s0 < s1,
-                        90 => s0 == s1,
-                        93 => s0 != s1,
-                        _ => panic!(),
+                        125 => self.cmp_class_f16(s0, s1.to_bits()),
+                        _ => self.cmpf(s0, s1, op - dest_offset),
                     }
                 }
-                2 | 13 => {
+                (16..=31) | 126 | (144..=159) => {
+                    let s0 = f32::from_bits(self.val(s0));
+                    let s1 = f32::from_bits(self.vec_reg[s1]);
+                    match op {
+                        126 => self.cmp_class_f32(s0, s1.to_bits()),
+                        _ => self.cmpf(s0, s1, op - 16 - dest_offset),
+                    }
+                }
+                (32..=47) | (160..=174) => {
+                    let s0 = f64::from_bits(self.val(s0));
+                    let s1 = f64::from_bits(self.vec_reg.read64(s1));
+                    self.cmpf(s0, s1, op - 32 - dest_offset)
+                }
+                (49..=54) | (177..=182) => {
                     let (s0, s1): (u16, u16) = (self.val(s0), self.vec_reg[s1] as u16);
-                    self.vopc(s0 as u32, s1 as u32, op, instruction)
+                    self.cmpi(s0 as i16, s1 as i16, op - 48 - dest_offset)
                 }
-                _ => {
-                    let (s0, s1) = (self.val(s0), self.vec_reg[s1]);
-                    self.vopc(s0, s1, op, instruction)
+                (57..=62) | (185..=190) => {
+                    let (s0, s1): (u16, u16) = (self.val(s0), self.vec_reg[s1] as u16);
+                    self.cmpi(s0 as i16, s1 as i16, op - 56 - dest_offset)
                 }
+                (64..=71) | (192..=199) => {
+                    let (s0, s1): (u32, u32) = (self.val(s0), self.vec_reg[s1]);
+                    self.cmpi(s0 as i32, s1 as i32, op - 64 - dest_offset)
+                }
+                (72..=79) | (200..=207) => {
+                    let (s0, s1): (u32, u32) = (self.val(s0), self.vec_reg[s1]);
+                    self.cmpi(s0, s1, op - 72 - dest_offset)
+                }
+                (80..=87) | (208..=215) => {
+                    let (s0, s1): (u64, u64) = (self.val(s0), self.vec_reg.read64(s1));
+                    self.cmpi(s0 as i64, s1 as i64, op - 80 - dest_offset)
+                }
+                (88..=95) | (216..=223) => {
+                    let (s0, s1): (u64, u64) = (self.val(s0), self.vec_reg.read64(s1));
+                    self.cmpi(s0, s1, op - 88 - dest_offset)
+                }
+                _ => todo_instr!(instruction),
             };
 
             match op >= 128 {
@@ -787,7 +813,7 @@ impl<'a> CPU<'a> {
         else if instruction >> 26 == 0b110101 {
             let instr = self.u64_instr();
 
-            let op = (instr >> 16) & 0x3ff;
+            let op = ((instr >> 16) & 0x3ff) as u32;
             match op {
                 764 | 288 | 289 | 766 | 768 | 769 => {
                     let vdst = (instr & 0xff) as usize;
@@ -869,17 +895,57 @@ impl<'a> CPU<'a> {
                     match op {
                         // VOPC using VOP3 encoding
                         0..=255 => {
-                            let (s0, s1) = (self.val(src.0), self.val(src.1));
+                            let dest_offset = if op >= 128 { 128 } else { 0 };
                             let ret = match op {
-                                17 | 18 | 27 | 20 | 22 | 30 | 126 | 155 => {
+                                (0..=15) | 125 | (128..=143) => {
+                                    let (s0, s1) = (self.val(src.0), self.val(src.1));
+                                    let s0 = f16::from_bits(s0).negate(0, neg).absolute(0, abs);
+                                    let s1 = f16::from_bits(s1).negate(1, neg).absolute(1, abs);
+                                    match op {
+                                        125 => self.cmp_class_f16(s0, s1.to_bits()),
+                                        _ => self.cmpf(s0, s1, op - dest_offset),
+                                    }
+                                }
+                                (16..=31) | 126 | (144..=159) => {
+                                    let (s0, s1) = (self.val(src.0), self.val(src.1));
                                     let s0 = f32::from_bits(s0).negate(0, neg).absolute(0, abs);
                                     let s1 = f32::from_bits(s1).negate(1, neg).absolute(1, abs);
-                                    self.vopc(s0.to_bits(), s1.to_bits(), op as u32, instruction)
+                                    match op {
+                                        126 => self.cmp_class_f32(s0, s1.to_bits()),
+                                        _ => self.cmpf(s0, s1, op - 16 - dest_offset),
+                                    }
                                 }
-                                _ => {
-                                    assert_eq!(neg, 0);
-                                    self.vopc(s0, s1, op as u32, instruction)
+                                (32..=47) | (160..=174) => {
+                                    let (s0, s1) = (self.val(src.0), self.val(src.1));
+                                    let s0 = f64::from_bits(s0).negate(0, neg).absolute(0, abs);
+                                    let s1 = f64::from_bits(s1).negate(1, neg).absolute(1, abs);
+                                    self.cmpf(s0, s1, op - 32 - dest_offset)
                                 }
+                                (49..=54) | (177..=182) => {
+                                    let (s0, s1): (u16, u16) = (self.val(src.0), self.val(src.1));
+                                    self.cmpi(s0 as i16, s1 as i16, op - 48 - dest_offset)
+                                }
+                                (57..=62) | (185..=190) => {
+                                    let (s0, s1): (u16, u16) = (self.val(src.0), self.val(src.1));
+                                    self.cmpi(s0 as i16, s1 as i16, op - 56 - dest_offset)
+                                }
+                                (64..=71) | (192..=199) => {
+                                    let (s0, s1): (u32, u32) = (self.val(src.0), self.val(src.1));
+                                    self.cmpi(s0 as i32, s1 as i32, op - 64 - dest_offset)
+                                }
+                                (72..=79) | (200..=207) => {
+                                    let (s0, s1): (u32, u32) = (self.val(src.0), self.val(src.1));
+                                    self.cmpi(s0, s1, op - 72 - dest_offset)
+                                }
+                                (80..=87) | (208..=215) => {
+                                    let (s0, s1): (u64, u64) = (self.val(src.0), self.val(src.1));
+                                    self.cmpi(s0 as i64, s1 as i64, op - 80 - dest_offset)
+                                }
+                                (88..=95) | (216..=223) => {
+                                    let (s0, s1): (u64, u64) = (self.val(src.0), self.val(src.1));
+                                    self.cmpi(s0, s1, op - 88 - dest_offset)
+                                }
+                                _ => todo_instr!(instruction),
                             } as u32;
 
                             match vdst {
@@ -1039,6 +1105,10 @@ impl<'a> CPU<'a> {
                                         }
                                         523 => s0 * s1 + s2, // TODO 24 bit trunc
                                         528 => (s0 >> s1) & ((1 << s2) - 1),
+                                        534 => {
+                                            let val = (s0 as u64 >> 32) | (s1 as u64);
+                                            ((val >> (s2 & 0x1f)) & 0xffffffff) as u32
+                                        }
                                         576 => s0 ^ s1 ^ s2,
                                         582 => (s0 << s1) + s2,
                                         597 => s0 + s1 + s2,
@@ -1160,111 +1230,87 @@ impl<'a> CPU<'a> {
         }
     }
 
-    fn vopc(&self, s0: u32, s1: u32, op: u32, instruction: u32) -> bool {
-        fn cmpf<T>(s0: T, s1: T, offset: u32) -> bool
-        where
-            T: PartialOrd + PartialEq,
-        {
-            return match offset {
-                0 => true,
-                1 => s0 < s1,
-                2 => s0 == s1,
-                3 => s0 <= s1,
-                4 => s0 > s1,
-                5 => s0 != s1,
-                6 => s0 >= s1,
-                9 => !(s0 >= s1),
-                10 => !(s0 != s1),
-                11 => !(s0 > s1),
-                12 => !(s0 <= s1),
-                13 => !(s0 == s1),
-                14 => !(s0 < s1),
-                15 => true,
-                _ => panic!("{offset}"),
-            };
-        }
-
-        fn cmpi<T>(s0: T, s1: T, offset: u32) -> bool
-        where
-            T: PartialOrd + PartialEq,
-        {
-            return match offset {
-                0 => false,
-                1 => s0 < s1,
-                2 => s0 == s1,
-                3 => s0 <= s1,
-                4 => s0 > s1,
-                5 => s0 != s1,
-                6 => s0 >= s1,
-                7 => true,
-                _ => panic!("{offset}"),
-            };
-        }
-        let dest_offset = if op >= 128 { 128 } else { 0 };
-        match op {
-            (0..=15) | 125 | (128..=143) => {
-                let (s0, s1) = (f16::from_bits(s0 as u16), f16::from_bits(s1 as u16));
-                match op {
-                    125 => {
-                        let offset = match s0 {
-                            _ if (f64::from(s0)).is_nan() => 1,
-                            _ if s0.exponent() == 31 => match s0.signum() == f16::NEG_ONE {
-                                true => 2,
-                                false => 9,
-                            },
-                            _ if s0.exponent() > 0 => match s0.signum() == f16::NEG_ONE {
-                                true => 3,
-                                false => 8,
-                            },
-                            _ if f64::from(s0.abs()) > 0.0 => match s0.signum() == f16::NEG_ONE {
-                                true => 4,
-                                false => 7,
-                            },
-                            _ => match s0.signum() == f16::NEG_ONE {
-                                true => 5,
-                                false => 6,
-                            },
-                        };
-                        return ((s1.to_bits() >> offset) & 1) != 0;
-                    }
-                    _ => cmpf(s0, s1, op - dest_offset),
-                }
-            }
-
-            (16..=31) | 126 | (144..=159) => {
-                let (s0, s1) = (f32::from_bits(s0), f32::from_bits(s1));
-                match op {
-                    126 => {
-                        let offset = match s0 {
-                            _ if (s0 as f64).is_nan() => 1,
-                            _ if s0.exponent() == 255 => match s0.signum() == -1.0 {
-                                true => 2,
-                                false => 9,
-                            },
-                            _ if s0.exponent() > 0 => match s0.signum() == -1.0 {
-                                true => 3,
-                                false => 8,
-                            },
-                            _ if s0.abs() as f64 > 0.0 => match s0.signum() == -1.0 {
-                                true => 4,
-                                false => 7,
-                            },
-                            _ => match s0.signum() == -1.0 {
-                                true => 5,
-                                false => 6,
-                            },
-                        };
-                        return ((s1.to_bits() >> offset) & 1) != 0;
-                    }
-                    _ => cmpf(s0, s1, op - 16 - dest_offset),
-                }
-            }
-            (49..=54) | (177..=182) => cmpi(s0 as i16, s1 as i16, op - 48 - dest_offset),
-            (57..=62) | (185..=190) => cmpi(s0 as u16, s1 as u16, op - 56 - dest_offset),
-            (64..=71) | (192..=199) => cmpi(s0 as i32, s1 as i32, op - 64 - dest_offset),
-            (72..=79) | (200..=207) => cmpi(s0, s1, op - 72 - dest_offset),
-            _ => todo_instr!(instruction),
-        }
+    fn cmpf<T>(&self, s0: T, s1: T, offset: u32) -> bool
+    where
+        T: PartialOrd + PartialEq,
+    {
+        return match offset {
+            0 => true,
+            1 => s0 < s1,
+            2 => s0 == s1,
+            3 => s0 <= s1,
+            4 => s0 > s1,
+            5 => s0 != s1,
+            6 => s0 >= s1,
+            9 => !(s0 >= s1),
+            10 => !(s0 != s1),
+            11 => !(s0 > s1),
+            12 => !(s0 <= s1),
+            13 => !(s0 == s1),
+            14 => !(s0 < s1),
+            15 => true,
+            _ => panic!("{offset}"),
+        };
+    }
+    fn cmp_class_f32(&self, s0: f32, s1: u32) -> bool {
+        let offset = match s0 {
+            _ if (s0 as f64).is_nan() => 1,
+            _ if s0.exponent() == 255 => match s0.signum() == -1.0 {
+                true => 2,
+                false => 9,
+            },
+            _ if s0.exponent() > 0 => match s0.signum() == -1.0 {
+                true => 3,
+                false => 8,
+            },
+            _ if s0.abs() as f64 > 0.0 => match s0.signum() == -1.0 {
+                true => 4,
+                false => 7,
+            },
+            _ => match s0.signum() == -1.0 {
+                true => 5,
+                false => 6,
+            },
+        };
+        ((s1 >> offset) & 1) != 0
+    }
+    fn cmp_class_f16(&self, s0: f16, s1: u16) -> bool {
+        let offset = match s0 {
+            _ if (f64::from(s0)).is_nan() => 1,
+            _ if s0.exponent() == 31 => match s0.signum() == f16::NEG_ONE {
+                true => 2,
+                false => 9,
+            },
+            _ if s0.exponent() > 0 => match s0.signum() == f16::NEG_ONE {
+                true => 3,
+                false => 8,
+            },
+            _ if f64::from(s0.abs()) > 0.0 => match s0.signum() == f16::NEG_ONE {
+                true => 4,
+                false => 7,
+            },
+            _ => match s0.signum() == f16::NEG_ONE {
+                true => 5,
+                false => 6,
+            },
+        };
+        ((s1 >> offset) & 1) != 0
+    }
+    fn cmpi<T>(&self, s0: T, s1: T, offset: u32) -> bool
+    where
+        T: PartialOrd + PartialEq,
+    {
+        return match offset {
+            0 => false,
+            1 => s0 < s1,
+            2 => s0 == s1,
+            3 => s0 <= s1,
+            4 => s0 > s1,
+            5 => s0 != s1,
+            6 => s0 >= s1,
+            7 => true,
+            _ => panic!("{offset}"),
+        };
     }
     fn cls_i32(&self, s0: u32) -> u32 {
         let mut ret: i32 = -1;
@@ -1484,6 +1530,30 @@ mod test_sop1 {
             cpu.scalar_reg[20] = *a;
             cpu.scalar_reg[10] = *b;
             cpu.interpret(&vec![0xBE94100A, END_PRG]);
+            assert_eq!(cpu.scalar_reg[20], *ret);
+        });
+    }
+
+    #[test]
+    fn test_s_bitset1_b32() {
+        [
+            [
+                0b00000000000000000000000000000000,
+                0b00000000000000000000000000000001,
+                0b00000000000000000000000000000010,
+            ],
+            [
+                0b00000000000000000000000000000000,
+                0b00000000000000000000000000000010,
+                0b00000000000000000000000000000100,
+            ],
+        ]
+        .iter()
+        .for_each(|[a, b, ret]| {
+            let mut cpu = _helper_test_cpu("sop1");
+            cpu.scalar_reg[20] = *a;
+            cpu.scalar_reg[10] = *b;
+            cpu.interpret(&vec![0xbe94120a, END_PRG]);
             assert_eq!(cpu.scalar_reg[20], *ret);
         });
     }
@@ -1965,35 +2035,30 @@ mod test_vopc {
 
     #[test]
     fn test_cmp_class_f32() {
-        fn t(s0: f32, s1: u32) -> bool {
-            let cpu = _helper_test_cpu("vopc");
-            println!("{} {:0b}", f32::to_bits(s0), s1);
-            return cpu.vopc(f32::to_bits(s0), s1, 126, 0x1);
-        }
+        let cpu = _helper_test_cpu("vopc");
+        assert!(!cpu.cmp_class_f32(f32::NAN, 0b00001));
+        assert!(cpu.cmp_class_f32(f32::NAN, 0b00010));
 
-        assert!(!t(f32::NAN, 0b00001));
-        assert!(t(f32::NAN, 0b00010));
+        assert!(cpu.cmp_class_f32(f32::INFINITY, 0b00000000000000000000001000000000));
+        assert!(!cpu.cmp_class_f32(f32::INFINITY, 0b00000000000000000000000000000010));
 
-        assert!(t(f32::INFINITY, 0b00000000000000000000001000000000));
-        assert!(!t(f32::INFINITY, 0b00000000000000000000000000000010));
+        assert!(cpu.cmp_class_f32(f32::NEG_INFINITY, 0b00000000000000000000000000000100));
+        assert!(!cpu.cmp_class_f32(f32::NEG_INFINITY, 0b00000000000000000000010000000000));
 
-        assert!(t(f32::NEG_INFINITY, 0b00000000000000000000000000000100));
-        assert!(!t(f32::NEG_INFINITY, 0b00000000000000000000010000000000));
+        assert!(!cpu.cmp_class_f32(0.752, 0b00000000000000000000000000000000));
+        assert!(cpu.cmp_class_f32(0.752, 0b00000000000000000000000100000000));
 
-        assert!(!t(0.752, 0b00000000000000000000000000000000));
-        assert!(t(0.752, 0b00000000000000000000000100000000));
+        assert!(!cpu.cmp_class_f32(-0.752, 0b00000000000000000000010000000000));
+        assert!(cpu.cmp_class_f32(-0.752, 0b00000000000000000000010000001000));
 
-        assert!(!t(-0.752, 0b00000000000000000000010000000000));
-        assert!(t(-0.752, 0b00000000000000000000010000001000));
+        assert!(!cpu.cmp_class_f32(1.0e-42, 0b11111111111111111111111101111111));
+        assert!(cpu.cmp_class_f32(1.0e-42, 0b00000000000000000000000010000000));
 
-        assert!(!t(1.0e-42, 0b11111111111111111111111101111111));
-        assert!(t(1.0e-42, 0b00000000000000000000000010000000));
+        assert!(cpu.cmp_class_f32(-1.0e-42, 0b00000000000000000000000000010000));
+        assert!(!cpu.cmp_class_f32(-1.0e-42, 0b11111111111111111111111111101111));
 
-        assert!(t(-1.0e-42, 0b00000000000000000000000000010000));
-        assert!(!t(-1.0e-42, 0b11111111111111111111111111101111));
-
-        assert!(t(-0.0, 0b00000000000000000000000000100000));
-        assert!(t(0.0, 0b00000000000000000000000001000000));
+        assert!(cpu.cmp_class_f32(-0.0, 0b00000000000000000000000000100000));
+        assert!(cpu.cmp_class_f32(0.0, 0b00000000000000000000000001000000));
     }
 }
 #[cfg(test)]
@@ -2206,5 +2271,15 @@ mod test_vop3 {
                 (0.01, 2)
             ));
         });
+    }
+
+    #[test]
+    fn test_v_alignbit_b32() {
+        let mut cpu = _helper_test_cpu("vop3");
+        cpu.scalar_reg[8] = 2408;
+        cpu.scalar_reg[6] = 971274757;
+        cpu.vec_reg[0] = 0b10;
+        cpu.interpret(&vec![0xD6160000, 0x04000C08, END_PRG]);
+        assert_eq!(cpu.vec_reg[0], 2585813130881u64 as u32);
     }
 }
