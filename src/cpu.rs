@@ -21,6 +21,7 @@ pub struct CPU<'a> {
     pub exec: u32,
     pub lds: &'a mut Vec<u8>,
     prg: Vec<u32>,
+    simm: Option<u32>,
 }
 
 impl<'a> CPU<'a> {
@@ -34,6 +35,7 @@ impl<'a> CPU<'a> {
             scalar_reg: [0; SGPR_COUNT],
             vec_reg: VGPR::new(),
             prg: vec![],
+            simm: None,
         };
     }
 
@@ -55,6 +57,7 @@ impl<'a> CPU<'a> {
             }
 
             self.exec(instruction);
+            self.simm = None
         }
     }
 
@@ -613,15 +616,6 @@ impl<'a> CPU<'a> {
                 );
             }
 
-            // there is only one simm per VOPD op
-            let mut simm: Option<f32> = None;
-            if sx == 255 {
-                simm = Some(f32::from_bits(srcx0));
-            }
-            if sy == 255 {
-                simm = Some(f32::from_bits(srcy0));
-            }
-
             ([(opx, srcx0, vsrcx1, vdstx), (opy, srcy0, vsrcy1, vdsty)])
                 .iter()
                 .for_each(|(op, s0, s1, dst)| {
@@ -629,13 +623,10 @@ impl<'a> CPU<'a> {
                         0 | 1 | 2 | 3 | 4 | 5 | 6 | 10 => {
                             let s0 = f32::from_bits(*s0 as u32);
                             let s1 = f32::from_bits(*s1 as u32);
-                            if simm.is_none() && (*op == 1 || *op == 2) {
-                                simm = Some(f32::from_bits(self.simm()));
-                            }
                             match *op {
                                 0 => s0 * s1 + f32::from_bits(self.vec_reg[*dst as usize]),
-                                1 => s0 * s1 + simm.unwrap(),
-                                2 => s0 * simm.unwrap() + s1,
+                                1 => s0 * s1 + f32::from_bits(self.simm()),
+                                2 => s0 * f32::from_bits(self.simm()) + s1,
                                 3 => s0 * s1,
                                 4 => s0 + s1,
                                 5 => s0 - s1,
@@ -848,7 +839,7 @@ impl<'a> CPU<'a> {
 
                     if *DEBUG >= DebugLevel::INSTRUCTION {
                         println!(
-                            "vdst={} sdst={sdst} op={op} src={:?}",
+                            "{} vdst={vdst} sdst={sdst} op={op} src={:?}",
                             "VOPSD".color("blue"),
                             (s0, s1, s2)
                         );
@@ -1365,8 +1356,14 @@ impl<'a> CPU<'a> {
         }
     }
     fn simm(&mut self) -> u32 {
-        self.pc += 1;
-        self.prg[self.pc as usize - 1]
+        if let Some(val) = self.simm {
+            val
+        } else {
+            self.pc += 1;
+            let val = self.prg[self.pc as usize - 1];
+            self.simm = Some(val);
+            val
+        }
     }
     fn write_to_sdst(&mut self, sdst_bf: u32, val: u32) {
         match sdst_bf as usize {
@@ -2301,4 +2298,5 @@ mod test_vop3 {
         cpu.interpret(&vec![0xD6160000, 0x04000C08, END_PRG]);
         assert_eq!(cpu.vec_reg[0], 2585813130881u64 as u32);
     }
+
 }
