@@ -63,7 +63,6 @@ impl<'a> CPU<'a> {
 
     fn u64_instr(&mut self) -> u64 {
         let msb = self.prg[self.pc as usize] as u64;
-        println!("{:08X}", msb);
         let instr = msb << 32 | self.prg[self.pc as usize - 1] as u64;
         self.pc += 1;
         return instr;
@@ -1046,6 +1045,12 @@ impl<'a> CPU<'a> {
                                     self.write_to_sdst(vdst as u32, val);
                                     return;
                                 }
+                                826 => {
+                                    // test_v_ashrrev_i16
+                                    self.vec_reg
+                                        .write16(vdst, ((s1 as i16) >> (s0 & 0xf)) as u16);
+                                    return;
+                                }
                                 _ => {}
                             }
 
@@ -1092,7 +1097,6 @@ impl<'a> CPU<'a> {
                                             let ret = (s0 >> (s1 & 0x1f)) & (mask.wrapping_sub(1));
                                             ((ret << shift) >> shift) as u32
                                         }
-                                        826 => panic!(),
                                         522 | 541 | 544 | 814 => {
                                             let (s0, s1, s2) = (s0 as i32, s1 as i32, s2 as i32);
                                             (match op {
@@ -2355,5 +2359,47 @@ mod test_vop3 {
             cpu.interpret(&vec![0xD6110005, 0x03050102, END_PRG]);
             assert_eq!(cpu.vec_reg[5] as i32, *ret);
         });
+    }
+
+    #[test]
+    fn test_v_ashrrev_i16() {
+        let mut cpu = _helper_test_cpu("vop3");
+        [
+            [0b10000000000000000000000000000000, 0],
+            [0b10000000000000000000000000000111, 3],
+            [0b0000000000000000, 0],
+            [0b1000000000000000, 0b1100000000000000],
+            [0b0100000000000000, 0b0010000000000000],
+            [0b0010000000000000, 0b0001000000000000],
+            [0b1010000000000000, 0b1101000000000000],
+            [0b1110000000000000, 0b1111000000000000],
+            [0b0110000000000000, 0b0011000000000000],
+        ]
+        .iter()
+        .for_each(|[a, ret]| {
+            cpu.vec_reg[2] = *a;
+            cpu.scalar_reg[1] = 1;
+            cpu.interpret(&vec![0xd73a0005, 0b11000001100000010000000001, END_PRG]);
+            assert_eq!(cpu.vec_reg[5], *ret);
+        });
+
+        [
+            [0b1000000000000000, 0b1111, 0b1111111111111111],
+            [0b1000000000000000, 0b11111, 0b1111111111111111],
+            [0b1000000000000000, 0b0111, 0b1111111100000000],
+        ]
+        .iter()
+        .for_each(|[a, shift, ret]| {
+            cpu.vec_reg[2] = *a;
+            cpu.scalar_reg[1] = *shift;
+            cpu.interpret(&vec![0xd73a0005, 0b11000001100000010000000001, END_PRG]);
+            assert_eq!(cpu.vec_reg[5], *ret);
+        });
+
+        cpu.vec_reg[5] = 0b11100000000000001111111111111111;
+        cpu.vec_reg[2] = 0b0100000000000000;
+        cpu.scalar_reg[1] = 1;
+        cpu.interpret(&vec![0xd73a0005, 0b11000001100000010000000001, END_PRG]);
+        assert_eq!(cpu.vec_reg[5], 0b11100000000000000010000000000000);
     }
 }
