@@ -63,6 +63,7 @@ impl<'a> CPU<'a> {
 
     fn u64_instr(&mut self) -> u64 {
         let msb = self.prg[self.pc as usize] as u64;
+        println!("{:08X}", msb);
         let instr = msb << 32 | self.prg[self.pc as usize - 1] as u64;
         self.pc += 1;
         return instr;
@@ -98,7 +99,7 @@ impl<'a> CPU<'a> {
                 );
             }
             let base_addr = self.scalar_reg.read64(sbase as usize);
-            let addr = (base_addr as i64 + offset) as u64;
+            let addr = (base_addr as i64 + offset + soffset as i64) as u64;
 
             match op {
                 0..=4 => (0..2_usize.pow(op as u32)).for_each(|i| unsafe {
@@ -132,6 +133,7 @@ impl<'a> CPU<'a> {
                         0 => s0,
                         10 => self.clz_i32_u32(s0),
                         12 => self.cls_i32(s0),
+                        14 => s0 as i8 as i32 as u32,
                         16 | 18 => {
                             let sdst: u32 = self.val(sdst as usize);
                             if op == 16 {
@@ -398,6 +400,13 @@ impl<'a> CPU<'a> {
                         38 => {
                             let ret = (s0 >> (s1 & 0x1f)) & ((1 << ((s1 >> 16) & 0x7f)) - 1);
                             (ret, Some(ret != 0))
+                        }
+                        39 => {
+                            let s0 = s0 as i32;
+                            let mut ret = (s0 >> (s1 & 0x1f)) & ((1 << ((s1 >> 16) & 0x1f)) - 1);
+                            let shift = 32 - ((s1 >> 16) & 0x7f);
+                            ret = (ret << shift) >> shift;
+                            (ret as u32, Some(ret != 0))
                         }
                         44 => (((s0 as i32) * (s1 as i32)) as u32, None),
                         45 => (((s0 as u64) * (s1 as u64) >> 32) as u32, None),
@@ -831,9 +840,8 @@ impl<'a> CPU<'a> {
                     let mut s = |i: u32| -> u32 { self.val(((instr >> i) & 0x1ff) as usize) };
                     let (s0, s1, s2) = (s(32), s(41), s(50));
                     let omod = (instr >> 59) & 0x3;
-                    let neg = (instr >> 61) & 0x7;
+                    let _neg = (instr >> 61) & 0x7;
                     let clmp = (instr >> 15) & 0x1;
-                    assert_eq!(neg, 0);
                     assert_eq!(omod, 0);
                     assert_eq!(clmp, 0);
 
@@ -1075,11 +1083,17 @@ impl<'a> CPU<'a> {
                                     .to_bits()
                                 }
                                 _ => {
-                                    if neg != 0 {
-                                        todo_instr!(instruction)
-                                    }
+                                    assert!(neg == 0);
                                     match op {
-                                        522 | 541 | 529 | 544 | 814 | 826 => {
+                                        529 => {
+                                            let s0 = s0 as i32;
+                                            let shift = 32 - (s2 & 0x1f);
+                                            let mask: i32 = 1 << (s2 & 0x1f);
+                                            let ret = (s0 >> (s1 & 0x1f)) & (mask.wrapping_sub(1));
+                                            ((ret << shift) >> shift) as u32
+                                        }
+                                        826 => panic!(),
+                                        522 | 541 | 544 | 814 => {
                                             let (s0, s1, s2) = (s0 as i32, s1 as i32, s2 as i32);
                                             (match op {
                                                 522 => s0 * s1 + s2, // TODO 24 bit trunc
@@ -1094,17 +1108,14 @@ impl<'a> CPU<'a> {
                                                         i32::max(s0, s1)
                                                     }
                                                 }
-                                                529 => {
-                                                    (s0 >> (s1 & 0x1f)) & ((1 << (s2 & 0x1f)) - 1)
-                                                }
                                                 814 => ((s0 as i64) * (s1 as i64) >> 32) as i32,
-                                                826 => s1 >> s0,
                                                 _ => panic!(),
                                             }) as u32
                                         }
-                                        771 | 772 | 773 | 824 | 825 => {
-                                            let (s0, s1) = (s0 as u16, s1 as u16);
+                                        577 | 771 | 772 | 773 | 824 | 825 => {
+                                            let (s0, s1, s2) = (s0 as u16, s1 as u16, s2 as u16);
                                             (match op {
+                                                577 => s0 * s1 + s2,
                                                 771 => s0 + s1,
                                                 772 => s0 - s1,
                                                 773 => s0 * s1,
@@ -1113,6 +1124,7 @@ impl<'a> CPU<'a> {
                                                 _ => panic!(),
                                             }) as u32
                                         }
+                                        283 => s0 & s1,
                                         523 => s0 * s1 + s2, // TODO 24 bit trunc
                                         528 => (s0 >> s1) & ((1 << s2) - 1),
                                         534 => {
@@ -1127,6 +1139,7 @@ impl<'a> CPU<'a> {
                                         598 => (s0 << s1) | s2,
                                         599 => (s0 & s1) | s2,
                                         812 => s0 * s1,
+                                        813 => ((s0 as u64) * (s1 as u64) >> 32) as u32,
                                         _ => todo_instr!(instruction),
                                     }
                                 }
@@ -2299,4 +2312,48 @@ mod test_vop3 {
         assert_eq!(cpu.vec_reg[0], 2585813130881u64 as u32);
     }
 
+    #[test]
+    fn test_v_bfe_i32() {
+        [
+            [0b00000000000000000000000000000001, -1],
+            [0b00000000000000000000000000000000, 0],
+            [0b00000000000000000000000000000010, 0],
+        ]
+        .iter()
+        .for_each(|[a, ret]| {
+            let mut cpu = _helper_test_cpu("vop3");
+            cpu.vec_reg[2] = *a as u32;
+            cpu.interpret(&vec![0xD6110005, 0x02050102, END_PRG]);
+            assert_eq!(cpu.vec_reg[5] as i32, *ret);
+        });
+
+        [
+            [0b00000000000000000000000000000010, -2],
+            [0b00000000000000000000000000000001, 1],
+            [0b00000000000000000000000000000100, 0],
+        ]
+        .iter()
+        .for_each(|[a, ret]| {
+            let mut cpu = _helper_test_cpu("vop3");
+            cpu.vec_reg[2] = *a as u32;
+            cpu.interpret(&vec![0xD6110005, 0x02090102, END_PRG]);
+            assert_eq!(cpu.vec_reg[5] as i32, *ret);
+        });
+
+        [
+            [
+                0b00100000000000000000000000000000,
+                0b100000000000000000000000000000,
+            ],
+            [0b00000000000000001000000000000000, 0b1000000000000000],
+            [-1, -1],
+        ]
+        .iter()
+        .for_each(|[a, ret]| {
+            let mut cpu = _helper_test_cpu("vop3");
+            cpu.vec_reg[2] = *a as u32;
+            cpu.interpret(&vec![0xD6110005, 0x03050102, END_PRG]);
+            assert_eq!(cpu.vec_reg[5] as i32, *ret);
+        });
+    }
 }
