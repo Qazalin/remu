@@ -22,10 +22,11 @@ pub struct CPU<'a> {
     pub lds: &'a mut Vec<u8>,
     prg: Vec<u32>,
     simm: Option<u32>,
+    _function_name: String,
 }
 
 impl<'a> CPU<'a> {
-    pub fn new(lds: &'a mut Vec<u8>) -> Self {
+    pub fn new(lds: &'a mut Vec<u8>, _function_name: String) -> Self {
         return CPU {
             pc: 0,
             scc: 0,
@@ -36,6 +37,7 @@ impl<'a> CPU<'a> {
             vec_reg: VGPR::new(),
             prg: vec![],
             simm: None,
+            _function_name,
         };
     }
 
@@ -207,12 +209,11 @@ impl<'a> CPU<'a> {
         else if instruction >> 23 == 0b10_1111111 {
             let simm16 = (instruction & 0xffff) as i16;
             let op = (instruction >> 16) & 0x7f;
-
             if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
                     "{} simm16={simm16} op={op} pc={}",
                     "SOPP".color("blue"),
-                    self.pc
+                    self.pc,
                 );
             }
 
@@ -787,11 +788,14 @@ impl<'a> CPU<'a> {
                             }
                             .to_bits()
                         }
-
-                        9 | 18 | 26 => {
+                        9 => {
+                            let s0 = as_signed((s0 & 0xffffff) as u64, 24) as i32;
+                            let s1 = as_signed((s1 & 0xffffff) as u64, 24) as i32;
+                            (s0 * s1) as u32
+                        }
+                        18 | 26 => {
                             let (s0, s1) = (s0 as i32, s1 as i32);
                             (match op {
-                                9 => s0 * s1,
                                 18 => i32::max(s0, s1),
                                 26 => s1 >> s0,
                                 _ => panic!(),
@@ -1046,9 +1050,22 @@ impl<'a> CPU<'a> {
                                     return;
                                 }
                                 826 => {
-                                    // test_v_ashrrev_i16
                                     self.vec_reg
                                         .write16(vdst, ((s1 as i16) >> (s0 & 0xf)) as u16);
+                                    return;
+                                }
+                                577 | 771 | 772 | 773 | 824 | 825 => {
+                                    let (s0, s1, s2) = (s0 as u16, s1 as u16, s2 as u16);
+                                    let ret = match op {
+                                        577 => s0 * s1 + s2,
+                                        771 => s0 + s1,
+                                        772 => s0 - s1,
+                                        773 => s0 * s1,
+                                        824 => s1 << s0,
+                                        825 => s1 >> s0,
+                                        _ => panic!(),
+                                    };
+                                    self.vec_reg.write16(vdst, ret);
                                     return;
                                 }
                                 _ => {}
@@ -1100,7 +1117,13 @@ impl<'a> CPU<'a> {
                                         522 | 541 | 544 | 814 => {
                                             let (s0, s1, s2) = (s0 as i32, s1 as i32, s2 as i32);
                                             (match op {
-                                                522 => s0 * s1 + s2, // TODO 24 bit trunc
+                                                522 => {
+                                                    let s0 = as_signed((s0 & 0xffffff) as u64, 24)
+                                                        as i32;
+                                                    let s1 = as_signed((s1 & 0xffffff) as u64, 24)
+                                                        as i32;
+                                                    s0 * s1 + s2
+                                                }
                                                 541 => i32::max(i32::max(s0, s1), s2),
                                                 544 => {
                                                     if (i32::max(i32::max(s0, s1), s2)) == s0 {
@@ -1113,18 +1136,6 @@ impl<'a> CPU<'a> {
                                                     }
                                                 }
                                                 814 => ((s0 as i64) * (s1 as i64) >> 32) as i32,
-                                                _ => panic!(),
-                                            }) as u32
-                                        }
-                                        577 | 771 | 772 | 773 | 824 | 825 => {
-                                            let (s0, s1, s2) = (s0 as u16, s1 as u16, s2 as u16);
-                                            (match op {
-                                                577 => s0 * s1 + s2,
-                                                771 => s0 + s1,
-                                                772 => s0 - s1,
-                                                773 => s0 * s1,
-                                                824 => s1 << s0,
-                                                825 => s1 >> s0,
                                                 _ => panic!(),
                                             }) as u32
                                         }
@@ -1217,7 +1228,7 @@ impl<'a> CPU<'a> {
                     saddr,
                     op,
                     offset,
-                    vdst
+                    vdst,
                 );
             }
 
@@ -1479,7 +1490,7 @@ impl ALUSrc<u64> for CPU<'_> {
 pub fn _helper_test_cpu(_wave_id: &str) -> CPU<'static> {
     let mock_lds = Box::new(Vec::new());
     let static_ref: &'static mut Vec<u8> = Box::leak(mock_lds);
-    CPU::new(static_ref)
+    CPU::new(static_ref, "".to_string())
 }
 
 #[cfg(test)]
@@ -1792,7 +1803,6 @@ mod test_sop2 {
         ]
         .iter()
         .for_each(|[a_lo, a_hi, ret_lo, ret_hi]| {
-            println!("{a_lo} {a_hi}");
             let mut cpu = _helper_test_cpu("sop2");
             cpu.scalar_reg[6] = *a_lo;
             cpu.scalar_reg[7] = *a_hi;
@@ -1862,6 +1872,14 @@ mod test_vopd {
         cpu.interpret(&vec![0xCA100080, 0x000000FF, 0x3E15F480, END_PRG]);
         assert_eq!(cpu.vec_reg[0], 0);
         assert_eq!(cpu.vec_reg[1], 0x3e15f480);
+
+        let mut cpu = _helper_test_cpu("vopd");
+        cpu.vec_reg[18] = f32::to_bits(2.0);
+        cpu.vec_reg[32] = f32::to_bits(4.0);
+        cpu.vec_reg[7] = 10;
+        cpu.interpret(&vec![0xC9204112, 0x00060EFF, 0x0000006E, END_PRG]);
+        assert_eq!(f32::from_bits(cpu.vec_reg[0]), 2.0f32 + 4.0f32);
+        assert_eq!(cpu.vec_reg[7], 120);
     }
 
     #[test]
@@ -2133,6 +2151,43 @@ mod test_vop2 {
             assert_eq!(f32::from_bits(cpu.vec_reg[2]), *ret);
         })
     }
+
+    #[test]
+    fn test_v_mul_i32_i24() {
+        [
+            [18, 0x64, 1800],
+            [0b10000000000000000000000000, 0b1, 0],
+            [
+                0b100000000000000000000000,
+                0b1,
+                0b11111111100000000000000000000000,
+            ],
+        ]
+        .iter()
+        .for_each(|[a, b, ret]| {
+            let mut cpu = _helper_test_cpu("vop2");
+            cpu.vec_reg[1] = *a;
+            cpu.interpret(&vec![0x124E02FF, *b, END_PRG]);
+            assert_eq!(cpu.vec_reg[39], *ret);
+        });
+    }
+
+    #[test]
+    fn test_v_add_nc_u32_const() {
+        let mut cpu = _helper_test_cpu("vop2");
+        cpu.vec_reg[18] = 7;
+        cpu.interpret(&vec![0x4A3024B8, END_PRG]);
+        assert_eq!(cpu.vec_reg[24], 63);
+    }
+
+    #[test]
+    fn test_v_add_nc_u32_sint() {
+        let mut cpu = _helper_test_cpu("vop2");
+        cpu.vec_reg[14] = 7;
+        cpu.vec_reg[6] = 4294967279;
+        cpu.interpret(&vec![0x4A0C1D06, END_PRG]);
+        assert_eq!(cpu.vec_reg[6], 4294967286);
+    }
 }
 
 #[cfg(test)]
@@ -2401,5 +2456,28 @@ mod test_vop3 {
         cpu.scalar_reg[1] = 1;
         cpu.interpret(&vec![0xd73a0005, 0b11000001100000010000000001, END_PRG]);
         assert_eq!(cpu.vec_reg[5], 0b11100000000000000010000000000000);
+    }
+
+    #[test]
+    fn test_v_add_nc_u16() {
+        let mut cpu = _helper_test_cpu("vop3");
+        cpu.vec_reg[5] = 10;
+        cpu.vec_reg[8] = 20;
+        cpu.interpret(&vec![0xD7030005, 0x00021105, END_PRG]);
+        assert_eq!(cpu.vec_reg[5], 30);
+    }
+
+    #[test]
+    fn test_v_mul_lo_u16() {
+        let mut cpu = _helper_test_cpu("vop3");
+        cpu.vec_reg[5] = 2;
+        cpu.vec_reg[15] = 0;
+        cpu.interpret(&vec![0xD705000F, 0x00010B05, END_PRG]);
+        assert_eq!(cpu.vec_reg[15], 10);
+
+        cpu.vec_reg[5] = 2;
+        cpu.vec_reg[15] = 0b10000000000000000000000000000000;
+        cpu.interpret(&vec![0xD705000F, 0x00010B05, END_PRG]);
+        assert_eq!(cpu.vec_reg[15], 0b10000000000000000000000000000000 + 10);
     }
 }

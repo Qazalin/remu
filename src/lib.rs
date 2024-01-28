@@ -40,6 +40,7 @@ pub extern "C" fn hipModuleLaunchKernel(
     }
 
     let (prg, function_name) = &utils::read_asm(&lib_bytes);
+
     if *DEBUG >= DebugLevel::NONE {
         println!(
             "[remu] launching kernel {function_name} with global_size {} {} {} local_size {} {} {} args {:?}",
@@ -59,6 +60,7 @@ pub extern "C" fn hipModuleLaunchKernel(
                         for ty in 0..block_dim_y {
                             for tz in 0..block_dim_z {
                                 launch_thread(
+                                    function_name,
                                     [gx, gy, gz],
                                     [tx, ty, tz],
                                     [grid_dim_x, grid_dim_y, grid_dim_z],
@@ -78,6 +80,7 @@ pub extern "C" fn hipModuleLaunchKernel(
 }
 
 fn launch_thread(
+    function_name: &str,
     grid_id: [u32; 3],
     thread_id: [u32; 3],
     global_size: [u32; 3],
@@ -87,7 +90,7 @@ fn launch_thread(
     lds: &mut Vec<u8>,
     thread_registers: &mut HashMap<[u32; 3], ([u32; SGPR_COUNT], VGPR, u32)>,
 ) {
-    let mut cpu = CPU::new(lds);
+    let mut cpu = CPU::new(lds, function_name.to_string());
     match thread_registers.get(&thread_id) {
         Some(val) => {
             cpu.scalar_reg = val.0.clone();
