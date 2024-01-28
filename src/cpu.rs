@@ -432,28 +432,29 @@ impl<'a> CPU<'a> {
         else if instruction >> 24 == 0b11001100 {
             let instr = self.u64_instr();
             let vdst = instr & 0xff;
-            let neg_hi = ((instr >> 8) & 0x7) as u32;
+            let b = |i: usize| (instr >> i) & 0x1 != 0;
+            let neg_hi = [b(9), b(8), b(10)];
+            let opsel = [b(11), b(12), b(13)];
+            let opsel_hi = [b(59), b(60), b(14)];
             let clmp = (instr >> 15) & 0x1;
-            let opsel = ((instr >> 11) & 0x7) as u32;
             let op = (instr >> 16) & 0x7f;
             let mut src = |x: u64| -> (u16, u16, u32) {
                 let val: u32 = self.val(((instr >> x) & 0x1ff) as usize);
-                ((val & 0x1ffff) as u16, ((val >> 16) & 0x1ffff) as u16, val)
+                ((val & 0xffff) as u16, ((val >> 16) & 0xffff) as u16, val)
             };
             let src = [src(32), src(41), src(50)];
-            let opsel_hi = ((instr >> 59) & 0x3) as u32;
             let neg = (instr >> 61) & 0x7;
             assert_eq!([clmp, neg], [0, 0]);
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
-                println!("{} op={} vdst={} neg_hi={} opsel={} src0={:?} src1={:?} src2={:?} opsel_hi=0b{:03b} neg=0b{:03b} neg_hi=0b{:03b}", "VOPP".color("blue"), op, vdst, neg_hi, opsel, src[0], src[1], src[2], opsel_hi, neg, neg_hi);
+                println!("{} op={op} vdst={vdst} src0={:?} src1={:?} src2={:?} opsel={:?} opsel_hi={:?} neg={:?} neg_hi={:?}", "VOPP".color("blue"),src[0], src[1], src[2], opsel, opsel_hi, neg, neg_hi);
             }
 
             let mut input: [f32; 3] = [0.0; 3];
             for i in 0..=2 {
-                input[i] = if nth(opsel_hi, i) == 0 {
+                input[i] = if !opsel_hi[i] {
                     f32::from_bits(src[i].2)
-                } else if nth(opsel, i) == 1 {
+                } else if opsel[i] {
                     f32::from(f16::from_bits(src[i].1))
                 } else {
                     f32::from(f16::from_bits(src[i].0))
@@ -471,11 +472,11 @@ impl<'a> CPU<'a> {
                 }
                 32 => {
                     input.iter_mut().enumerate().for_each(|(i, x)| {
-                        if nth(neg_hi, i) != 0 {
+                        if neg_hi[i] {
                             *x = f32::abs(*x)
                         }
                     });
-                    (input[0] * input[1] + input[2]).to_bits()
+                    f32::mul_add(input[0], input[1], input[2]).to_bits()
                 }
                 33 => f16::from_f32(input[0] * input[1] + input[2]).to_bits() as u32,
                 _ => todo_instr!(instruction),
@@ -566,7 +567,6 @@ impl<'a> CPU<'a> {
                                     match op {
                                         35 => {
                                             let mut temp = f32::floor(s0 + 0.5);
-                                            // test_v_rndne_f32_e32
                                             if f32::floor(s0) % 2.0 != 0.0 && f32::fract(s0) == 0.5
                                             {
                                                 temp -= 1.0;
@@ -582,6 +582,7 @@ impl<'a> CPU<'a> {
                                     }
                                     .to_bits()
                                 }
+                                55 => !s0,
                                 59 => self.cls_i32(s0),
                                 80 => f16::from_f32(s0 as u16 as f32).to_bits() as u32,
                                 81 => f16::from_f32(s0 as i16 as u16 as f32).to_bits() as u32,
@@ -614,9 +615,9 @@ impl<'a> CPU<'a> {
             };
             let vsrcy1 = self.vec_reg[(vy) as usize];
 
-            let vdstx = (instr >> 56) & 0xff;
+            let vdstx = ((instr >> 56) & 0xff) as usize;
             // LSB is the opposite of VDSTX[0]
-            let vdsty = ((instr >> 49) & 0x7f) << 1 | ((vdstx & 1) ^ 1);
+            let vdsty = (((instr >> 49) & 0x7f) << 1 | ((vdstx as u64 & 1) ^ 1)) as usize;
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
@@ -628,14 +629,14 @@ impl<'a> CPU<'a> {
             ([(opx, srcx0, vsrcx1, vdstx), (opy, srcy0, vsrcy1, vdsty)])
                 .iter()
                 .for_each(|(op, s0, s1, dst)| {
-                    self.vec_reg[*dst as usize] = match *op {
+                    self.vec_reg[*dst] = match *op {
                         0 | 1 | 2 | 3 | 4 | 5 | 6 | 10 => {
                             let s0 = f32::from_bits(*s0 as u32);
                             let s1 = f32::from_bits(*s1 as u32);
                             match *op {
-                                0 => s0 * s1 + f32::from_bits(self.vec_reg[*dst as usize]),
-                                1 => s0 * s1 + f32::from_bits(self.simm()),
-                                2 => s0 * f32::from_bits(self.simm()) + s1,
+                                0 => f32::mul_add(s0, s1, f32::from_bits(self.vec_reg[*dst])),
+                                1 => f32::mul_add(s0, s1, f32::from_bits(self.simm())),
+                                2 => f32::mul_add(s0, f32::from_bits(self.simm()), s1),
                                 3 => s0 * s1,
                                 4 => s0 + s1,
                                 5 => s0 - s1,
@@ -742,8 +743,8 @@ impl<'a> CPU<'a> {
                 54 | 56 => {
                     let (s0, s1) = (f16::from_bits(self.val(s0)), f16::from_bits(s1 as u16));
                     let ret = match op {
-                        54 => s0 * s1 + f16::from_bits(self.vec_reg[vdst] as u16),
-                        56 => s0 * s1 + f16::from_bits(self.simm() as u16),
+                        54 => f16::mul_add(s0, s1, f16::from_bits(self.vec_reg[vdst] as u16)),
+                        56 => f16::mul_add(s0, s1, f16::from_bits(self.simm() as u16)),
                         _ => todo_instr!(instruction),
                     };
                     self.vec_reg[vdst] = ret.to_bits() as u32;
@@ -781,9 +782,9 @@ impl<'a> CPU<'a> {
                                 4 => s0 - s1,
                                 8 => s0 * s1,
                                 16 => f32::max(s0, s1),
-                                43 => s0 * s1 + f32::from_bits(self.vec_reg[vdst]),
-                                44 => s0 * f32::from_bits(self.simm()) + s1,
-                                45 => s0 * s1 + f32::from_bits(self.simm()),
+                                43 => f32::mul_add(s0, s1, f32::from_bits(self.vec_reg[vdst])),
+                                44 => f32::mul_add(s0, f32::from_bits(self.simm()), s1),
+                                45 => f32::mul_add(s0, s1, f32::from_bits(self.simm())),
                                 _ => panic!(),
                             }
                             .to_bits()
@@ -998,7 +999,7 @@ impl<'a> CPU<'a> {
                                     );
 
                                     match op {
-                                        532 => s0 * s1 + s2,
+                                        532 => f64::mul_add(s0, s1, s2),
                                         808 => s0 * s1,
                                         811 => (s0 * 2.0).powi(s1.to_bits() as i32),
                                         807 => s0 + s1,
@@ -1017,7 +1018,7 @@ impl<'a> CPU<'a> {
                             let s2 = f16::from_bits(s2).negate(1, neg).absolute(1, abs);
                             self.vec_reg[vdst] = match op {
                                 306 => s0 + s1,
-                                584 => s0 * s1 + s2,
+                                584 => f16::mul_add(s0, s1, s2),
                                 596 => s2 / s1,
                                 _ => panic!(),
                             }
@@ -1082,13 +1083,15 @@ impl<'a> CPU<'a> {
                                         260 => s0 - s1,
                                         264 => s0 * s1,
                                         272 => f32::max(s0, s1),
-                                        299 => s0 * s1 + f32::from_bits(self.vec_reg[vdst]),
-                                        531 => s0 * s1 + s2,
+                                        299 => {
+                                            f32::mul_add(s0, s1, f32::from_bits(self.vec_reg[vdst]))
+                                        }
+                                        531 => f32::mul_add(s0, s1, s2),
                                         537 => f32::min(f32::min(s0, s1), s2),
                                         540 => f32::max(f32::max(s0, s1), s2),
                                         551 => s2 / s1,
                                         567 => {
-                                            let ret = s0 * s1 + s2;
+                                            let ret = f32::mul_add(s0, s1, s2);
                                             match *self.vcc != 0 {
                                                 true => 2.0_f32.powi(32) * ret,
                                                 false => ret,
@@ -1143,8 +1146,9 @@ impl<'a> CPU<'a> {
                                         523 => s0 * s1 + s2, // TODO 24 bit trunc
                                         528 => (s0 >> s1) & ((1 << s2) - 1),
                                         534 => {
-                                            let val = (s0 as u64 >> 32) | (s1 as u64);
-                                            ((val >> (s2 & 0x1f)) & 0xffffffff) as u32
+                                            let val = ((s0 as u64) << 32) | (s1 as u64);
+                                            let shift = (s2 & 0x1F) as u64;
+                                            ((val >> shift) & 0xffffffff) as u32
                                         }
                                         576 => s0 ^ s1 ^ s2,
                                         582 => (s0 << s1) + s2,
@@ -2056,6 +2060,24 @@ mod test_vop1 {
         assert_eq!(t(0xffff0000), 16);
         assert_eq!(t(0xfffffffe), 31);
     }
+
+    #[test]
+    fn test_v_rndne_f32() {
+        [
+            [1.2344, 1.0],
+            [2.3, 2.0], // [0.5f32, 0.0f32],
+            [0.51, 1.0],
+            [f32::from_bits(1186963295), f32::from_bits(1186963456)],
+        ]
+        .iter()
+        .for_each(|[a, ret]| {
+            let mut cpu = _helper_test_cpu("vop1");
+            cpu.vec_reg[0] = f32::to_bits(*a);
+            println!("a={} ret={}", a.to_bits(), ret.to_bits());
+            cpu.interpret(&vec![0x7E024700, END_PRG]);
+            assert_eq!(f32::from_bits(cpu.vec_reg[1]), *ret);
+        })
+    }
 }
 
 #[cfg(test)]
@@ -2140,16 +2162,6 @@ mod test_vop2 {
         cpu.vec_reg[0] = 4294967295;
         cpu.interpret(&vec![0x3402009F, END_PRG]);
         assert_eq!(cpu.vec_reg[1] as i32, -1);
-    }
-
-    #[test]
-    fn test_v_rndne_f32() {
-        [[1.2344, 1.0], [2.3, 2.0]].iter().for_each(|[a, ret]| {
-            let mut cpu = _helper_test_cpu("vop2");
-            cpu.vec_reg[2] = f32::to_bits(*a);
-            cpu.interpret(&vec![0x7E044702, END_PRG]);
-            assert_eq!(f32::from_bits(cpu.vec_reg[2]), *ret);
-        })
     }
 
     #[test]
@@ -2364,11 +2376,11 @@ mod test_vop3 {
     #[test]
     fn test_v_alignbit_b32() {
         let mut cpu = _helper_test_cpu("vop3");
-        cpu.scalar_reg[8] = 2408;
-        cpu.scalar_reg[6] = 971274757;
-        cpu.vec_reg[0] = 0b10;
-        cpu.interpret(&vec![0xD6160000, 0x04000C08, END_PRG]);
-        assert_eq!(cpu.vec_reg[0], 2585813130881u64 as u32);
+        cpu.scalar_reg[4] = 5340353;
+        cpu.scalar_reg[10] = 3072795146;
+        cpu.vec_reg[0] = 8;
+        cpu.interpret(&vec![0xD6160001, 0x04001404, END_PRG]);
+        assert_eq!(cpu.vec_reg[1], 3250005794);
     }
 
     #[test]
@@ -2488,5 +2500,67 @@ mod test_vop3 {
         cpu.scalar_reg[5] = 0;
         cpu.interpret(&vec![0xD43C0005, 0x000202FF, 0x00003334, END_PRG]);
         assert_eq!(cpu.scalar_reg[5], 0);
+    }
+
+    #[test]
+    fn test_v_cmp_ngt_f32_abs() {
+        [
+            (0.5f32, 0.5f32, 1),
+            (-0.5, 0.5, 1),
+            (0.1, 0.2, 0),
+            (-0.1, 0.2, 0),
+        ]
+        .iter()
+        .for_each(|(x, y, ret)| {
+            let mut cpu = _helper_test_cpu("vop3");
+            cpu.scalar_reg[2] = x.to_bits();
+            cpu.interpret(&vec![0xD41B0203, 0x000004FF, y.to_bits(), END_PRG]);
+            assert_eq!(cpu.scalar_reg[3], *ret);
+        })
+    }
+    #[test]
+    fn test_fma() {
+        fn v_fma_f32(a: u32, b: u32, c: u32, ret: u32) {
+            let mut cpu = _helper_test_cpu("vop3");
+            cpu.vec_reg[1] = b;
+            cpu.scalar_reg[3] = c;
+            cpu.interpret(&vec![0xD6130000, 0x000E02FF, a, END_PRG]);
+            assert_eq!(cpu.vec_reg[0], ret);
+        }
+        fn v_fmac_f32(a: u32, b: u32, c: u32, ret: u32) {
+            let mut cpu = _helper_test_cpu("vop3");
+            cpu.scalar_reg[1] = a;
+            cpu.scalar_reg[2] = b;
+            cpu.vec_reg[0] = c;
+            cpu.interpret(&vec![0xd52b0000, 0x401, END_PRG]);
+            assert_eq!(cpu.vec_reg[0], ret);
+        }
+        [[0xbfc90fda, 1186963456, 1192656896, 3204127872]]
+            .iter()
+            .for_each(|[a, b, c, ret]| {
+                v_fma_f32(*a, *b, *c, *ret);
+                v_fmac_f32(*a, *b, *c, *ret);
+            })
+    }
+}
+
+#[cfg(test)]
+mod test_vopp {
+    use super::*;
+
+    #[test]
+    fn test_v_fma_mix_f32() {
+        let mut cpu = _helper_test_cpu("vopp");
+        cpu.vec_reg[2] = 1065353216;
+        cpu.scalar_reg[2] = 3217620992;
+        cpu.vec_reg[1] = 15360;
+        cpu.interpret(&vec![0xCC204403, 0x04040502, END_PRG]);
+        assert_eq!(cpu.vec_reg[3], 3205627904);
+
+        cpu.vec_reg[2] = 1065353216;
+        cpu.scalar_reg[2] = 3217620992;
+        cpu.vec_reg[1] = 48128;
+        cpu.interpret(&vec![0xCC204403, 0x04040502, END_PRG]);
+        assert_eq!(cpu.vec_reg[3], 3205627904);
     }
 }
