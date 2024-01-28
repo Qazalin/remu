@@ -698,7 +698,7 @@ impl<'a> CPU<'a> {
                 }
                 (57..=62) | (185..=190) => {
                     let (s0, s1): (u16, u16) = (self.val(s0), self.vec_reg[s1] as u16);
-                    self.cmpi(s0 as i16, s1 as i16, op - 56 - dest_offset)
+                    self.cmpi(s0, s1, op - 56 - dest_offset)
                 }
                 (64..=71) | (192..=199) => {
                     let (s0, s1): (u32, u32) = (self.val(s0), self.vec_reg[s1]);
@@ -948,7 +948,7 @@ impl<'a> CPU<'a> {
                                 }
                                 (57..=62) | (185..=190) => {
                                     let (s0, s1): (u16, u16) = (self.val(src.0), self.val(src.1));
-                                    self.cmpi(s0 as i16, s1 as i16, op - 56 - dest_offset)
+                                    self.cmpi(s0, s1, op - 56 - dest_offset)
                                 }
                                 (64..=71) | (192..=199) => {
                                     let (s0, s1): (u32, u32) = (self.val(src.0), self.val(src.1));
@@ -2479,5 +2479,14 @@ mod test_vop3 {
         cpu.vec_reg[15] = 0b10000000000000000000000000000000;
         cpu.interpret(&vec![0xD705000F, 0x00010B05, END_PRG]);
         assert_eq!(cpu.vec_reg[15], 0b10000000000000000000000000000000 + 10);
+    }
+
+    #[test]
+    fn test_v_cmp_gt_u16() {
+        let mut cpu = _helper_test_cpu("vop3");
+        cpu.vec_reg[1] = 52431;
+        cpu.scalar_reg[5] = 0;
+        cpu.interpret(&vec![0xD43C0005, 0x000202FF, 0x00003334, END_PRG]);
+        assert_eq!(cpu.scalar_reg[5], 0);
     }
 }
