@@ -259,6 +259,7 @@ impl<'a> CPU<'a> {
                         3 => s0 == s1,
                         4 => s0 != s1,
                         5 => s0 > s1,
+                        7 => s0 < s1,
                         _ => todo_instr!(instruction),
                     } as u32
                 }
@@ -266,6 +267,7 @@ impl<'a> CPU<'a> {
                     let s1 = simm as u16 as u32;
                     self.scc = match op {
                         9 => s0 == s1,
+                        13 => s0 < s1,
                         _ => todo_instr!(instruction),
                     } as u32
                 }
@@ -308,12 +310,16 @@ impl<'a> CPU<'a> {
                     self.scalar_reg.write64(sdst as usize, ret);
                     self.scc = (ret != 0) as u32;
                 }
-                9 | 40 | 41 => {
+                9 | 13 | 40 | 41 => {
                     let (s0, s1): (u64, u32) = (self.val(s0), self.val(s1));
                     let ret = match op {
                         9 => {
                             let ret = s0 << (s1 & 0x3f);
                             (ret, Some(ret != 0))
+                        }
+                        13 => {
+                            let ret = (s0 as i64) >> (s1 & 0x3f);
+                            (ret as u64, Some(ret != 0))
                         }
                         40 => {
                             let ret = (s0 >> (s1 & 0x3f)) & ((1 << ((s1 >> 16) & 0x7f)) - 1);
@@ -439,8 +445,14 @@ impl<'a> CPU<'a> {
             let clmp = (instr >> 15) & 0x1;
             let op = (instr >> 16) & 0x7f;
             let mut src = |x: u64| -> (u16, u16, u32) {
-                let val: u32 = self.val(((instr >> x) & 0x1ff) as usize);
-                ((val & 0xffff) as u16, ((val >> 16) & 0xffff) as u16, val)
+                let s = ((instr >> x) & 0x1ff) as usize;
+                let val: u32 = self.val(s);
+                if is_const_src(s) {
+                    let val_u16: u16 = self.val(s);
+                    (val_u16, val_u16, val)
+                } else {
+                    ((val & 0xffff) as u16, ((val >> 16) & 0xffff) as u16, val)
+                }
             };
             let src = [src(32), src(41), src(50)];
             let neg = (instr >> 61) & 0x7;
@@ -467,6 +479,20 @@ impl<'a> CPU<'a> {
                         10 => x + y,
                         11 => x - y,
                         _ => todo_instr!(instruction),
+                    };
+                    (fxn(src[0].1, src[1].1) as u32) << 16 | fxn(src[0].0, src[1].0) as u32
+                }
+                15..=17 => {
+                    let fxn = |x, y| {
+                        let x = f16::from_bits(x);
+                        let y = f16::from_bits(y);
+
+                        let ret = match op {
+                            15 => x + y,
+                            16 => x * y,
+                            _ => todo_instr!(instruction),
+                        };
+                        ret.to_bits()
                     };
                     (fxn(src[0].1, src[1].1) as u32) << 16 | fxn(src[0].0, src[1].0) as u32
                 }
@@ -775,11 +801,12 @@ impl<'a> CPU<'a> {
                             }
                         }
 
-                        3 | 4 | 8 | 16 | 43 | 44 | 45 => {
+                        3 | 4 | 5 | 8 | 16 | 43 | 44 | 45 => {
                             let (s0, s1) = (f32::from_bits(s0), f32::from_bits(s1));
                             match op {
                                 3 => s0 + s1,
                                 4 => s0 - s1,
+                                5 => s1 - s0,
                                 8 => s0 * s1,
                                 16 => f32::max(s0, s1),
                                 43 => f32::mul_add(s0, s1, f32::from_bits(self.vec_reg[vdst])),
@@ -977,12 +1004,14 @@ impl<'a> CPU<'a> {
                                 _ => todo_instr!(instruction),
                             }
                         }
-                        828 | 829 => {
+                        828..=830 => {
                             let (s0, s1, _s2): (u32, u64, u64) =
                                 (self.val(src.0), self.val(src.1), self.val(src.2));
+                            let shift = s0 & 0x3f;
                             let ret = match op {
-                                828 => s1 << (s0 & 0x3f),
-                                829 => s1 >> (s0 & 0x3f),
+                                828 => s1 << shift,
+                                829 => s1 >> shift,
+                                830 => ((s1 as i64) >> shift) as u64,
                                 _ => todo_instr!(instruction),
                             };
                             self.vec_reg.write64(vdst, ret)
@@ -1404,6 +1433,13 @@ impl<'a> CPU<'a> {
             126 => self.exec = val,
             _ => todo!("write to sdst {}", sdst_bf),
         }
+    }
+}
+
+fn is_const_src(code: usize) -> bool {
+    match code {
+        0..=SGPR_COUNT | VGPR_COUNT..=511 => false,
+        _ => true,
     }
 }
 
