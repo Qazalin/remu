@@ -2,15 +2,13 @@ use crate::alu_modifiers::VOPModifier;
 use crate::dtype::IEEEClass;
 use crate::state::{Assign, Register, VCC, VGPR};
 use crate::todo_instr;
-use crate::utils::{as_signed, f16_hi, f16_lo, nth, Colorize, DebugLevel, DEBUG};
+use crate::utils::{as_signed, f16_hi, f16_lo, nth, Colorize, DebugLevel, DEBUG, END_PRG};
 use half::f16;
 use num_traits::Float;
 
 pub const SGPR_COUNT: usize = 105;
 pub const VGPR_COUNT: usize = 256;
 const NULL_SRC: u32 = 124;
-pub const END_PRG: u32 = 0xbfb00000;
-const NOOPS: [u32; 1] = [0xbfb60003];
 
 pub struct CPU<'a> {
     pub pc: u64,
@@ -22,11 +20,10 @@ pub struct CPU<'a> {
     pub lds: &'a mut Vec<u8>,
     prg: Vec<u32>,
     simm: Option<u32>,
-    _function_name: String,
 }
 
 impl<'a> CPU<'a> {
-    pub fn new(lds: &'a mut Vec<u8>, _function_name: String) -> Self {
+    pub fn new(lds: &'a mut Vec<u8>) -> Self {
         return CPU {
             pc: 0,
             scc: 0,
@@ -37,7 +34,6 @@ impl<'a> CPU<'a> {
             vec_reg: VGPR::new(),
             prg: vec![],
             simm: None,
-            _function_name,
         };
     }
 
@@ -54,7 +50,7 @@ impl<'a> CPU<'a> {
             if instruction == END_PRG {
                 break;
             }
-            if NOOPS.contains(&instruction) || instruction >> 20 == 0xbf8 {
+            if instruction == 0xbfb60003 || instruction >> 20 == 0xbf8 {
                 continue;
             }
 
@@ -1527,10 +1523,9 @@ impl ALUSrc<u64> for CPU<'_> {
     }
 }
 
-pub fn _helper_test_cpu(_wave_id: &str) -> CPU<'static> {
-    let mock_lds = Box::new(Vec::new());
-    let static_ref: &'static mut Vec<u8> = Box::leak(mock_lds);
-    CPU::new(static_ref, "".to_string())
+pub fn _helper_test_cpu() -> CPU<'static> {
+    let static_lds: &'static mut Vec<u8> = Box::leak(Box::new(Vec::new()));
+    CPU::new(static_lds)
 }
 
 #[cfg(test)]
@@ -1539,14 +1534,14 @@ mod test_alu_utils {
 
     #[test]
     fn test_write_to_sdst_sgpr() {
-        let mut cpu = _helper_test_cpu("test_write_to_sdst_sgpr");
+        let mut cpu = _helper_test_cpu();
         cpu.write_to_sdst(10, 200);
         assert_eq!(cpu.scalar_reg[10], 200);
     }
 
     #[test]
     fn test_write_to_sdst_vcclo() {
-        let mut cpu = _helper_test_cpu("test_write_to_sdst_sgpr");
+        let mut cpu = _helper_test_cpu();
         let val = 0b1011101011011011111011101111;
         cpu.write_to_sdst(106, val);
         assert_eq!(*cpu.vcc, 1);
@@ -1554,7 +1549,7 @@ mod test_alu_utils {
 
     #[test]
     fn test_clz_i32_u32() {
-        let cpu = _helper_test_cpu("alu");
+        let cpu = _helper_test_cpu();
         assert_eq!(cpu.clz_i32_u32(0x00000000), 0xffffffff);
         assert_eq!(cpu.clz_i32_u32(0x0000cccc), 16);
         assert_eq!(cpu.clz_i32_u32(0xffff3333), 0);
@@ -1565,7 +1560,7 @@ mod test_alu_utils {
 
     #[test]
     fn test_cls_i32() {
-        let cpu = _helper_test_cpu("alu");
+        let cpu = _helper_test_cpu();
         assert_eq!(cpu.cls_i32(0x00000000), 0xffffffff);
         assert_eq!(cpu.cls_i32(0x0000cccc), 16);
         assert_eq!(cpu.cls_i32(0xffff3333), 16);
@@ -1580,7 +1575,7 @@ mod test_sop1 {
 
     #[test]
     fn test_s_mov_b64() {
-        let mut cpu = _helper_test_cpu("sop1");
+        let mut cpu = _helper_test_cpu();
         cpu.scalar_reg.write64(16, 5236523008);
         cpu.interpret(&vec![0xBE880110, END_PRG]);
         assert_eq!(cpu.scalar_reg.read64(8), 5236523008)
@@ -1588,7 +1583,7 @@ mod test_sop1 {
 
     #[test]
     fn test_s_mov_b32() {
-        let mut cpu = _helper_test_cpu("s_mov_b32");
+        let mut cpu = _helper_test_cpu();
         cpu.scalar_reg[15] = 42;
         cpu.interpret(&vec![0xbe82000f, END_PRG]);
         assert_eq!(cpu.scalar_reg[2], 42);
@@ -1610,7 +1605,7 @@ mod test_sop1 {
         ]
         .iter()
         .for_each(|[a, b, ret]| {
-            let mut cpu = _helper_test_cpu("sop1");
+            let mut cpu = _helper_test_cpu();
             cpu.scalar_reg[20] = *a;
             cpu.scalar_reg[10] = *b;
             cpu.interpret(&vec![0xBE94100A, END_PRG]);
@@ -1634,7 +1629,7 @@ mod test_sop1 {
         ]
         .iter()
         .for_each(|[a, b, ret]| {
-            let mut cpu = _helper_test_cpu("sop1");
+            let mut cpu = _helper_test_cpu();
             cpu.scalar_reg[20] = *a;
             cpu.scalar_reg[10] = *b;
             cpu.interpret(&vec![0xbe94120a, END_PRG]);
@@ -1647,7 +1642,7 @@ mod test_sop1 {
         [[0, 4294967295, 1], [1, 4294967294, 1], [u32::MAX, 0, 0]]
             .iter()
             .for_each(|[a, ret, scc]| {
-                let mut cpu = _helper_test_cpu("sop1");
+                let mut cpu = _helper_test_cpu();
                 cpu.scalar_reg[10] = *a;
                 cpu.interpret(&vec![0xBE8A1E0A, END_PRG]);
                 assert_eq!(cpu.scalar_reg[10], *ret);
@@ -1662,7 +1657,7 @@ mod test_sopk {
 
     #[test]
     fn test_cmp_zero_extend() {
-        let mut cpu = _helper_test_cpu("sopk");
+        let mut cpu = _helper_test_cpu();
         cpu.scalar_reg[20] = 0xcd14;
         cpu.interpret(&vec![0xB494CD14, END_PRG]);
         assert_eq!(cpu.scc, 1);
@@ -1673,7 +1668,7 @@ mod test_sopk {
 
     #[test]
     fn test_cmp_sign_extend() {
-        let mut cpu = _helper_test_cpu("sopk");
+        let mut cpu = _helper_test_cpu();
         cpu.scalar_reg[6] = 0x2db4;
         cpu.interpret(&vec![0xB1862DB4, END_PRG]);
         assert_eq!(cpu.scc, 1);
@@ -1696,7 +1691,7 @@ mod test_sop2 {
         ]
         .iter()
         .for_each(|[a, b, expected, scc]| {
-            let mut cpu = _helper_test_cpu("sop2");
+            let mut cpu = _helper_test_cpu();
             cpu.scalar_reg[2] = *a;
             cpu.scalar_reg[6] = *b;
             cpu.interpret(&vec![0x80060206, END_PRG]);
@@ -1714,7 +1709,7 @@ mod test_sop2 {
         ]
         .iter()
         .for_each(|[a, b, expected, scc_before, scc_after]| {
-            let mut cpu = _helper_test_cpu("sop2");
+            let mut cpu = _helper_test_cpu();
             cpu.scc = *scc_before;
             cpu.scalar_reg[7] = *a;
             cpu.scalar_reg[3] = *b;
@@ -1729,7 +1724,7 @@ mod test_sop2 {
         [[-10, 20, 10, 0], [i32::MAX, 1, -2147483648, 1]]
             .iter()
             .for_each(|[a, b, expected, scc]| {
-                let mut cpu = _helper_test_cpu("sop2");
+                let mut cpu = _helper_test_cpu();
                 cpu.scalar_reg[14] = *a as u32;
                 cpu.scalar_reg[10] = *b as u32;
                 cpu.interpret(&vec![0x81060E0A, END_PRG]);
@@ -1743,7 +1738,7 @@ mod test_sop2 {
         [[-10, 20, -30, 0], [i32::MAX, -1, -2147483648, 1]]
             .iter()
             .for_each(|[a, b, expected, scc]| {
-                let mut cpu = _helper_test_cpu("sop2");
+                let mut cpu = _helper_test_cpu();
                 cpu.scalar_reg[13] = *a as u32;
                 cpu.scalar_reg[8] = *b as u32;
                 cpu.interpret(&vec![0x818C080D, END_PRG]);
@@ -1757,7 +1752,7 @@ mod test_sop2 {
         [[20, 40, 1], [0, 0, 0]]
             .iter()
             .for_each(|[a, expected, scc]| {
-                let mut cpu = _helper_test_cpu("sop2");
+                let mut cpu = _helper_test_cpu();
                 cpu.scalar_reg[15] = *a as u32;
                 cpu.interpret(&vec![0x8408810F, END_PRG]);
                 assert_eq!(cpu.scalar_reg[8], *expected as u32);
@@ -1767,7 +1762,7 @@ mod test_sop2 {
 
     #[test]
     fn test_s_lshl_b64() {
-        let mut cpu = _helper_test_cpu("sop2");
+        let mut cpu = _helper_test_cpu();
         cpu.scalar_reg.write64(2, u64::MAX - 30);
         cpu.interpret(&vec![0x84828202, END_PRG]);
         assert_eq!(cpu.scalar_reg[2], 4294967172);
@@ -1777,7 +1772,7 @@ mod test_sop2 {
 
     #[test]
     fn test_s_ashr_i32() {
-        let mut cpu = _helper_test_cpu("sop2");
+        let mut cpu = _helper_test_cpu();
         cpu.scalar_reg[2] = 36855;
         cpu.interpret(&vec![0x86039F02, END_PRG]);
         assert_eq!(cpu.scalar_reg[3], 0);
@@ -1786,7 +1781,7 @@ mod test_sop2 {
 
     #[test]
     fn test_s_min_i32() {
-        let mut cpu = _helper_test_cpu("sop2");
+        let mut cpu = _helper_test_cpu();
         cpu.scalar_reg[2] = -42i32 as u32;
         cpu.scalar_reg[3] = -92i32 as u32;
         cpu.interpret(&vec![0x89020203, END_PRG]);
@@ -1799,7 +1794,7 @@ mod test_sop2 {
         [[u32::MAX, 10, 9], [u32::MAX / 2, 4, 1]]
             .iter()
             .for_each(|[a, b, expected]| {
-                let mut cpu = _helper_test_cpu("sop2");
+                let mut cpu = _helper_test_cpu();
                 cpu.scalar_reg[0] = *a;
                 cpu.scalar_reg[8] = *b;
                 cpu.interpret(&vec![0x96810800, END_PRG]);
@@ -1812,7 +1807,7 @@ mod test_sop2 {
         [[(u64::MAX) as i32, (u64::MAX / 2) as i32, 0], [2, -2, -1]]
             .iter()
             .for_each(|[a, b, expected]| {
-                let mut cpu = _helper_test_cpu("sop2");
+                let mut cpu = _helper_test_cpu();
                 cpu.scalar_reg[0] = *a as u32;
                 cpu.scalar_reg[8] = *b as u32;
                 cpu.interpret(&vec![0x97010800, END_PRG]);
@@ -1825,7 +1820,7 @@ mod test_sop2 {
         [[40, 2, 80], [-10, -10, 100]]
             .iter()
             .for_each(|[a, b, expected]| {
-                let mut cpu = _helper_test_cpu("sop2");
+                let mut cpu = _helper_test_cpu();
                 cpu.scalar_reg[0] = *a as u32;
                 cpu.scalar_reg[6] = *b as u32;
                 cpu.interpret(&vec![0x96000600, END_PRG]);
@@ -1843,7 +1838,7 @@ mod test_sop2 {
         ]
         .iter()
         .for_each(|[a_lo, a_hi, ret_lo, ret_hi]| {
-            let mut cpu = _helper_test_cpu("sop2");
+            let mut cpu = _helper_test_cpu();
             cpu.scalar_reg[6] = *a_lo;
             cpu.scalar_reg[7] = *a_hi;
             cpu.interpret(&vec![0x940cff06, 524288, END_PRG]);
@@ -1861,7 +1856,7 @@ mod test_sop2 {
         ]
         .iter()
         .for_each(|[a_lo, a_hi, ret_lo, ret_hi, shift]| {
-            let mut cpu = _helper_test_cpu("sop2");
+            let mut cpu = _helper_test_cpu();
             cpu.scalar_reg[6] = *a_lo as u32;
             cpu.scalar_reg[7] = *a_hi as u32;
             cpu.interpret(&vec![0x948cff06, *shift as u32, END_PRG]);
@@ -1881,7 +1876,7 @@ mod test_sop2 {
         ]
         .iter()
         .for_each(|[a, ret]| {
-            let mut cpu = _helper_test_cpu("sop2");
+            let mut cpu = _helper_test_cpu();
             cpu.scalar_reg[0] = *a;
             cpu.interpret(&vec![0x9303FF00, 0x00080008, END_PRG]);
             assert_eq!(cpu.scalar_reg[3], *ret);
@@ -1895,7 +1890,7 @@ mod test_vopd {
 
     #[test]
     fn test_inline_const_vopx_only() {
-        let mut cpu = _helper_test_cpu("test_inline_const_vopx_only");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg[0] = f32::to_bits(0.5);
         let constant = f32::from_bits(0x39a8b099);
         cpu.vec_reg[1] = 10;
@@ -1906,14 +1901,14 @@ mod test_vopd {
 
     #[test]
     fn test_inline_const_vopy_only() {
-        let mut cpu = _helper_test_cpu("test_inline_const_vopy_only");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg[0] = 10;
         cpu.vec_reg[1] = 10;
         cpu.interpret(&vec![0xCA100080, 0x000000FF, 0x3E15F480, END_PRG]);
         assert_eq!(cpu.vec_reg[0], 0);
         assert_eq!(cpu.vec_reg[1], 0x3e15f480);
 
-        let mut cpu = _helper_test_cpu("vopd");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg[18] = f32::to_bits(2.0);
         cpu.vec_reg[32] = f32::to_bits(4.0);
         cpu.vec_reg[7] = 10;
@@ -1924,7 +1919,7 @@ mod test_vopd {
 
     #[test]
     fn test_inline_const_shared() {
-        let mut cpu = _helper_test_cpu("test_inline_const_shared");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg[2] = f32::to_bits(2.0);
         cpu.vec_reg[3] = f32::to_bits(4.0);
         let constant = f32::from_bits(0x3e800000);
@@ -1935,7 +1930,7 @@ mod test_vopd {
 
     #[test]
     fn test_simm_op_shared_1() {
-        let mut cpu = _helper_test_cpu("vopd");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg[23] = f32::to_bits(4.0);
         cpu.vec_reg[12] = f32::to_bits(2.0);
 
@@ -1950,7 +1945,7 @@ mod test_vopd {
 
     #[test]
     fn test_simm_op_shared_2() {
-        let mut cpu = _helper_test_cpu("vopd");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg[29] = f32::to_bits(4.0);
         cpu.vec_reg[10] = f32::to_bits(2.0);
 
@@ -1965,7 +1960,7 @@ mod test_vopd {
 
     #[test]
     fn test_add_mov() {
-        let mut cpu = _helper_test_cpu("add_mov");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg[0] = f32::to_bits(10.5);
         cpu.interpret(&vec![0xC9100300, 0x00000080, END_PRG]);
         assert_eq!(f32::from_bits(cpu.vec_reg[0]), 10.5);
@@ -1974,7 +1969,7 @@ mod test_vopd {
 
     #[test]
     fn test_max_add() {
-        let mut cpu = _helper_test_cpu("max_add");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg[0] = f32::to_bits(5.0);
         cpu.vec_reg[3] = f32::to_bits(2.0);
         cpu.vec_reg[1] = f32::to_bits(2.0);
@@ -1989,7 +1984,7 @@ mod test_vop1 {
 
     #[test]
     fn test_v_mov_b32_srrc_const0() {
-        let mut cpu = _helper_test_cpu("v_mov_b32_srrc_const0");
+        let mut cpu = _helper_test_cpu();
         cpu.interpret(&vec![0x7e000280, END_PRG]);
         assert_eq!(cpu.vec_reg[0], 0);
         cpu.interpret(&vec![0x7e020280, END_PRG]);
@@ -2000,14 +1995,14 @@ mod test_vop1 {
 
     #[test]
     fn test_v_mov_b32_srrc_register() {
-        let mut cpu = _helper_test_cpu("v_mov_b32_srrc_register");
+        let mut cpu = _helper_test_cpu();
         cpu.scalar_reg[6] = 31;
         cpu.interpret(&vec![0x7e020206, END_PRG]);
         assert_eq!(cpu.vec_reg[1], 31);
     }
 
     fn helper_test_fexp(val: f32) -> f32 {
-        let mut cpu = _helper_test_cpu("test_fexp");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg[6] = val.to_bits();
         cpu.interpret(&vec![0x7E0C4B06, END_PRG]);
         f32::from_bits(cpu.vec_reg[6])
@@ -2034,7 +2029,7 @@ mod test_vop1 {
 
     #[test]
     fn test_cast_f32_i32() {
-        let mut cpu = _helper_test_cpu("test_cast_f32_i32");
+        let mut cpu = _helper_test_cpu();
         [(10.42, 10i32), (-20.08, -20i32)]
             .iter()
             .for_each(|(src, expected)| {
@@ -2046,7 +2041,7 @@ mod test_vop1 {
 
     #[test]
     fn test_cast_f32_u32() {
-        let mut cpu = _helper_test_cpu("test_cast_f32_u32");
+        let mut cpu = _helper_test_cpu();
         cpu.scalar_reg[4] = 2;
         cpu.interpret(&vec![0x7E000C04, END_PRG]);
         assert_eq!(cpu.vec_reg[0], 1073741824);
@@ -2054,7 +2049,7 @@ mod test_vop1 {
 
     #[test]
     fn test_cast_u32_f32() {
-        let mut cpu = _helper_test_cpu("test_cast_u32_f32");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg[0] = 1325400062;
         cpu.interpret(&vec![0x7E000F00, END_PRG]);
         assert_eq!(cpu.vec_reg[0], 2147483392);
@@ -2062,7 +2057,7 @@ mod test_vop1 {
 
     #[test]
     fn test_cast_i32_f32() {
-        let mut cpu = _helper_test_cpu("test_cast_f32_i32");
+        let mut cpu = _helper_test_cpu();
         [(10.0, 10i32), (-20.0, -20i32)]
             .iter()
             .for_each(|(expected, src)| {
@@ -2074,7 +2069,7 @@ mod test_vop1 {
 
     #[test]
     fn test_v_readfirstlane_b32_basic() {
-        let mut cpu = _helper_test_cpu("test_v_readfirstlane_b32");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg[0] = 2147483392;
         cpu.interpret(&vec![0x7E060500, END_PRG]);
         assert_eq!(cpu.scalar_reg[3], 2147483392);
@@ -2083,7 +2078,7 @@ mod test_vop1 {
     #[test]
     fn test_v_cls_i32() {
         fn t(val: u32) -> u32 {
-            let mut cpu = _helper_test_cpu("vop1");
+            let mut cpu = _helper_test_cpu();
             cpu.vec_reg[2] = val;
             cpu.interpret(&vec![0x7E087702, END_PRG]);
             return cpu.vec_reg[4];
@@ -2107,7 +2102,7 @@ mod test_vop1 {
         ]
         .iter()
         .for_each(|[a, ret]| {
-            let mut cpu = _helper_test_cpu("vop1");
+            let mut cpu = _helper_test_cpu();
             cpu.vec_reg[0] = f32::to_bits(*a);
             println!("a={} ret={}", a.to_bits(), ret.to_bits());
             cpu.interpret(&vec![0x7E024700, END_PRG]);
@@ -2122,7 +2117,7 @@ mod test_vopc {
 
     #[test]
     fn test_v_cmp_gt_i32() {
-        let mut cpu = _helper_test_cpu("test_v_cmp_gt_i32");
+        let mut cpu = _helper_test_cpu();
 
         cpu.vec_reg[1] = (4_i32 * -1) as u32;
         cpu.interpret(&vec![0x7c8802c1, END_PRG]);
@@ -2135,7 +2130,7 @@ mod test_vopc {
 
     #[test]
     fn test_v_cmpx_nlt_f32() {
-        let mut cpu = _helper_test_cpu("test_v_cmp_gt_i32");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg[0] = f32::to_bits(0.9);
         cpu.vec_reg[3] = f32::to_bits(0.4);
         cpu.interpret(&vec![0x7D3C0700, END_PRG]);
@@ -2144,7 +2139,7 @@ mod test_vopc {
 
     #[test]
     fn test_cmp_class_f32() {
-        let cpu = _helper_test_cpu("vopc");
+        let cpu = _helper_test_cpu();
         assert!(!cpu.cmp_class_f32(f32::NAN, 0b00001));
         assert!(cpu.cmp_class_f32(f32::NAN, 0b00010));
 
@@ -2176,7 +2171,7 @@ mod test_vop2 {
 
     #[test]
     fn test_v_add_f32_e32() {
-        let mut cpu = _helper_test_cpu("v_add_f32_e32");
+        let mut cpu = _helper_test_cpu();
         cpu.scalar_reg[2] = f32::to_bits(42.0);
         cpu.vec_reg[0] = f32::to_bits(1.0);
         cpu.interpret(&vec![0x06000002, END_PRG]);
@@ -2185,7 +2180,7 @@ mod test_vop2 {
 
     #[test]
     fn test_v_mul_f32_e32() {
-        let mut cpu = _helper_test_cpu("v_mul_f32_e32");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg[2] = f32::to_bits(21.0);
         cpu.vec_reg[4] = f32::to_bits(2.0);
         cpu.interpret(&vec![0x10060504, END_PRG]);
@@ -2194,7 +2189,7 @@ mod test_vop2 {
 
     #[test]
     fn test_v_ashrrev_i32() {
-        let mut cpu = _helper_test_cpu("test_v_ashrrev_i32");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg[0] = 4294967295;
         cpu.interpret(&vec![0x3402009F, END_PRG]);
         assert_eq!(cpu.vec_reg[1] as i32, -1);
@@ -2213,7 +2208,7 @@ mod test_vop2 {
         ]
         .iter()
         .for_each(|[a, b, ret]| {
-            let mut cpu = _helper_test_cpu("vop2");
+            let mut cpu = _helper_test_cpu();
             cpu.vec_reg[1] = *a;
             cpu.interpret(&vec![0x124E02FF, *b, END_PRG]);
             assert_eq!(cpu.vec_reg[39], *ret);
@@ -2222,7 +2217,7 @@ mod test_vop2 {
 
     #[test]
     fn test_v_add_nc_u32_const() {
-        let mut cpu = _helper_test_cpu("vop2");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg[18] = 7;
         cpu.interpret(&vec![0x4A3024B8, END_PRG]);
         assert_eq!(cpu.vec_reg[24], 63);
@@ -2230,7 +2225,7 @@ mod test_vop2 {
 
     #[test]
     fn test_v_add_nc_u32_sint() {
-        let mut cpu = _helper_test_cpu("vop2");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg[14] = 7;
         cpu.vec_reg[6] = 4294967279;
         cpu.interpret(&vec![0x4A0C1D06, END_PRG]);
@@ -2247,7 +2242,7 @@ mod test_vopsd {
         [[69, 0, 69, 0], [100, 200, 4294967196, 1]]
             .iter()
             .for_each(|[a, b, ret, scc]| {
-                let mut cpu = _helper_test_cpu("vopsd");
+                let mut cpu = _helper_test_cpu();
                 cpu.vec_reg[4] = *a;
                 cpu.vec_reg[15] = *b;
                 cpu.interpret(&vec![0xD7016A04, 0x00021F04, END_PRG]);
@@ -2262,8 +2257,8 @@ mod test_vop3 {
     use super::*;
     use float_cmp::approx_eq;
 
-    fn helper_test_vop3(id: &str, op: u32, a: f32, b: f32) -> f32 {
-        let mut cpu = _helper_test_cpu(id);
+    fn helper_test_vop3(op: u32, a: f32, b: f32) -> f32 {
+        let mut cpu = _helper_test_cpu();
         cpu.scalar_reg[0] = f32::to_bits(a);
         cpu.scalar_reg[6] = f32::to_bits(b);
         cpu.interpret(&vec![op, 0x00000006, END_PRG]);
@@ -2272,39 +2267,30 @@ mod test_vop3 {
 
     #[test]
     fn test_v_add_f32() {
-        assert_eq!(helper_test_vop3("vop3_add_f32", 0xd5030000, 0.4, 0.2), 0.6);
+        assert_eq!(helper_test_vop3(0xd5030000, 0.4, 0.2), 0.6);
     }
 
     #[test]
     fn test_v_max_f32() {
-        assert_eq!(
-            helper_test_vop3("vop3_max_f32_a", 0xd5100000, 0.4, 0.2),
-            0.4
-        );
-        assert_eq!(
-            helper_test_vop3("vop3_max_f32_b", 0xd5100000, 0.2, 0.8),
-            0.8
-        );
+        assert_eq!(helper_test_vop3(0xd5100000, 0.4, 0.2), 0.4);
+        assert_eq!(helper_test_vop3(0xd5100000, 0.2, 0.8), 0.8);
     }
 
     #[test]
     fn test_v_mul_f32() {
-        assert_eq!(
-            helper_test_vop3("vop3_v_mul_f32", 0xd5080000, 0.4, 0.2),
-            0.4 * 0.2
-        );
+        assert_eq!(helper_test_vop3(0xd5080000, 0.4, 0.2), 0.4 * 0.2);
     }
 
     #[test]
     fn test_signed_src() {
         // v0, max(s2, s2)
-        let mut cpu = _helper_test_cpu("signed_src_positive");
+        let mut cpu = _helper_test_cpu();
         cpu.scalar_reg[2] = f32::to_bits(0.5);
         cpu.interpret(&vec![0xd5100000, 0x00000402, END_PRG]);
         assert_eq!(f32::from_bits(cpu.vec_reg[0]), 0.5);
 
         // v1, max(-s2, -s2)
-        let mut cpu = _helper_test_cpu("signed_src_neg");
+        let mut cpu = _helper_test_cpu();
         cpu.scalar_reg[2] = f32::to_bits(0.5);
         cpu.interpret(&vec![0xd5100001, 0x60000402, END_PRG]);
         assert_eq!(f32::from_bits(cpu.vec_reg[1]), -0.5);
@@ -2312,7 +2298,7 @@ mod test_vop3 {
 
     #[test]
     fn test_cnd_mask_cond_src_sgpr() {
-        let mut cpu = _helper_test_cpu("test_cnd_mask_cond_src_sgpr");
+        let mut cpu = _helper_test_cpu();
         cpu.scalar_reg[3] = 30;
         cpu.interpret(&vec![0xD5010000, 0x000D0280, END_PRG]);
         assert_eq!(cpu.vec_reg[0], 1);
@@ -2324,7 +2310,7 @@ mod test_vop3 {
 
     #[test]
     fn test_cnd_mask_cond_src_vcclo() {
-        let mut cpu = _helper_test_cpu("test_cnd_mask_cond_src_vcclo");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg[2] = 20;
         cpu.vec_reg[0] = 100;
         cpu.interpret(&vec![0xD5010002, 0x41AA0102, END_PRG]);
@@ -2336,7 +2322,7 @@ mod test_vop3 {
         [[0.0f32, 0.0], [1.0f32, -1.0], [-1.0f32, 1.0]]
             .iter()
             .for_each(|[input, ret]| {
-                let mut cpu = _helper_test_cpu("vop3");
+                let mut cpu = _helper_test_cpu();
                 cpu.scalar_reg[0] = false as u32;
                 cpu.vec_reg[3] = input.to_bits();
                 cpu.interpret(&vec![0xD5010003, 0x2001FF03, 0x80000000, END_PRG]);
@@ -2346,7 +2332,7 @@ mod test_vop3 {
 
     #[test]
     fn test_v_mul_hi_i32() {
-        let mut cpu = _helper_test_cpu("test_v_mul_hi_i32");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg[2] = -2i32 as u32;
         cpu.interpret(&vec![0xD72E0003, 0x000204FF, 0x2E8BA2E9, END_PRG]);
         assert_eq!(cpu.vec_reg[3] as i32, -1);
@@ -2358,7 +2344,7 @@ mod test_vop3 {
 
     #[test]
     fn test_v_writelane_b32() {
-        let mut cpu = _helper_test_cpu("v_writelane_b32");
+        let mut cpu = _helper_test_cpu();
         cpu.scalar_reg[8] = 25056;
         cpu.interpret(&vec![0xD7610004, 0x00010008, END_PRG]);
         assert_eq!(cpu.vec_reg.read_lane(0, 4), 25056);
@@ -2370,7 +2356,7 @@ mod test_vop3 {
 
     #[test]
     fn test_v_readlane_b32() {
-        let mut cpu = _helper_test_cpu("test_v_readlane_b32");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg.write_lane(15, 4, 0b1111);
         cpu.interpret(&vec![0xD760006A, 0x00011F04, END_PRG]);
         assert_eq!(*cpu.vcc, 1);
@@ -2378,7 +2364,7 @@ mod test_vop3 {
 
     #[test]
     fn test_v_lshlrev_b64() {
-        let mut cpu = _helper_test_cpu("vop3");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg.write64(2, 100);
         cpu.vec_reg[4] = 2;
         cpu.interpret(&vec![0xD73C0002, 0x00020504, END_PRG]);
@@ -2387,7 +2373,7 @@ mod test_vop3 {
 
     #[test]
     fn test_v_lshrrev_b64() {
-        let mut cpu = _helper_test_cpu("vop3");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg.write64(2, 100);
         cpu.vec_reg[4] = 2;
         cpu.interpret(&vec![0xd73d0002, 0x00020504, END_PRG]);
@@ -2397,7 +2383,7 @@ mod test_vop3 {
     #[test]
     fn test_v_cvt_f32_f16_abs_modifier() {
         [[0.4, 0.4], [-0.4, 0.4]].iter().for_each(|[a, ret]| {
-            let mut cpu = _helper_test_cpu("vop3");
+            let mut cpu = _helper_test_cpu();
             cpu.vec_reg[1] = f16::from_f32_const(*a).to_bits() as u32;
             cpu.interpret(&vec![0xD58B0102, 0x00000101, END_PRG]);
             assert!(approx_eq!(
@@ -2411,7 +2397,7 @@ mod test_vop3 {
 
     #[test]
     fn test_v_alignbit_b32() {
-        let mut cpu = _helper_test_cpu("vop3");
+        let mut cpu = _helper_test_cpu();
         cpu.scalar_reg[4] = 5340353;
         cpu.scalar_reg[10] = 3072795146;
         cpu.vec_reg[0] = 8;
@@ -2428,7 +2414,7 @@ mod test_vop3 {
         ]
         .iter()
         .for_each(|[a, ret]| {
-            let mut cpu = _helper_test_cpu("vop3");
+            let mut cpu = _helper_test_cpu();
             cpu.vec_reg[2] = *a as u32;
             cpu.interpret(&vec![0xD6110005, 0x02050102, END_PRG]);
             assert_eq!(cpu.vec_reg[5] as i32, *ret);
@@ -2441,7 +2427,7 @@ mod test_vop3 {
         ]
         .iter()
         .for_each(|[a, ret]| {
-            let mut cpu = _helper_test_cpu("vop3");
+            let mut cpu = _helper_test_cpu();
             cpu.vec_reg[2] = *a as u32;
             cpu.interpret(&vec![0xD6110005, 0x02090102, END_PRG]);
             assert_eq!(cpu.vec_reg[5] as i32, *ret);
@@ -2457,7 +2443,7 @@ mod test_vop3 {
         ]
         .iter()
         .for_each(|[a, ret]| {
-            let mut cpu = _helper_test_cpu("vop3");
+            let mut cpu = _helper_test_cpu();
             cpu.vec_reg[2] = *a as u32;
             cpu.interpret(&vec![0xD6110005, 0x03050102, END_PRG]);
             assert_eq!(cpu.vec_reg[5] as i32, *ret);
@@ -2466,7 +2452,7 @@ mod test_vop3 {
 
     #[test]
     fn test_v_ashrrev_i16() {
-        let mut cpu = _helper_test_cpu("vop3");
+        let mut cpu = _helper_test_cpu();
         [
             [0b10000000000000000000000000000000, 0],
             [0b10000000000000000000000000000111, 3],
@@ -2508,7 +2494,7 @@ mod test_vop3 {
 
     #[test]
     fn test_v_add_nc_u16() {
-        let mut cpu = _helper_test_cpu("vop3");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg[5] = 10;
         cpu.vec_reg[8] = 20;
         cpu.interpret(&vec![0xD7030005, 0x00021105, END_PRG]);
@@ -2517,7 +2503,7 @@ mod test_vop3 {
 
     #[test]
     fn test_v_mul_lo_u16() {
-        let mut cpu = _helper_test_cpu("vop3");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg[5] = 2;
         cpu.vec_reg[15] = 0;
         cpu.interpret(&vec![0xD705000F, 0x00010B05, END_PRG]);
@@ -2531,7 +2517,7 @@ mod test_vop3 {
 
     #[test]
     fn test_v_cmp_gt_u16() {
-        let mut cpu = _helper_test_cpu("vop3");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg[1] = 52431;
         cpu.scalar_reg[5] = 0;
         cpu.interpret(&vec![0xD43C0005, 0x000202FF, 0x00003334, END_PRG]);
@@ -2548,7 +2534,7 @@ mod test_vop3 {
         ]
         .iter()
         .for_each(|(x, y, ret)| {
-            let mut cpu = _helper_test_cpu("vop3");
+            let mut cpu = _helper_test_cpu();
             cpu.scalar_reg[2] = x.to_bits();
             cpu.interpret(&vec![0xD41B0203, 0x000004FF, y.to_bits(), END_PRG]);
             assert_eq!(cpu.scalar_reg[3], *ret);
@@ -2557,14 +2543,14 @@ mod test_vop3 {
     #[test]
     fn test_fma() {
         fn v_fma_f32(a: u32, b: u32, c: u32, ret: u32) {
-            let mut cpu = _helper_test_cpu("vop3");
+            let mut cpu = _helper_test_cpu();
             cpu.vec_reg[1] = b;
             cpu.scalar_reg[3] = c;
             cpu.interpret(&vec![0xD6130000, 0x000E02FF, a, END_PRG]);
             assert_eq!(cpu.vec_reg[0], ret);
         }
         fn v_fmac_f32(a: u32, b: u32, c: u32, ret: u32) {
-            let mut cpu = _helper_test_cpu("vop3");
+            let mut cpu = _helper_test_cpu();
             cpu.scalar_reg[1] = a;
             cpu.scalar_reg[2] = b;
             cpu.vec_reg[0] = c;
@@ -2586,7 +2572,7 @@ mod test_vopp {
 
     #[test]
     fn test_v_fma_mix_f32() {
-        let mut cpu = _helper_test_cpu("vopp");
+        let mut cpu = _helper_test_cpu();
         cpu.vec_reg[2] = 1065353216;
         cpu.scalar_reg[2] = 3217620992;
         cpu.vec_reg[1] = 15360;

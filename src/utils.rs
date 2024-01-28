@@ -7,7 +7,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 use std::{env, fs, str};
 
-const END_PRG: u32 = 0xbfb00000;
+pub const END_PRG: u32 = 0xbfb00000;
 const WAIT_CNT_0: u32 = 0xBF89FC07;
 
 #[derive(PartialEq, PartialOrd)]
@@ -16,7 +16,6 @@ pub enum DebugLevel {
     INSTRUCTION,
     MISC,
 }
-
 pub static DEBUG: Lazy<DebugLevel> = Lazy::new(|| {
     let var = env::var("REMU_DEBUG")
         .unwrap_or_default()
@@ -30,17 +29,6 @@ pub static DEBUG: Lazy<DebugLevel> = Lazy::new(|| {
     }
 });
 
-pub static SGPR_INDEX: Lazy<Option<i32>> = Lazy::new(|| {
-    let var = env::var("SGPR_INDEX");
-    if var.is_ok() {
-        return Some(var.unwrap().parse::<i32>().unwrap());
-    }
-    return None;
-});
-pub fn parse_rdna3_file(file_path: &str) -> Vec<u32> {
-    let content = fs::read_to_string(file_path).unwrap();
-    parse_rdna3(&content).0
-}
 pub fn nth(val: u32, pos: usize) -> u32 {
     return (val >> (31 - pos as u32)) & 1;
 }
@@ -51,6 +39,21 @@ pub fn f16_hi(val: u32) -> f16 {
     f16::from_bits(((val >> 16) & 0xffff) as u16)
 }
 
+pub fn read_asm(lib: &Vec<u8>) -> (Vec<u32>, String) {
+    let mut child = Command::new("/opt/rocm/llvm/bin/llvm-objdump")
+        .args(&["-d", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        let stdin = child.stdin.as_mut().unwrap();
+        stdin.write_all(lib).unwrap()
+    }
+    let output = child.wait_with_output().unwrap();
+    let asm = String::from_utf8_lossy(&output.stdout);
+    parse_rdna3(&asm.to_string())
+}
 fn parse_rdna3(content: &str) -> (Vec<u32>, String) {
     if *DEBUG >= DebugLevel::MISC {
         println!(
@@ -182,62 +185,13 @@ Disassembly of section .text:
 pub trait Colorize {
     fn color(self, color: &str) -> String;
 }
-
 impl<'a> Colorize for &'a str {
     fn color(self, color: &str) -> String {
         let ansi_code = match color {
             "blue" => format!("\x1b[{};2;112;184;255m", 38),
-            "jade" => format!("\x1b[{};2;39;176;139m", 38),
-            "pink" => format!("\x1b[{};2;238;81;138m", 38),
-            "yellow" => format!("\x1b[{};2;212;255;112m", 38),
             _ => format!("\x1b[{};2;255;255;255m", 38), // default white
         };
         format!("{}{}{}", ansi_code, self, "\x1b[0m")
-    }
-}
-
-pub fn read_asm(lib: &Vec<u8>) -> (Vec<u32>, String) {
-    if std::env::consts::OS == "macos" {
-        let asm = String::from_utf8(lib.to_vec()).unwrap();
-        let mut prg = parse_rdna3(&asm);
-        let isolate = env::var("REMU_ISOLATE")
-            .unwrap_or_default()
-            .parse::<i32>()
-            .unwrap_or(0);
-
-        let fp = format!("/tmp/{}.s", prg.1);
-        if isolate == 1 {
-            prg = match std::fs::metadata(&fp) {
-                Ok(_) => parse_rdna3(&fs::read_to_string(fp).unwrap()),
-                Err(_) => {
-                    fs::write(fp, asm);
-                    prg
-                }
-            };
-        } else {
-            fs::write(fp, asm);
-        }
-        return prg;
-    }
-    let mut child = Command::new("/opt/rocm/llvm/bin/llvm-objdump")
-        .args(&["-d", "-"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .expect("Failed to execute command");
-
-    {
-        let stdin = child.stdin.as_mut().expect("Failed to open stdin");
-        stdin.write_all(lib).expect("Failed to write to stdin");
-    }
-
-    let output = child.wait_with_output().expect("Failed to read stdout");
-    if output.status.success() {
-        let asm = String::from_utf8_lossy(&output.stdout);
-        parse_rdna3(&asm.to_string())
-    } else {
-        let err = String::from_utf8_lossy(&output.stderr);
-        panic!("Command failed with error: {}", err);
     }
 }
 
