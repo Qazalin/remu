@@ -454,9 +454,10 @@ impl<'a> CPU<'a> {
 
             let ret = match op {
                 0..=18 => {
-                    let _fxn = |x, y, z| match op {
+                    let fxn = |x, y, z| match op {
                         1 => x * y,
                         10 => x + y,
+                        9 => x * y + z,
                         11 => x - y,
                         14..=19 => {
                             let (x, y, z) =
@@ -471,7 +472,19 @@ impl<'a> CPU<'a> {
                         }
                         _ => todo_instr!(instruction),
                     };
-                    0 // TODO
+                    let src = |opsel: [bool; 3]| {
+                        opsel
+                            .iter()
+                            .enumerate()
+                            .map(|(i, sel)| match sel {
+                                true => src_parts[i].1,
+                                false => src_parts[i].0,
+                            })
+                            .collect::<Vec<u16>>()
+                    };
+                    let (src_hi, src_lo) = (src(opsel_hi), src(opsel));
+                    ((fxn(src_hi[0], src_hi[1], src_hi[2]) as u32) << 16)
+                        | (fxn(src_lo[0], src_lo[1], src_lo[2]) as u32)
                 }
                 32..=34 => {
                     let mut src: Vec<f32> = src_parts
@@ -497,7 +510,7 @@ impl<'a> CPU<'a> {
                             f32::mul_add(src[0], src[1], src[2]).to_bits()
                         }
                         33 => f16::from_f32(f32::mul_add(src[0], src[1], src[2])).to_bits() as u32,
-                        _ => panic!(),
+                        _ => todo_instr!(instruction),
                     }
                 }
                 _ => todo_instr!(instruction),
@@ -2579,11 +2592,22 @@ mod test_vopp {
     }
 
     #[test]
-    fn test_v_pk_fma_f16() {
+    fn test_packed_opsel_000_op_000() {
         let mut cpu = _helper_test_cpu();
-        cpu.scalar_reg[2] = 10240;
-        cpu.vec_reg[2] = 960116214;
-        cpu.interpret(&vec![0xCC0E0002, 0x0BFC0502, 0x0000A400, END_PRG]);
-        assert_eq!(cpu.vec_reg[2], 485006356);
+        cpu.vec_reg[1] = 1;
+        cpu.vec_reg[2] = 2;
+        cpu.vec_reg[3] = 3;
+        cpu.interpret(&vec![0xCC090004, 0x040E0501, 0xBFB00000, END_PRG]);
+        assert_eq!(cpu.vec_reg[4], 0b1010000000000000101);
+    }
+
+    #[test]
+    fn test_packed_opsel_001_op_100() {
+        let mut cpu = _helper_test_cpu();
+        cpu.vec_reg[1] = 1;
+        cpu.vec_reg[2] = 2;
+        cpu.vec_reg[3] = 3;
+        cpu.interpret(&vec![0xCC092004, 0x0C0E0501, 0xBFB00000, END_PRG]);
+        assert_eq!(cpu.vec_reg[4], 0b110000000000000010);
     }
 }
