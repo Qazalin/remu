@@ -437,12 +437,18 @@ impl<'a> CPU<'a> {
             let b = |i: usize| (instr >> i) & 0x1 != 0;
             let neg_hi = [b(9), b(8), b(10)];
             let opsel = [b(11), b(12), b(13)];
-            let opsel_hi = [b(60), b(59), b(14)];
+            let opsel_hi = [b(59), b(60), b(14)];
             let clmp = (instr >> 15) & 0x1;
             let op = (instr >> 16) & 0x7f;
             let mut src = |x: u64| -> (u16, u16, u32) {
                 let val: u32 = self.val(((instr >> x) & 0x1ff) as usize);
-                ((val & 0xffff) as u16, ((val >> 16) & 0xffff) as u16, val)
+                match (((instr >> x) & 0x1ff) as usize) == 255 {
+                    true => {
+                        let val_lo: u16 = self.val(((instr >> x) & 0x1ff) as usize);
+                        (val_lo, val_lo, val)
+                    }
+                    false => ((val & 0xffff) as u16, ((val >> 16) & 0xffff) as u16, val),
+                }
             };
             let src_parts = [src(32), src(41), src(50)];
             let neg = (instr >> 61) & 0x7;
@@ -2609,5 +2615,41 @@ mod test_vopp {
         cpu.vec_reg[3] = 3;
         cpu.interpret(&vec![0xCC092004, 0x0C0E0501, 0xBFB00000, END_PRG]);
         assert_eq!(cpu.vec_reg[4], 0b110000000000000010);
+    }
+
+    #[test]
+    fn test_packed_inline_const_int() {
+        let mut cpu = _helper_test_cpu();
+        cpu.vec_reg[1] = 1;
+        cpu.vec_reg[2] = 2;
+        cpu.vec_reg[3] = 3;
+
+        cpu.interpret(&vec![0xCC090004, 0x020E0501, 0xBFB00000, END_PRG]);
+        assert_eq!(cpu.vec_reg[4], 0b1010000000000000101);
+
+        cpu.interpret(&vec![0xCC090804, 0x0A0E0501, 0xBFB00000, END_PRG]);
+        assert_eq!(cpu.vec_reg[4], 0b110000000000000011);
+
+        cpu.interpret(&vec![0xCC096004, 0x020E0501, 0xBFB00000, END_PRG]);
+        assert_eq!(cpu.vec_reg[4], 0b100000000000000010);
+
+        cpu.interpret(&vec![0xCC090004, 0x03FE0501, 0x00000080, END_PRG]);
+        assert_eq!(cpu.vec_reg[4], 8519810);
+    }
+
+    #[test]
+    fn test_pk_fma_f16_inline_const() {
+        let mut cpu = _helper_test_cpu();
+        cpu.vec_reg[2] = 0x393a35f6;
+        cpu.vec_reg[3] = 0x2800;
+
+        cpu.interpret(&vec![0xCC0E0004, 0x03FE0702, 0x0000A400, END_PRG]);
+        assert_eq!(cpu.vec_reg[4], 2618596372);
+
+        cpu.interpret(&vec![0xCC0E0004, 0x0BFE0702, 0x0000A400, END_PRG]);
+        assert_eq!(cpu.vec_reg[4], 485006356);
+
+        cpu.interpret(&vec![0xCC0E0004, 0x1BFE0702, 0x0000A400, END_PRG]);
+        assert_eq!(cpu.vec_reg[4], 2751503380);
     }
 }
