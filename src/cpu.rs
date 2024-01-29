@@ -437,70 +437,69 @@ impl<'a> CPU<'a> {
             let b = |i: usize| (instr >> i) & 0x1 != 0;
             let neg_hi = [b(9), b(8), b(10)];
             let opsel = [b(11), b(12), b(13)];
-            let opsel_hi = [b(59), b(60), b(14)];
+            let opsel_hi = [b(60), b(59), b(14)];
             let clmp = (instr >> 15) & 0x1;
             let op = (instr >> 16) & 0x7f;
             let mut src = |x: u64| -> (u16, u16, u32) {
-                let s = ((instr >> x) & 0x1ff) as usize;
-                let val: u32 = self.val(s);
-                if is_const_src(s) {
-                    let val_u16: u16 = self.val(s);
-                    (val_u16, val_u16, val)
-                } else {
-                    ((val & 0xffff) as u16, ((val >> 16) & 0xffff) as u16, val)
-                }
+                let val: u32 = self.val(((instr >> x) & 0x1ff) as usize);
+                ((val & 0xffff) as u16, ((val >> 16) & 0xffff) as u16, val)
             };
-            let src = [src(32), src(41), src(50)];
+            let src_parts = [src(32), src(41), src(50)];
             let neg = (instr >> 61) & 0x7;
             assert_eq!([clmp, neg], [0, 0]);
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
-                println!("{} op={op} vdst={vdst} src0={:?} src1={:?} src2={:?} opsel={:?} opsel_hi={:?} neg={:?} neg_hi={:?}", "VOPP".color("blue"),src[0], src[1], src[2], opsel, opsel_hi, neg, neg_hi);
+                println!("{} op={op} vdst={vdst} src2={:?} opsel={:?} opsel_hi={:?} neg={:?} neg_hi={:?}", "VOPP".color("blue"), src_parts, opsel, opsel_hi, neg, neg_hi);
             }
 
-            let mut input: [f32; 3] = [0.0; 3];
-            for i in 0..=2 {
-                input[i] = if !opsel_hi[i] {
-                    f32::from_bits(src[i].2)
-                } else if opsel[i] {
-                    f32::from(f16::from_bits(src[i].1))
-                } else {
-                    f32::from(f16::from_bits(src[i].0))
-                }
-            }
             let ret = match op {
-                1 | (10..=13) => {
-                    let fxn = |x, y| match op {
+                0..=18 => {
+                    let _fxn = |x, y, z| match op {
                         1 => x * y,
                         10 => x + y,
                         11 => x - y,
+                        14..=19 => {
+                            let (x, y, z) =
+                                (f16::from_bits(x), f16::from_bits(y), f16::from_bits(z));
+                            match op {
+                                14 => f16::mul_add(x, y, z),
+                                15 => x + y,
+                                16 => x * y,
+                                _ => todo_instr!(instruction),
+                            }
+                            .to_bits()
+                        }
                         _ => todo_instr!(instruction),
                     };
-                    (fxn(src[0].1, src[1].1) as u32) << 16 | fxn(src[0].0, src[1].0) as u32
+                    0 // TODO
                 }
-                15..=17 => {
-                    let fxn = |x, y| {
-                        let x = f16::from_bits(x);
-                        let y = f16::from_bits(y);
-
-                        let ret = match op {
-                            15 => x + y,
-                            16 => x * y,
-                            _ => todo_instr!(instruction),
-                        };
-                        ret.to_bits()
-                    };
-                    (fxn(src[0].1, src[1].1) as u32) << 16 | fxn(src[0].0, src[1].0) as u32
-                }
-                32 => {
-                    input.iter_mut().enumerate().for_each(|(i, x)| {
-                        if neg_hi[i] {
-                            *x = f32::abs(*x)
+                32..=34 => {
+                    let mut src: Vec<f32> = src_parts
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (lo, hi, full))| {
+                            if !opsel_hi[i] {
+                                f32::from_bits(*full)
+                            } else if opsel[i] {
+                                f32::from(f16::from_bits(*hi))
+                            } else {
+                                f32::from(f16::from_bits(*lo))
+                            }
+                        })
+                        .collect();
+                    match op {
+                        32 => {
+                            src.iter_mut().enumerate().for_each(|(i, x)| {
+                                if neg_hi[i] {
+                                    *x = f32::abs(*x)
+                                }
+                            });
+                            f32::mul_add(src[0], src[1], src[2]).to_bits()
                         }
-                    });
-                    f32::mul_add(input[0], input[1], input[2]).to_bits()
+                        33 => f16::from_f32(f32::mul_add(src[0], src[1], src[2])).to_bits() as u32,
+                        _ => panic!(),
+                    }
                 }
-                33 => f16::from_f32(input[0] * input[1] + input[2]).to_bits() as u32,
                 _ => todo_instr!(instruction),
             };
             self.vec_reg[vdst as usize] = ret;
@@ -1429,13 +1428,6 @@ impl<'a> CPU<'a> {
             126 => self.exec = val,
             _ => todo!("write to sdst {}", sdst_bf),
         }
-    }
-}
-
-fn is_const_src(code: usize) -> bool {
-    match code {
-        0..=SGPR_COUNT | VGPR_COUNT..=511 => false,
-        _ => true,
     }
 }
 
@@ -2584,5 +2576,14 @@ mod test_vopp {
         cpu.vec_reg[1] = 48128;
         cpu.interpret(&vec![0xCC204403, 0x04040502, END_PRG]);
         assert_eq!(cpu.vec_reg[3], 3205627904);
+    }
+
+    #[test]
+    fn test_v_pk_fma_f16() {
+        let mut cpu = _helper_test_cpu();
+        cpu.scalar_reg[2] = 10240;
+        cpu.vec_reg[2] = 960116214;
+        cpu.interpret(&vec![0xCC0E0002, 0x0BFC0502, 0x0000A400, END_PRG]);
+        assert_eq!(cpu.vec_reg[2], 485006356);
     }
 }
