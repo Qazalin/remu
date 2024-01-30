@@ -433,7 +433,7 @@ impl<'a> CPU<'a> {
         // vopp
         else if instruction >> 24 == 0b11001100 {
             let instr = self.u64_instr();
-            let vdst = instr & 0xff;
+            let vdst = (instr & 0xff) as usize;
             let b = |i: usize| (instr >> i) & 0x1 != 0;
             let neg_hi = [b(9), b(8), b(10)];
             let opsel = [b(11), b(12), b(13)];
@@ -462,6 +462,7 @@ impl<'a> CPU<'a> {
                 0..=18 => {
                     let fxn = |x, y, z| match op {
                         1 => x * y,
+                        4 => y << (x & 0xf),
                         10 => x + y,
                         9 => x * y + z,
                         11 => x - y,
@@ -515,13 +516,20 @@ impl<'a> CPU<'a> {
                             });
                             f32::mul_add(src[0], src[1], src[2]).to_bits()
                         }
-                        33 => f16::from_f32(f32::mul_add(src[0], src[1], src[2])).to_bits() as u32,
+                        33 | 34 => {
+                            let ret = f16::from_f32(f32::mul_add(src[0], src[1], src[2])).to_bits();
+                            match op {
+                                33 => (self.vec_reg[vdst] & 0xffff0000) | (ret as u32),
+                                34 => (self.vec_reg[vdst] & 0x0000ffff) | ((ret as u32) << 16),
+                                _ => panic!(),
+                            }
+                        }
                         _ => todo_instr!(instruction),
                     }
                 }
                 _ => todo_instr!(instruction),
             };
-            self.vec_reg[vdst as usize] = ret;
+            self.vec_reg[vdst] = ret;
         }
         // vop1
         else if instruction >> 25 == 0b0111111 {
@@ -1196,6 +1204,31 @@ impl<'a> CPU<'a> {
                                         576 => s0 ^ s1 ^ s2,
                                         582 => (s0 << s1) + s2,
                                         597 => s0 + s1 + s2,
+                                        580 => {
+                                            fn byte_permute(data: u64, sel: u32) -> u8 {
+                                                let bytes = data.to_ne_bytes();
+                                                match sel {
+                                                    13..=u32::MAX => 0xff,
+                                                    12 => 0x00,
+                                                    11 => ((bytes[7] & 0x80) != 0) as u8 * 0xff,
+                                                    10 => ((bytes[5] & 0x80) != 0) as u8 * 0xff,
+                                                    9 => ((bytes[3] & 0x80) != 0) as u8 * 0xff,
+                                                    8 => ((bytes[1] & 0x80) != 0) as u8 * 0xff,
+                                                    _ => bytes[sel as usize],
+                                                }
+                                            }
+                                            let combined = ((s0 as u64) << 32) | s1 as u64;
+                                            let d0 = ((byte_permute(combined, s2 >> 24) as u32)
+                                                << 24)
+                                                | ((byte_permute(combined, (s2 >> 16) & 0xFF)
+                                                    as u32)
+                                                    << 16)
+                                                | ((byte_permute(combined, (s2 >> 8) & 0xFF)
+                                                    as u32)
+                                                    << 8)
+                                                | (byte_permute(combined, s2 & 0xFF) as u32);
+                                            d0
+                                        }
                                         581 => (s0 ^ s1) + s2,
                                         583 => (s0 + s1) << s2,
                                         598 => (s0 << s1) | s2,
@@ -2575,6 +2608,15 @@ mod test_vop3 {
                 v_fmac_f32(*a, *b, *c, *ret);
             })
     }
+
+    #[test]
+    fn test_v_perm_b32() {
+        let mut cpu = _helper_test_cpu();
+        cpu.vec_reg[1] = 15944;
+        cpu.vec_reg[0] = 84148480;
+        cpu.interpret(&vec![0xD644000F, 0x03FE0101, 0x05040100, END_PRG]);
+        assert_eq!(cpu.vec_reg[15], 1044906240);
+    }
 }
 
 #[cfg(test)]
@@ -2651,5 +2693,51 @@ mod test_vopp {
 
         cpu.interpret(&vec![0xCC0E0004, 0x1BFE0702, 0x0000A400, END_PRG]);
         assert_eq!(cpu.vec_reg[4], 2751503380);
+
+        cpu.interpret(&vec![0xCC0E0804, 0x03FE0702, 0x0000A400, END_PRG]);
+        assert_eq!(cpu.vec_reg[4], 2618563816);
+
+        cpu.interpret(&vec![0xCC0E1804, 0x03FE0702, 0x0000A400, END_PRG]);
+        assert_eq!(cpu.vec_reg[4], 2618598400);
+    }
+
+    #[test]
+    fn test_v_fma_mixhilo_f16() {
+        let mut cpu = _helper_test_cpu();
+        cpu.vec_reg[11] = 1065353216;
+        cpu.vec_reg[7] = 3047825943;
+        cpu.vec_reg[16] = 3047825943;
+
+        cpu.vec_reg[14] = 0b10101010101010101111111111111111;
+        cpu.interpret(&vec![0xCC21000E, 0x04420F0B, END_PRG]);
+        assert_eq!(cpu.vec_reg[14], 0b10101010101010101000000000101011);
+
+        cpu.vec_reg[14] = 0b10101010101010101111111111111111;
+        cpu.interpret(&vec![0xCC22000E, 0x04420F0B, END_PRG]);
+        assert_eq!(cpu.vec_reg[14], 0b10000000001010111111111111111111);
+    }
+
+    #[test]
+    fn test_v_pk_lshlrev_b16() {
+        let mut cpu = _helper_test_cpu();
+        cpu.vec_reg[3] = 0b1010101011101101;
+
+        cpu.interpret(&vec![0xCC044004, 0x0002068E, END_PRG]);
+        assert_eq!(cpu.vec_reg[4], 0b1000000000000000100000000000000);
+
+        cpu.interpret(&vec![0xCC044004, 0x1002068E, END_PRG]);
+        assert_eq!(cpu.vec_reg[4], 0b100000000000000);
+
+        cpu.interpret(&vec![0xCC044004, 0x100206FF, 0x00010002, END_PRG]);
+        assert_eq!(cpu.vec_reg[4], 0b1010101110110100);
+        cpu.interpret(&vec![0xCC044004, 0x100206FF, 0x05012002, END_PRG]);
+        assert_eq!(cpu.vec_reg[4], 0b1010101110110100);
+
+        cpu.interpret(&vec![0xCC044004, 0x100206FF, 0x0503E00F, END_PRG]);
+        assert_eq!(cpu.vec_reg[4], 0b1000000000000000);
+        cpu.interpret(&vec![0xCC044004, 0x100206FF, 0x0503E007, END_PRG]);
+        assert_eq!(cpu.vec_reg[4], 0b111011010000000);
+        cpu.interpret(&vec![0xCC044004, 0x100206FF, 0x0503E01F, END_PRG]);
+        assert_eq!(cpu.vec_reg[4], 0b1000000000000000);
     }
 }
