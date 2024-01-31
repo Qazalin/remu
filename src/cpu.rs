@@ -1,5 +1,6 @@
 use crate::alu_modifiers::VOPModifier;
 use crate::dtype::IEEEClass;
+use crate::memory::VecDataStore;
 use crate::state::{Assign, Register, VCC, VGPR};
 use crate::todo_instr;
 use crate::utils::{as_signed, f16_hi, f16_lo, nth, Colorize, DebugLevel, DEBUG, END_PRG};
@@ -17,19 +18,21 @@ pub struct CPU<'a> {
     pub scc: u32,
     pub vcc: VCC,
     pub exec: u32,
-    pub lds: &'a mut Vec<u8>,
+    pub lds: &'a mut VecDataStore,
+    sds: VecDataStore,
     prg: Vec<u32>,
     simm: Option<u32>,
 }
 
 impl<'a> CPU<'a> {
-    pub fn new(lds: &'a mut Vec<u8>) -> Self {
+    pub fn new(lds: &'a mut VecDataStore) -> Self {
         return CPU {
             pc: 0,
             scc: 0,
             vcc: VCC::from(0),
             exec: 0,
             lds,
+            sds: VecDataStore::new(),
             scalar_reg: [0; SGPR_COUNT],
             vec_reg: VGPR::new(),
             prg: vec![],
@@ -1270,86 +1273,89 @@ impl<'a> CPU<'a> {
 
             match op {
                 // load
-                255 => (0..4).for_each(|i| {
-                    let base = addr + 4 * i;
-                    let mut bytes: [u8; 4] = [0; 4];
-                    bytes.copy_from_slice(&self.lds[base + 0..base + 4]);
-                    self.vec_reg[vdst + i] = u32::from_le_bytes(bytes);
-                }),
+                255 => (0..4).for_each(|i| self.vec_reg[vdst + i] = self.lds.read(addr + 4 * i)),
                 // store
                 13 | 223 => {
                     let iters = if op == 223 { 4 } else { 1 };
-                    (0..iters).for_each(|i| {
-                        let addr = addr + 4 * i;
-                        if addr + 4 >= self.lds.len() {
-                            self.lds.resize(self.lds.len() + addr + 5, 0);
-                        }
-                        let bytes = self.vec_reg[data0 + i].to_le_bytes();
-                        self.lds[addr..addr + 4]
-                            .iter_mut()
-                            .enumerate()
-                            .for_each(|(i, x)| {
-                                *x = bytes[i];
-                            });
-                    })
+                    (0..iters).for_each(|i| self.lds.write(addr + 4 * i, self.vec_reg[data0 + i]))
                 }
                 _ => todo_instr!(instruction),
             }
         }
         // global
+        // flat
         else if instruction >> 26 == 0b110111 {
             let instr = self.u64_instr();
             let offset = as_signed(instr & 0x1fff, 13);
+            let seg = (instr >> 16) & 0x3;
             let op = ((instr >> 18) & 0x7f) as usize;
             let addr = ((instr >> 32) & 0xff) as usize;
             let data = ((instr >> 40) & 0xff) as usize;
             let saddr = ((instr >> 48) & 0x7f) as usize;
             let vdst = ((instr >> 56) & 0xff) as usize;
 
-            if *DEBUG >= DebugLevel::INSTRUCTION {
-                println!(
-                    "{} addr={} data={} saddr={} op={} offset={} vdst={}",
-                    "GLOBAL".color("blue"),
-                    addr,
-                    data,
-                    saddr,
-                    op,
-                    offset,
-                    vdst,
-                );
-            }
+            let saddr_val: u32 = self.val(saddr);
+            let saddr_off = saddr_val == 0x7F || saddr as u32 == NULL_SRC;
 
-            let addr = match self.val(saddr) {
-                0x7Fu32 | _ if saddr as u32 == NULL_SRC => {
-                    self.vec_reg.read64(addr) as i64 + (offset as i64)
+            match seg {
+                1 => {
+                    let sve = ((instr >> 50) & 0x1) != 0;
+                    if *DEBUG >= DebugLevel::INSTRUCTION {
+                        println!("{} offset={offset} op={op} addr={addr} data={data} saddr={saddr} vdst={vdst} sve={sve}", "SCRATCH".color("blue"));
+                    }
+                    let addr = match (sve, saddr_off) {
+                        (true, true) => offset as u64 as usize,
+                        _ => todo_instr!(instruction),
+                    };
+                    match op {
+                        // load
+                        20..=23 => (0..op - 19).for_each(|i| {
+                            self.vec_reg[vdst + i] = self.sds.read(addr + 4 * i);
+                        }),
+                        // store
+                        26..=29 => (0..op - 25).for_each(|i| {
+                            self.sds.write(addr + 4 * i, self.vec_reg[data + i]);
+                        }),
+                        _ => todo_instr!(instruction),
+                    }
                 }
-                _ => {
-                    let scalar_addr = self.scalar_reg.read64(saddr);
-                    let vgpr_offset = self.vec_reg[addr];
-                    scalar_addr as i64 + vgpr_offset as i64 + offset
+                2 => {
+                    if *DEBUG >= DebugLevel::INSTRUCTION {
+                        println!("{} offset={offset} op={op} addr={addr} data={data} saddr={saddr} vdst={vdst}", "GLOBAL".color("blue"));
+                    }
+
+                    let addr = match saddr_off {
+                        true => self.vec_reg.read64(addr) as i64 + (offset as i64),
+                        false => {
+                            let scalar_addr = self.scalar_reg.read64(saddr);
+                            let vgpr_offset = self.vec_reg[addr];
+                            scalar_addr as i64 + vgpr_offset as i64 + offset
+                        }
+                    } as u64;
+                    unsafe {
+                        match op {
+                            // load
+                            16 => self.vec_reg[vdst] = *(addr as *const u8) as u32,
+                            17 => self.vec_reg[vdst] = *(addr as *const i8) as u32,
+                            18 => self.vec_reg[vdst] = *(addr as *const u16) as u32,
+                            19 => self.vec_reg[vdst] = *(addr as *const i16) as u32,
+
+                            20..=23 => (0..op - 19).for_each(|i| {
+                                self.vec_reg[vdst + i] = *((addr + 4 * i as u64) as *const u32);
+                            }),
+                            // store
+                            24 => *(addr as *mut u8) = self.vec_reg[data] as u8,
+                            25 => *(addr as *mut u16) = self.vec_reg[data] as u16,
+                            26..=29 => (0..op - 25).for_each(|i| {
+                                *((addr + 4 * i as u64) as u64 as *mut u32) =
+                                    self.vec_reg[data + i];
+                            }),
+                            _ => todo_instr!(instruction),
+                        };
+                    }
                 }
-            } as u64;
-
-            unsafe {
-                match op {
-                    // load
-                    16 => self.vec_reg[vdst] = *(addr as *const u8) as u32,
-                    17 => self.vec_reg[vdst] = *(addr as *const i8) as u32,
-                    18 => self.vec_reg[vdst] = *(addr as *const u16) as u32,
-                    19 => self.vec_reg[vdst] = *(addr as *const i16) as u32,
-
-                    20..=23 => (0..op - 19).for_each(|i| {
-                        self.vec_reg[vdst + i] = *((addr + 4 * i as u64) as *const u32);
-                    }),
-                    // store
-                    24 => *(addr as *mut u8) = self.vec_reg[data] as u8,
-                    25 => *(addr as *mut u16) = self.vec_reg[data] as u16,
-                    26..=29 => (0..op - 25).for_each(|i| {
-                        *((addr + 4 * i as u64) as u64 as *mut u32) = self.vec_reg[data + i];
-                    }),
-                    _ => todo_instr!(instruction),
-                };
-            }
+                _ => todo_instr!(instruction),
+            };
         } else {
             todo_instr!(instruction);
         }
@@ -1575,7 +1581,7 @@ impl ALUSrc<u64> for CPU<'_> {
 }
 
 pub fn _helper_test_cpu() -> CPU<'static> {
-    let static_lds: &'static mut Vec<u8> = Box::leak(Box::new(Vec::new()));
+    let static_lds: &'static mut VecDataStore = Box::leak(Box::new(VecDataStore::new()));
     CPU::new(static_lds)
 }
 
@@ -2794,5 +2800,39 @@ mod test_vopp {
 
         cpu.interpret(&vec![0xCC0F5802, 0x1801E501, END_PRG]);
         assert_eq!(cpu.vec_reg[2], 1157645568);
+    }
+}
+
+#[cfg(test)]
+mod test_flat {
+    use super::*;
+
+    #[test]
+    fn test_scratch_swap_values() {
+        let mut cpu = _helper_test_cpu();
+        cpu.vec_reg[13] = 42;
+        cpu.vec_reg[14] = 10;
+        cpu.interpret(&vec![
+            0xDC690096, 0x007C0D00, 0xDC69001E, 0x007C0E00, 0xDC51001E, 0x0D7C0000, 0xDC510096,
+            0x0E7C0000, END_PRG,
+        ]);
+        assert_eq!(cpu.vec_reg[13], 10);
+        assert_eq!(cpu.vec_reg[14], 42);
+    }
+
+    #[test]
+    fn test_scratch_load_dword_offset() {
+        let mut cpu = _helper_test_cpu();
+        cpu.vec_reg[14] = 14;
+        cpu.vec_reg[15] = 23;
+        cpu.interpret(&vec![
+            0xDC6D000A, 0x007C0E00, 0xDC51000A, 0x0E7C0000, END_PRG,
+        ]);
+        assert_eq!(cpu.vec_reg[14], 14);
+
+        cpu.interpret(&vec![
+            0xDC6D000A, 0x007C0E00, 0xDC51000E, 0x0E7C0000, END_PRG,
+        ]);
+        assert_eq!(cpu.vec_reg[14], 23);
     }
 }

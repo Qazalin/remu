@@ -1,4 +1,5 @@
 use crate::cpu::{CPU, SGPR_COUNT};
+use crate::memory::VecDataStore;
 use crate::state::{Assign, Register, VGPR};
 use crate::utils::{DebugLevel, DEBUG};
 use std::collections::HashMap;
@@ -6,6 +7,7 @@ use std::os::raw::{c_char, c_void};
 mod alu_modifiers;
 mod cpu;
 mod dtype;
+mod memory;
 mod state;
 mod utils;
 
@@ -40,7 +42,6 @@ pub extern "C" fn hipModuleLaunchKernel(
     }
 
     let (prg, function_name) = &utils::read_asm(&lib_bytes);
-
     if *DEBUG >= DebugLevel::NONE {
         println!(
             "[remu] launching kernel {function_name} with global_size {} {} {} local_size {} {} {} args {:?}",
@@ -48,14 +49,12 @@ pub extern "C" fn hipModuleLaunchKernel(
         );
     }
 
-    let prg = utils::split_asm_by_thread_syncs(&prg);
-
     for gx in 0..grid_dim_x {
         for gy in 0..grid_dim_y {
             for gz in 0..grid_dim_z {
                 let mut thread_registers = HashMap::new();
-                let mut lds = Vec::new();
-                for prg in prg.iter() {
+                let mut lds = VecDataStore::new();
+                for prg in utils::split_asm_by_thread_syncs(&prg).iter() {
                     for tx in 0..block_dim_x {
                         for ty in 0..block_dim_y {
                             for tz in 0..block_dim_z {
@@ -85,7 +84,7 @@ fn launch_thread(
     local_size: [u32; 3],
     stack_ptr: u64,
     prg: &Vec<u32>,
-    lds: &mut Vec<u8>,
+    lds: &mut VecDataStore,
     thread_registers: &mut HashMap<[u32; 3], ([u32; SGPR_COUNT], VGPR, u32)>,
 ) {
     let mut cpu = CPU::new(lds);
