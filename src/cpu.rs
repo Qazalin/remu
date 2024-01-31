@@ -440,12 +440,16 @@ impl<'a> CPU<'a> {
 
             let mut src = |x: u64| -> (u16, u16, u32) {
                 let val: u32 = self.val(((instr >> x) & 0x1ff) as usize);
-                match (((instr >> x) & 0x1ff) as usize) == 255 {
-                    true => {
+                match ((instr >> x) & 0x1ff) as usize {
+                    255 => {
                         let val_lo: u16 = self.val(((instr >> x) & 0x1ff) as usize);
                         (val_lo, val_lo, val)
                     }
-                    false => ((val & 0xffff) as u16, ((val >> 16) & 0xffff) as u16, val),
+                    (240..=247) => {
+                        let val_lo: u16 = self.val(((instr >> x) & 0x1ff) as usize);
+                        (val_lo, f16::from_bits(0).to_bits(), val)
+                    }
+                    _ => ((val & 0xffff) as u16, ((val >> 16) & 0xffff) as u16, val),
                 }
             };
             let src_parts = [src(32), src(41), src(50)];
@@ -2770,5 +2774,25 @@ mod test_vopp {
 
         cpu.interpret(&vec![0xCC0E3905, 0x042A1300, END_PRG]);
         assert_eq!(cpu.vec_reg[5], 3405792512);
+    }
+
+    #[test]
+    fn test_pk_add_f16_with_float_const() {
+        let mut cpu = _helper_test_cpu();
+        let a1 = f16::from_f32(5.0);
+        let a2 = f16::from_f32(10.0);
+
+        cpu.vec_reg[1] = (a1.to_bits() as u32) << 16 | (a2.to_bits() as u32);
+        cpu.interpret(&vec![0xCC0F4002, 0x0001E501, END_PRG]);
+        assert_eq!(cpu.vec_reg[2], 1233144192);
+
+        cpu.interpret(&vec![0xCC0F5002, 0x0001E501, END_PRG]);
+        assert_eq!(cpu.vec_reg[2], 1233144064);
+
+        cpu.interpret(&vec![0xCC0F5002, 0x1001E501, END_PRG]);
+        assert_eq!(cpu.vec_reg[2], 1224755456);
+
+        cpu.interpret(&vec![0xCC0F5802, 0x1801E501, END_PRG]);
+        assert_eq!(cpu.vec_reg[2], 1157645568);
     }
 }
