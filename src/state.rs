@@ -15,7 +15,6 @@ where
         let addr_msb = self[idx + 1];
         ((addr_msb as u64) << 32) | addr_lsb as u64
     }
-
     fn write64(&mut self, idx: usize, addr: u64) {
         self[idx] = (addr & 0xffffffff) as u32;
         self[idx + 1] = ((addr & (0xffffffff << 32)) >> 32) as u32;
@@ -55,6 +54,9 @@ impl VGPR {
     pub fn write16(&mut self, idx: usize, val: u16) {
         let msb = (self[idx] & (0xffff << 16)) >> 16;
         self[idx] = ((msb as u32) << 16) | val as u32;
+    }
+    pub fn write16hi(&mut self, idx: usize, val: u16) {
+        self[idx] = ((val as u32) << 16) | (self[idx] as u16 as u32);
     }
 }
 
@@ -126,5 +128,13 @@ mod test_state {
         vgpr[0] = 0b11100000000000001111111111111111;
         vgpr.write16(0, 0b1011101111111110);
         assert_eq!(vgpr[0], 0b11100000000000001011101111111110);
+    }
+
+    #[test]
+    fn test_write16hi() {
+        let mut vgpr = VGPR::new();
+        vgpr[0] = 0b11100000000000001111111111111111;
+        vgpr.write16hi(0, 0b1011101111111110);
+        assert_eq!(vgpr[0], 0b10111011111111101111111111111111);
     }
 }

@@ -42,7 +42,6 @@ impl<'a> CPU<'a> {
 
     pub fn interpret(&mut self, prg: &Vec<u32>) {
         self.pc = 0;
-        self.vcc.assign(0);
         self.exec = 1;
         self.prg = prg.to_vec();
 
@@ -1343,6 +1342,7 @@ impl<'a> CPU<'a> {
                             20..=23 => (0..op - 19).for_each(|i| {
                                 self.vec_reg[vdst + i] = *((addr + 4 * i as u64) as *const u32);
                             }),
+                            35 => self.vec_reg.write16hi(vdst, *(addr as *const u16)),
                             // store
                             24 => *(addr as *mut u8) = self.vec_reg[data] as u8,
                             25 => *(addr as *mut u16) = self.vec_reg[data] as u16,
@@ -2806,6 +2806,7 @@ mod test_vopp {
 #[cfg(test)]
 mod test_flat {
     use super::*;
+    use std::alloc::{alloc, handle_alloc_error, Layout};
 
     #[test]
     fn test_scratch_swap_values() {
@@ -2834,5 +2835,24 @@ mod test_flat {
             0xDC6D000A, 0x007C0E00, 0xDC51000E, 0x0E7C0000, END_PRG,
         ]);
         assert_eq!(cpu.vec_reg[14], 23);
+    }
+
+    #[test]
+    fn test_global_load_d16_hi_b16() {
+        let mut cpu = _helper_test_cpu();
+        cpu.vec_reg[13] = 0b10101011101101001111111111111111;
+        unsafe {
+            let layout = Layout::new::<u16>();
+            let ptr = alloc(layout);
+            if ptr.is_null() {
+                handle_alloc_error(layout)
+            }
+            *(ptr as *mut u16) = 42;
+            cpu.vec_reg.write64(10, ptr as u64);
+        }
+        cpu.interpret(&vec![0xDC8E0000, 0x0D7C000A, END_PRG]);
+        println!("{:016b}", 42);
+        
+        assert_eq!(cpu.vec_reg[13], 0b00000000001010101111111111111111);
     }
 }
