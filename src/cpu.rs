@@ -1,7 +1,7 @@
 use crate::alu_modifiers::VOPModifier;
 use crate::dtype::IEEEClass;
 use crate::memory::VecDataStore;
-use crate::state::{Assign, Register, VCC, VGPR};
+use crate::state::{Assign, Register, Value, VCC, VGPR};
 use crate::todo_instr;
 use crate::utils::{as_signed, f16_hi, f16_lo, nth, Colorize, DebugLevel, DEBUG, END_PRG};
 use half::f16;
@@ -440,21 +440,26 @@ impl<'a> CPU<'a> {
             assert_eq!([clmp], [0]);
             let op = (instr >> 16) & 0x7f;
 
-            let mut src = |x: u64| -> (u16, u16, u32) {
-                let val: u32 = self.val(((instr >> x) & 0x1ff) as usize);
-                match ((instr >> x) & 0x1ff) as usize {
+            let mut src = |x: usize| -> (u16, u16, u32) {
+                let val: u32 = self.val(x);
+                match x {
                     255 => {
-                        let val_lo: u16 = self.val(((instr >> x) & 0x1ff) as usize);
+                        let val_lo: u16 = self.val(x);
                         (val_lo, val_lo, val)
                     }
                     (240..=247) => {
-                        let val_lo: u16 = self.val(((instr >> x) & 0x1ff) as usize);
+                        let val_lo: u16 = self.val(x);
                         (val_lo, f16::from_bits(0).to_bits(), val)
                     }
                     _ => ((val & 0xffff) as u16, ((val >> 16) & 0xffff) as u16, val),
                 }
             };
-            let src_parts = [src(32), src(41), src(50)];
+
+            let src_fields = [32, 41, 50]
+                .iter()
+                .map(|x| ((instr >> x) & 0x1ff) as usize)
+                .collect::<Vec<_>>();
+            let src_parts = src_fields.iter().map(|x| src(*x)).collect::<Vec<_>>();
 
             let b = |i: usize| (instr >> i) & 0x1 != 0;
             let neg_hi = ((instr >> 8) & 0x7) as usize;
@@ -465,7 +470,7 @@ impl<'a> CPU<'a> {
                 println!("{} op={op} vdst={vdst} src2={:?} opsel={:?} opsel_hi={:?} neg={:03b} neg_hi={:03b}", "VOPP".color("blue"), src_parts, opsel, opsel_hi, neg, neg_hi);
             }
 
-            let ret = match op {
+            match op {
                 0..=18 => {
                     let fxn = |x, y, z| match op {
                         1 => x * y,
@@ -506,8 +511,9 @@ impl<'a> CPU<'a> {
                             .collect::<Vec<u16>>()
                     };
                     let (src_hi, src_lo) = (src(opsel_hi), src(opsel));
-                    ((fxn(src_hi[0], src_hi[1], src_hi[2]) as u32) << 16)
-                        | (fxn(src_lo[0], src_lo[1], src_lo[2]) as u32)
+                    let ret = ((fxn(src_hi[0], src_hi[1], src_hi[2]) as u32) << 16)
+                        | (fxn(src_lo[0], src_lo[1], src_lo[2]) as u32);
+                    self.vec_reg[vdst] = ret;
                 }
                 32..=34 => {
                     let src: Vec<f32> = src_parts
@@ -523,7 +529,7 @@ impl<'a> CPU<'a> {
                             }
                         })
                         .collect();
-                    match op {
+                    let ret = match op {
                         32 => f32::mul_add(src[0], src[1], src[2]).to_bits(),
                         33 | 34 => {
                             let ret = f16::from_f32(f32::mul_add(src[0], src[1], src[2])).to_bits();
@@ -534,11 +540,11 @@ impl<'a> CPU<'a> {
                             }
                         }
                         _ => todo_instr!(instruction),
-                    }
+                    };
+                    self.vec_reg[vdst] = ret;
                 }
                 _ => todo_instr!(instruction),
-            };
-            self.vec_reg[vdst] = ret;
+            }
         }
         // vop1
         else if instruction >> 25 == 0b0111111 {
@@ -1111,8 +1117,7 @@ impl<'a> CPU<'a> {
                                     return;
                                 }
                                 826 => {
-                                    self.vec_reg
-                                        .write16(vdst, ((s1 as i16) >> (s0 & 0xf)) as u16);
+                                    self.vec_reg[vdst].mut_lo16(((s1 as i16) >> (s0 & 0xf)) as u16);
                                     return;
                                 }
                                 577 | 771 | 772 | 773 | 824 | 825 => {
@@ -1126,7 +1131,7 @@ impl<'a> CPU<'a> {
                                         825 => s1 >> s0,
                                         _ => panic!(),
                                     };
-                                    self.vec_reg.write16(vdst, ret);
+                                    self.vec_reg[vdst].mut_lo16(ret);
                                     return;
                                 }
                                 _ => {}
@@ -1342,7 +1347,7 @@ impl<'a> CPU<'a> {
                             20..=23 => (0..op - 19).for_each(|i| {
                                 self.vec_reg[vdst + i] = *((addr + 4 * i as u64) as *const u32);
                             }),
-                            35 => self.vec_reg.write16hi(vdst, *(addr as *const u16)),
+                            35 => self.vec_reg[vdst].mut_hi16(*(addr as *const u16)),
                             // store
                             24 => *(addr as *mut u8) = self.vec_reg[data] as u8,
                             25 => *(addr as *mut u16) = self.vec_reg[data] as u16,
@@ -2851,8 +2856,6 @@ mod test_flat {
             cpu.vec_reg.write64(10, ptr as u64);
         }
         cpu.interpret(&vec![0xDC8E0000, 0x0D7C000A, END_PRG]);
-        println!("{:016b}", 42);
-        
         assert_eq!(cpu.vec_reg[13], 0b00000000001010101111111111111111);
     }
 }

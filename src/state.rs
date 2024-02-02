@@ -51,12 +51,18 @@ impl VGPR {
     pub fn write_lane(&mut self, lane: usize, idx: usize, val: u32) {
         self.0.get_mut(&lane).unwrap()[idx] = val;
     }
-    pub fn write16(&mut self, idx: usize, val: u16) {
-        let msb = (self[idx] & (0xffff << 16)) >> 16;
-        self[idx] = ((msb as u32) << 16) | val as u32;
+}
+
+pub trait Value {
+    fn mut_hi16(&mut self, val: u16);
+    fn mut_lo16(&mut self, val: u16);
+}
+impl Value for u32 {
+    fn mut_hi16(&mut self, val: u16) {
+        *self = ((val as u32) << 16) | (*self as u16 as u32);
     }
-    pub fn write16hi(&mut self, idx: usize, val: u16) {
-        self[idx] = ((val as u32) << 16) | (self[idx] as u16 as u32);
+    fn mut_lo16(&mut self, val: u16) {
+        *self = ((((*self & (0xffff << 16)) >> 16) as u32) << 16) | val as u32;
     }
 }
 
@@ -126,7 +132,7 @@ mod test_state {
     fn test_write16() {
         let mut vgpr = VGPR::new();
         vgpr[0] = 0b11100000000000001111111111111111;
-        vgpr.write16(0, 0b1011101111111110);
+        vgpr[0].mut_lo16(0b1011101111111110);
         assert_eq!(vgpr[0], 0b11100000000000001011101111111110);
     }
 
@@ -134,7 +140,7 @@ mod test_state {
     fn test_write16hi() {
         let mut vgpr = VGPR::new();
         vgpr[0] = 0b11100000000000001111111111111111;
-        vgpr.write16hi(0, 0b1011101111111110);
+        vgpr[0].mut_hi16(0b1011101111111110);
         assert_eq!(vgpr[0], 0b10111011111111101111111111111111);
     }
 }
