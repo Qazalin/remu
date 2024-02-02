@@ -1105,14 +1105,12 @@ impl<'a> CPU<'a> {
                             let (s0, s1, s2) = (self.val(src.0), self.val(src.1), self.val(src.2));
                             match op {
                                 865 => {
-                                    self.vec_reg.write_lane(s1 as usize, vdst, s0);
+                                    self.vec_reg.get_lane_mut(s1 as usize)[vdst] = s0;
                                     return;
                                 }
                                 864 => {
-                                    let val = self.vec_reg.read_lane(
-                                        s1 as usize,
-                                        (instr as usize >> 32) & 0x1ff - VGPR_COUNT,
-                                    );
+                                    let val =
+                                        self.vec_reg.get_lane(s1 as usize)[src.0 - VGPR_COUNT];
                                     self.write_to_sdst(vdst as u32, val);
                                     return;
                                 }
@@ -2409,17 +2407,17 @@ mod test_vop3 {
         let mut cpu = _helper_test_cpu();
         cpu.scalar_reg[8] = 25056;
         cpu.interpret(&vec![0xD7610004, 0x00010008, END_PRG]);
-        assert_eq!(cpu.vec_reg.read_lane(0, 4), 25056);
+        assert_eq!(cpu.vec_reg.get_lane(0)[4], 25056);
 
         cpu.scalar_reg[9] = 25056;
         cpu.interpret(&vec![0xD7610004, 0x00010209, END_PRG]);
-        assert_eq!(cpu.vec_reg.read_lane(1, 4), 25056);
+        assert_eq!(cpu.vec_reg.get_lane(1)[4], 25056);
     }
 
     #[test]
     fn test_v_readlane_b32() {
         let mut cpu = _helper_test_cpu();
-        cpu.vec_reg.write_lane(15, 4, 0b1111);
+        cpu.vec_reg.get_lane_mut(15)[4] = 0b1111;
         cpu.interpret(&vec![0xD760006A, 0x00011F04, END_PRG]);
         assert_eq!(*cpu.vcc, 1);
     }

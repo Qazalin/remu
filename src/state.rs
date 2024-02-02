@@ -45,11 +45,11 @@ impl VGPR {
         }
         VGPR(map)
     }
-    pub fn read_lane(&self, lane: usize, idx: usize) -> u32 {
-        self.0.get(&lane).unwrap()[idx]
+    pub fn get_lane(&self, lane: usize) -> [u32; 256] {
+        *self.0.get(&lane).unwrap()
     }
-    pub fn write_lane(&mut self, lane: usize, idx: usize, val: u32) {
-        self.0.get_mut(&lane).unwrap()[idx] = val;
+    pub fn get_lane_mut(&mut self, lane: usize) -> &mut [u32; 256] {
+        self.0.get_mut(&lane).unwrap()
     }
 }
 
