@@ -69,6 +69,7 @@ impl<'a> WorkGroup<'a> {
         for y in 0..self.launch_bounds[1] {
             for z in 0..self.launch_bounds[2] {
                 let mut cpu = CPU::new(&mut self.lds);
+                cpu.vec_reg.default_lane = Some(0);
                 match self.thread_state.get(&[x, y, z]) {
                     Some(val) => {
                         cpu.scalar_reg = val.0.clone();

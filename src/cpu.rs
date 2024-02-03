@@ -29,14 +29,8 @@ impl<'a> CPU<'a> {
         return CPU {
             pc: 0,
             scc: 0,
-            vcc: WaveValue {
-                value: 0,
-                lane_id: 0,
-            },
-            exec: WaveValue {
-                value: 1,
-                lane_id: 0,
-            },
+            vcc: WaveValue::new(0),
+            exec: WaveValue::new(1),
             lds,
             sds: VecDataStore::new(),
             scalar_reg: vec![0; SGPR_COUNT],
@@ -47,6 +41,8 @@ impl<'a> CPU<'a> {
     }
 
     pub fn interpret(&mut self, prg: &Vec<u32>) {
+        self.vcc.default_lane = Some(0);
+        self.exec.default_lane = Some(0);
         self.pc = 0;
         self.prg = prg.to_vec();
 
@@ -79,7 +75,7 @@ impl<'a> CPU<'a> {
             || instruction >> 25 == 0b0111110
             || instruction >> 31 == 0b0
             || instruction >> 26 == 0b110101)
-            && !*self.exec
+            && !self.exec.read()
         {
             return;
         }
@@ -152,14 +148,14 @@ impl<'a> CPU<'a> {
                             ret
                         }
                         32 | 34 | 48 => {
-                            let saveexec = *self.exec as u32;
+                            let saveexec = self.exec.read() as u32;
                             self.exec.value = match op {
                                 32 => s0 & saveexec,
                                 34 => s0 | saveexec,
                                 48 => s0 & !saveexec,
                                 _ => panic!(),
                             };
-                            self.scc = *self.exec as u32;
+                            self.scc = self.exec.read() as u32;
                             saveexec
                         }
                         _ => todo_instr!(instruction),
@@ -612,7 +608,7 @@ impl<'a> CPU<'a> {
                             self.vec_reg.write64(vdst, ret)
                         }
                         2 => {
-                            assert!(*self.exec);
+                            assert!(self.exec.read());
                             self.scalar_reg[vdst] = s0;
                         }
                         _ => {
@@ -716,7 +712,7 @@ impl<'a> CPU<'a> {
                         }
                         _ => match op {
                             8 => *s0,
-                            9 => match *self.vcc {
+                            9 => match self.vcc.read() {
                                 true => *s1,
                                 false => *s0,
                             },
@@ -820,7 +816,7 @@ impl<'a> CPU<'a> {
                 _ => {
                     let s0 = self.val(s0);
                     self.vec_reg[vdst] = match op {
-                        1 => match *self.vcc {
+                        1 => match self.vcc.read() {
                             true => s1,
                             false => s0,
                         },
@@ -872,18 +868,18 @@ impl<'a> CPU<'a> {
                             }) as u32
                         }
                         32 => {
-                            let temp = s0 as u64 + s1 as u64 + *self.vcc as u64;
+                            let temp = s0 as u64 + s1 as u64 + self.vcc.read() as u64;
                             self.vcc.mut_lane(temp >= 0x100000000);
                             temp as u32
                         }
                         33 | 34 => {
                             let temp = match op {
-                                33 => s0 - s1 - *self.vcc as u32,
-                                34 => s1 - s0 - *self.vcc as u32,
+                                33 => s0 - s1 - self.vcc.read() as u32,
+                                34 => s1 - s0 - self.vcc.read() as u32,
                                 _ => panic!(),
                             };
                             self.vcc
-                                .mut_lane((s1 as u64 + *self.vcc as u64) > s0 as u64);
+                                .mut_lane((s1 as u64 + self.vcc.read() as u64) > s0 as u64);
                             temp
                         }
                         11 => s0 * s1,
@@ -1160,7 +1156,7 @@ impl<'a> CPU<'a> {
                                         551 => s2 / s1,
                                         567 => {
                                             let ret = f32::mul_add(s0, s1, s2);
-                                            match *self.vcc {
+                                            match self.vcc.read() {
                                                 true => 2.0_f32.powi(32) * ret,
                                                 false => ret,
                                             }
@@ -1476,8 +1472,8 @@ impl<'a> CPU<'a> {
     /* ALU utils */
     fn _common_srcs(&mut self, code: u32) -> u32 {
         match code {
-            106 => *self.vcc as u32,
-            126 => *self.exec as u32,
+            106 => self.vcc.read() as u32,
+            126 => self.exec.read() as u32,
             128 => 0,
             124 => NULL_SRC,
             255 => self.simm(),
@@ -1590,7 +1586,9 @@ impl ALUSrc<u64> for CPU<'_> {
 
 pub fn _helper_test_cpu() -> CPU<'static> {
     let static_lds: &'static mut VecDataStore = Box::leak(Box::new(VecDataStore::new()));
-    CPU::new(static_lds)
+    let mut cpu = CPU::new(static_lds);
+    cpu.vec_reg.default_lane = Some(0);
+    return cpu;
 }
 
 #[cfg(test)]
@@ -2186,11 +2184,11 @@ mod test_vopc {
 
         cpu.vec_reg[1] = (4_i32 * -1) as u32;
         cpu.interpret(&vec![0x7c8802c1, END_PRG]);
-        assert_eq!(*cpu.vcc, true);
+        assert_eq!(cpu.vcc.read(), true);
 
         cpu.vec_reg[1] = 4;
         cpu.interpret(&vec![0x7c8802c1, END_PRG]);
-        assert_eq!(*cpu.vcc, false);
+        assert_eq!(cpu.vcc.read(), false);
     }
 
     #[test]
@@ -2199,7 +2197,7 @@ mod test_vopc {
         cpu.vec_reg[0] = f32::to_bits(0.9);
         cpu.vec_reg[3] = f32::to_bits(0.4);
         cpu.interpret(&vec![0x7D3C0700, END_PRG]);
-        assert_eq!(*cpu.exec, true);
+        assert_eq!(cpu.exec.read(), true);
     }
 
     #[test]
@@ -2312,7 +2310,7 @@ mod test_vopsd {
                 cpu.vec_reg[15] = *b;
                 cpu.interpret(&vec![0xD7016A04, 0x00021F04, END_PRG]);
                 assert_eq!(cpu.vec_reg[4], *ret);
-                assert_eq!(*cpu.vcc, *scc != 0);
+                assert_eq!(cpu.vcc.read(), *scc != 0);
             })
     }
 }
@@ -2424,7 +2422,7 @@ mod test_vop3 {
         let mut cpu = _helper_test_cpu();
         cpu.vec_reg.get_lane_mut(15)[4] = 0b1111;
         cpu.interpret(&vec![0xD760006A, 0x00011F04, END_PRG]);
-        assert_eq!(*cpu.vcc, true);
+        assert_eq!(cpu.vcc.read(), true);
     }
 
     #[test]

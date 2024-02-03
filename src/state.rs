@@ -22,34 +22,43 @@ where
 }
 
 #[derive(Clone)]
-pub struct VGPR(pub HashMap<usize, [u32; 256]>);
+pub struct VGPR {
+    values: HashMap<usize, [u32; 256]>,
+    pub default_lane: Option<usize>,
+}
 impl Index<usize> for VGPR {
     type Output = u32;
     fn index(&self, index: usize) -> &Self::Output {
-        &self.0.get(&0).unwrap()[index]
+        &self.values.get(&self.default_lane.unwrap()).unwrap()[index]
     }
 }
 
 impl IndexMut<usize> for VGPR {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.0.entry(0).or_insert([0; 256])[index]
+        &mut self
+            .values
+            .entry(self.default_lane.unwrap())
+            .or_insert([0; 256])[index]
     }
 }
 
 impl VGPR {
     pub fn new() -> Self {
-        let mut map = HashMap::new();
+        let mut values = HashMap::new();
         let vals = [0; 256];
         for key in 0..32 {
-            map.insert(key, vals);
+            values.insert(key, vals);
         }
-        VGPR(map)
+        VGPR {
+            values,
+            default_lane: None,
+        }
     }
     pub fn get_lane(&self, lane: usize) -> [u32; 256] {
-        *self.0.get(&lane).unwrap()
+        *self.values.get(&lane).unwrap()
     }
     pub fn get_lane_mut(&mut self, lane: usize) -> &mut [u32; 256] {
-        self.0.get_mut(&lane).unwrap()
+        self.values.get_mut(&lane).unwrap()
     }
 }
 
@@ -69,23 +78,23 @@ impl Value for u32 {
 #[derive(Debug)]
 pub struct WaveValue {
     pub value: u32,
-    pub lane_id: usize,
-}
-impl std::ops::Deref for WaveValue {
-    type Target = bool;
-    fn deref(&self) -> &Self::Target {
-        match (self.value >> self.lane_id) & 1 == 1 {
-            true => &true,
-            false => &false,
-        }
-    }
+    pub default_lane: Option<usize>,
 }
 impl WaveValue {
+    pub fn new(value: u32) -> Self {
+        Self {
+            value,
+            default_lane: None,
+        }
+    }
+    pub fn read(&self) -> bool {
+        (self.value >> self.default_lane.unwrap()) & 1 == 1
+    }
     pub fn mut_lane(&mut self, value: bool) {
         if value {
-            self.value |= 1 << self.lane_id;
+            self.value |= 1 << self.default_lane.unwrap();
         } else {
-            self.value &= !(1 << self.lane_id);
+            self.value &= !(1 << self.default_lane.unwrap());
         }
     }
 }
@@ -96,21 +105,17 @@ mod test_state {
 
     #[test]
     fn test_wave_value() {
-        let val = WaveValue {
-            value: 0b11000000000000011111111111101110,
-            lane_id: 0,
-        };
-        assert!(!*val);
-        let val = WaveValue {
-            value: 0b11000000000000011111111111101110,
-            lane_id: 31,
-        };
-        assert!(*val);
+        let mut val = WaveValue::new(0b11000000000000011111111111101110);
+        val.default_lane = Some(0);
+        assert!(!val.read());
+        val.default_lane = Some(31);
+        assert!(val.read());
     }
 
     #[test]
     fn test_write16() {
         let mut vgpr = VGPR::new();
+        vgpr.default_lane = Some(0);
         vgpr[0] = 0b11100000000000001111111111111111;
         vgpr[0].mut_lo16(0b1011101111111110);
         assert_eq!(vgpr[0], 0b11100000000000001011101111111110);
@@ -119,8 +124,20 @@ mod test_state {
     #[test]
     fn test_write16hi() {
         let mut vgpr = VGPR::new();
+        vgpr.default_lane = Some(0);
         vgpr[0] = 0b11100000000000001111111111111111;
         vgpr[0].mut_hi16(0b1011101111111110);
         assert_eq!(vgpr[0], 0b10111011111111101111111111111111);
+    }
+
+    #[test]
+    fn test_vgpr() {
+        let mut vgpr = VGPR::new();
+        vgpr.default_lane = Some(0);
+        vgpr[0] = 42;
+        vgpr.default_lane = Some(10);
+        vgpr[0] = 10;
+        assert_eq!(vgpr.get_lane(0)[0], 42);
+        assert_eq!(vgpr.get_lane(10)[0], 10);
     }
 }
