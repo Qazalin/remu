@@ -1,6 +1,6 @@
 use crate::cpu::{CPU, SGPR_COUNT};
 use crate::memory::VecDataStore;
-use crate::state::{Assign, Register, VGPR};
+use crate::state::{Register, VGPR};
 use crate::utils::{DebugLevel, DEBUG};
 use std::collections::HashMap;
 use std::os::raw::{c_char, c_void};
@@ -85,14 +85,13 @@ fn launch_thread(
     stack_ptr: u64,
     prg: &Vec<u32>,
     lds: &mut VecDataStore,
-    thread_registers: &mut HashMap<[u32; 3], ([u32; SGPR_COUNT], VGPR, u32)>,
+    thread_registers: &mut HashMap<[u32; 3], ([u32; SGPR_COUNT], VGPR)>,
 ) {
     let mut cpu = CPU::new(lds);
     match thread_registers.get(&thread_id) {
         Some(val) => {
             cpu.scalar_reg = val.0.clone();
             cpu.vec_reg = val.1.clone();
-            cpu.vcc.assign(val.2);
         }
         None => {
             cpu.scalar_reg.write64(0, stack_ptr);
@@ -115,5 +114,5 @@ fn launch_thread(
         }
     }
     cpu.interpret(prg);
-    thread_registers.insert(thread_id, (cpu.scalar_reg, cpu.vec_reg, *cpu.vcc));
+    thread_registers.insert(thread_id, (cpu.scalar_reg, cpu.vec_reg));
 }

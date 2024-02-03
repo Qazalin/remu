@@ -1,7 +1,7 @@
 use crate::alu_modifiers::VOPModifier;
 use crate::dtype::IEEEClass;
 use crate::memory::VecDataStore;
-use crate::state::{Assign, Register, Value, VCC, VGPR};
+use crate::state::{Register, Value, WaveValue, VGPR};
 use crate::todo_instr;
 use crate::utils::{as_signed, f16_hi, f16_lo, nth, Colorize, DebugLevel, DEBUG, END_PRG};
 use half::f16;
@@ -16,8 +16,8 @@ pub struct CPU<'a> {
     pub scalar_reg: [u32; SGPR_COUNT],
     pub vec_reg: VGPR,
     pub scc: u32,
-    pub vcc: VCC,
-    pub exec: u32,
+    pub vcc: WaveValue,
+    pub exec: WaveValue,
     pub lds: &'a mut VecDataStore,
     sds: VecDataStore,
     prg: Vec<u32>,
@@ -29,8 +29,14 @@ impl<'a> CPU<'a> {
         return CPU {
             pc: 0,
             scc: 0,
-            vcc: VCC::from(0),
-            exec: 0,
+            vcc: WaveValue {
+                value: 0,
+                lane_id: 0,
+            },
+            exec: WaveValue {
+                value: 1,
+                lane_id: 0,
+            },
             lds,
             sds: VecDataStore::new(),
             scalar_reg: [0; SGPR_COUNT],
@@ -42,7 +48,6 @@ impl<'a> CPU<'a> {
 
     pub fn interpret(&mut self, prg: &Vec<u32>) {
         self.pc = 0;
-        self.exec = 1;
         self.prg = prg.to_vec();
 
         loop {
@@ -74,7 +79,7 @@ impl<'a> CPU<'a> {
             || instruction >> 25 == 0b0111110
             || instruction >> 31 == 0b0
             || instruction >> 26 == 0b110101)
-            && self.exec == 0
+            && !*self.exec
         {
             return;
         }
@@ -147,14 +152,14 @@ impl<'a> CPU<'a> {
                             ret
                         }
                         32 | 34 | 48 => {
-                            let saveexec = self.exec;
-                            self.exec = match op {
-                                32 => s0 & self.exec,
-                                34 => s0 | self.exec,
-                                48 => s0 & !self.exec,
+                            let saveexec = *self.exec as u32;
+                            self.exec.value = match op {
+                                32 => s0 & saveexec,
+                                34 => s0 | saveexec,
+                                48 => s0 & !saveexec,
                                 _ => panic!(),
                             };
-                            self.scc = (self.exec != 0) as u32;
+                            self.scc = *self.exec as u32;
                             saveexec
                         }
                         _ => todo_instr!(instruction),
@@ -221,10 +226,10 @@ impl<'a> CPU<'a> {
                         32 => true,
                         33 => self.scc == 0,
                         34 => self.scc == 1,
-                        35 => *self.vcc == 0,
-                        36 => *self.vcc != 0,
-                        37 => self.exec == 0,
-                        38 => self.exec != 0,
+                        35 => self.vcc.value == 0,
+                        36 => self.vcc.value != 0,
+                        37 => self.exec.value == 0,
+                        38 => self.exec.value != 0,
                         _ => todo_instr!(instruction),
                     };
                     if should_jump {
@@ -607,7 +612,7 @@ impl<'a> CPU<'a> {
                             self.vec_reg.write64(vdst, ret)
                         }
                         2 => {
-                            assert!(self.exec == 1);
+                            assert!(*self.exec);
                             self.scalar_reg[vdst] = s0;
                         }
                         _ => {
@@ -711,7 +716,7 @@ impl<'a> CPU<'a> {
                         }
                         _ => match op {
                             8 => *s0,
-                            9 => match *self.vcc != 0 {
+                            9 => match *self.vcc {
                                 true => *s1,
                                 false => *s0,
                             },
@@ -784,8 +789,8 @@ impl<'a> CPU<'a> {
             };
 
             match op >= 128 {
-                true => self.exec = ret as u32,
-                false => self.vcc.assign(ret),
+                true => self.exec.mut_lane(ret),
+                false => self.vcc.mut_lane(ret),
             };
         }
         // vop2
@@ -815,7 +820,7 @@ impl<'a> CPU<'a> {
                 _ => {
                     let s0 = self.val(s0);
                     self.vec_reg[vdst] = match op {
-                        1 => match *self.vcc != 0 {
+                        1 => match *self.vcc {
                             true => s1,
                             false => s0,
                         },
@@ -868,17 +873,17 @@ impl<'a> CPU<'a> {
                         }
                         32 => {
                             let temp = s0 as u64 + s1 as u64 + *self.vcc as u64;
-                            self.vcc.assign(if temp >= 0x100000000 { 1 } else { 0 });
+                            self.vcc.mut_lane(temp >= 0x100000000);
                             temp as u32
                         }
                         33 | 34 => {
                             let temp = match op {
-                                33 => s0 - s1 - *self.vcc,
-                                34 => s1 - s0 - *self.vcc,
+                                33 => s0 - s1 - *self.vcc as u32,
+                                34 => s1 - s0 - *self.vcc as u32,
                                 _ => panic!(),
                             };
                             self.vcc
-                                .assign(((s1 as u64 + *self.vcc as u64) > s0 as u64) as u32);
+                                .mut_lane((s1 as u64 + *self.vcc as u64) > s0 as u64);
                             temp
                         }
                         11 => s0 * s1,
@@ -923,11 +928,11 @@ impl<'a> CPU<'a> {
 
                     let (ret, vcc) = match op {
                         288 => {
-                            let ret = s0 as u64 + s1 as u64 + *VCC::from(s2) as u64;
+                            let ret = s0 as u64 + s1 as u64 + (s2 != 0) as u64;
                             (ret as u32, ret >= 0x100000000)
                         }
                         289 => {
-                            let vcc = *VCC::from(s2) as u64;
+                            let vcc = (s2 != 0) as u64;
                             let ret = s0 as u64 - s1 as u64 - vcc;
                             (ret as u32, s1 as u64 + vcc > s0 as u64)
                         }
@@ -948,9 +953,9 @@ impl<'a> CPU<'a> {
                         _ => todo_instr!(instruction),
                     };
                     match sdst {
-                        106 => self.vcc.assign(vcc),
+                        106 => self.vcc.mut_lane(vcc),
                         124 => {}
-                        _ => self.scalar_reg[sdst] = *VCC::from(vcc as u32),
+                        _ => self.scalar_reg[sdst] = vcc as u32,
                     }
                     self.vec_reg[vdst] = ret;
                 }
@@ -1036,8 +1041,8 @@ impl<'a> CPU<'a> {
 
                             match vdst {
                                 0..=SGPR_COUNT => self.scalar_reg[vdst] = ret,
-                                106 => self.vcc.assign(ret),
-                                126 => self.exec = ret,
+                                106 => self.vcc.mut_lane(ret != 0),
+                                126 => self.exec.mut_lane(ret != 0),
                                 _ => todo_instr!(instruction),
                             }
                         }
@@ -1155,7 +1160,7 @@ impl<'a> CPU<'a> {
                                         551 => s2 / s1,
                                         567 => {
                                             let ret = f32::mul_add(s0, s1, s2);
-                                            match *self.vcc != 0 {
+                                            match *self.vcc {
                                                 true => 2.0_f32.powi(32) * ret,
                                                 false => ret,
                                             }
@@ -1471,8 +1476,8 @@ impl<'a> CPU<'a> {
     /* ALU utils */
     fn _common_srcs(&mut self, code: u32) -> u32 {
         match code {
-            106 => *self.vcc,
-            126 => self.exec,
+            106 => *self.vcc as u32,
+            126 => *self.exec as u32,
             128 => 0,
             124 => NULL_SRC,
             255 => self.simm(),
@@ -1492,8 +1497,8 @@ impl<'a> CPU<'a> {
     fn write_to_sdst(&mut self, sdst_bf: u32, val: u32) {
         match sdst_bf as usize {
             0..=SGPR_COUNT => self.scalar_reg[sdst_bf as usize] = val,
-            106 => self.vcc.assign(val),
-            126 => self.exec = val,
+            106 => self.vcc.value = val,
+            126 => self.exec.value = val,
             _ => todo!("write to sdst {}", sdst_bf),
         }
     }
@@ -1600,11 +1605,11 @@ mod test_alu_utils {
     }
 
     #[test]
-    fn test_write_to_sdst_vcclo() {
+    fn test_write_to_sdst_vcc_val() {
         let mut cpu = _helper_test_cpu();
         let val = 0b1011101011011011111011101111;
         cpu.write_to_sdst(106, val);
-        assert_eq!(*cpu.vcc, 1);
+        assert_eq!(cpu.vcc.value, 195935983);
     }
 
     #[test]
@@ -2181,11 +2186,11 @@ mod test_vopc {
 
         cpu.vec_reg[1] = (4_i32 * -1) as u32;
         cpu.interpret(&vec![0x7c8802c1, END_PRG]);
-        assert_eq!(*cpu.vcc, 1);
+        assert_eq!(*cpu.vcc, true);
 
         cpu.vec_reg[1] = 4;
         cpu.interpret(&vec![0x7c8802c1, END_PRG]);
-        assert_eq!(*cpu.vcc, 0);
+        assert_eq!(*cpu.vcc, false);
     }
 
     #[test]
@@ -2194,7 +2199,7 @@ mod test_vopc {
         cpu.vec_reg[0] = f32::to_bits(0.9);
         cpu.vec_reg[3] = f32::to_bits(0.4);
         cpu.interpret(&vec![0x7D3C0700, END_PRG]);
-        assert_eq!(cpu.exec, 1);
+        assert_eq!(*cpu.exec, true);
     }
 
     #[test]
@@ -2307,7 +2312,7 @@ mod test_vopsd {
                 cpu.vec_reg[15] = *b;
                 cpu.interpret(&vec![0xD7016A04, 0x00021F04, END_PRG]);
                 assert_eq!(cpu.vec_reg[4], *ret);
-                assert_eq!(*cpu.vcc, *scc);
+                assert_eq!(*cpu.vcc, *scc != 0);
             })
     }
 }
@@ -2419,7 +2424,7 @@ mod test_vop3 {
         let mut cpu = _helper_test_cpu();
         cpu.vec_reg.get_lane_mut(15)[4] = 0b1111;
         cpu.interpret(&vec![0xD760006A, 0x00011F04, END_PRG]);
-        assert_eq!(*cpu.vcc, 1);
+        assert_eq!(*cpu.vcc, true);
     }
 
     #[test]

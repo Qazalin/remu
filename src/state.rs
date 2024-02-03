@@ -67,35 +67,26 @@ impl Value for u32 {
 }
 
 #[derive(Debug)]
-pub struct VCC {
-    val: u32,
+pub struct WaveValue {
+    pub value: u32,
+    pub lane_id: usize,
 }
-
-pub trait Assign<T> {
-    fn assign(&mut self, val: T);
-}
-impl Assign<u32> for VCC {
-    fn assign(&mut self, val: u32) {
-        self.val = val & 1;
-    }
-}
-impl Assign<bool> for VCC {
-    fn assign(&mut self, val: bool) {
-        self.val = val as u32;
-    }
-}
-
-impl std::ops::Deref for VCC {
-    type Target = u32;
+impl std::ops::Deref for WaveValue {
+    type Target = bool;
     fn deref(&self) -> &Self::Target {
-        &self.val
+        match (self.value >> self.lane_id) & 1 == 1 {
+            true => &true,
+            false => &false,
+        }
     }
 }
-impl From<u32> for VCC {
-    fn from(val: u32) -> Self {
-        let mut vcc = Self { val: 0 };
-        vcc.assign(val);
-        vcc
+impl WaveValue {
+    pub fn mut_lane(&mut self, value: bool) {
+        if value {
+            self.value |= 1 << self.lane_id;
+        } else {
+            self.value &= !(1 << self.lane_id);
+        }
     }
 }
 
@@ -104,28 +95,17 @@ mod test_state {
     use super::*;
 
     #[test]
-    fn test_vcc() {
-        let mut vcc = VCC { val: 0 };
-        let val: i32 = -1;
-        vcc.assign(val as u32);
-        let result = 2 + 2 + *vcc;
-        assert_eq!(result, 5);
-
-        vcc.assign(0);
-        let result = 2 + 2 + *vcc;
-        assert_eq!(result, 4);
-
-        vcc.assign(0b010);
-        let result = 2 + 2 + *vcc;
-        assert_eq!(result, 4);
-
-        vcc.assign(0b1);
-        let result = 2 + 2 + *vcc;
-        assert_eq!(result, 5);
-
-        let vcc = VCC::from(4);
-        let result = 2 + 2 + *vcc;
-        assert_eq!(result, 4);
+    fn test_wave_value() {
+        let val = WaveValue {
+            value: 0b11000000000000011111111111101110,
+            lane_id: 0,
+        };
+        assert!(!*val);
+        let val = WaveValue {
+            value: 0b11000000000000011111111111101110,
+            lane_id: 31,
+        };
+        assert!(*val);
     }
 
     #[test]
