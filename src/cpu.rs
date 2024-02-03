@@ -13,7 +13,7 @@ const NULL_SRC: u32 = 124;
 
 pub struct CPU<'a> {
     pub pc: u64,
-    pub scalar_reg: [u32; SGPR_COUNT],
+    pub scalar_reg: Vec<u32>,
     pub vec_reg: VGPR,
     pub scc: u32,
     pub vcc: WaveValue,
@@ -39,7 +39,7 @@ impl<'a> CPU<'a> {
             },
             lds,
             sds: VecDataStore::new(),
-            scalar_reg: [0; SGPR_COUNT],
+            scalar_reg: vec![0; SGPR_COUNT],
             vec_reg: VGPR::new(),
             prg: vec![],
             simm: None,
