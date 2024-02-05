@@ -12,37 +12,23 @@ pub const VGPR_COUNT: usize = 256;
 const NULL_SRC: u32 = 124;
 
 pub struct CPU<'a> {
-    pub pc: u64,
-    pub scalar_reg: Vec<u32>,
-    pub vec_reg: VGPR,
-    pub scc: u32,
-    pub vcc: WaveValue,
-    pub exec: WaveValue,
+    pub scalar_reg: &'a mut Vec<u32>,
+    pub scc: &'a mut u32,
+
+    pub vec_reg: &'a mut VGPR,
+    pub vcc: &'a mut WaveValue,
+    pub exec: &'a mut WaveValue,
+
     pub lds: &'a mut VecDataStore,
-    sds: VecDataStore,
-    prg: Vec<u32>,
-    simm: Option<u32>,
+    pub sds: &'a mut VecDataStore,
+
+    pub pc: u64,
+    pub prg: Vec<u32>,
+    pub simm: Option<u32>,
 }
 
 impl<'a> CPU<'a> {
-    pub fn new(lds: &'a mut VecDataStore) -> Self {
-        return CPU {
-            pc: 0,
-            scc: 0,
-            vcc: WaveValue::new(0),
-            exec: WaveValue::new(1),
-            lds,
-            sds: VecDataStore::new(),
-            scalar_reg: vec![0; SGPR_COUNT],
-            vec_reg: VGPR::new(),
-            prg: vec![],
-            simm: None,
-        };
-    }
-
     pub fn interpret(&mut self, prg: &Vec<u32>) {
-        self.vcc.default_lane = Some(0);
-        self.exec.default_lane = Some(0);
         self.pc = 0;
         self.prg = prg.to_vec();
 
@@ -144,7 +130,7 @@ impl<'a> CPU<'a> {
                         }
                         30 => {
                             let ret = !s0;
-                            self.scc = (ret != 0) as u32;
+                            *self.scc = (ret != 0) as u32;
                             ret
                         }
                         32 | 34 | 48 => {
@@ -155,7 +141,7 @@ impl<'a> CPU<'a> {
                                 48 => s0 & !saveexec,
                                 _ => panic!(),
                             };
-                            self.scc = self.exec.read() as u32;
+                            *self.scc = self.exec.read() as u32;
                             saveexec
                         }
                         _ => todo_instr!(instruction),
@@ -188,7 +174,7 @@ impl<'a> CPU<'a> {
                     _ => s0 <= s1,
                 }
             }
-            self.scc = match op {
+            *self.scc = match op {
                 0..=5 => {
                     let (s0, s1): (u32, u32) = (self.val(s0), self.val(s1));
                     scmp(s0 as i32, s1 as i32, 0, op)
@@ -220,8 +206,8 @@ impl<'a> CPU<'a> {
                 32..=42 => {
                     let should_jump = match op {
                         32 => true,
-                        33 => self.scc == 0,
-                        34 => self.scc == 1,
+                        33 => *self.scc == 0,
+                        34 => *self.scc == 1,
                         35 => self.vcc.value == 0,
                         36 => self.vcc.value != 0,
                         37 => self.exec.value == 0,
@@ -254,7 +240,7 @@ impl<'a> CPU<'a> {
                 3..=8 => {
                     let s1 = simm as i16 as i64;
                     let s0 = s0 as i32 as i64;
-                    self.scc = match op {
+                    *self.scc = match op {
                         3 => s0 == s1,
                         4 => s0 != s1,
                         5 => s0 > s1,
@@ -264,7 +250,7 @@ impl<'a> CPU<'a> {
                 }
                 9..=14 => {
                     let s1 = simm as u16 as u32;
-                    self.scc = match op {
+                    *self.scc = match op {
                         9 => s0 == s1,
                         13 => s0 < s1,
                         _ => todo_instr!(instruction),
@@ -278,7 +264,7 @@ impl<'a> CPU<'a> {
                     let temp_sign = ((temp >> 31) & 1) as u32;
                     let simm_sign = ((simm16 >> 15) & 1) as u32;
                     let dest_sign = ((dest >> 31) & 1) as u32;
-                    self.scc = ((temp_sign == simm_sign) && (temp_sign != dest_sign)) as u32;
+                    *self.scc = ((temp_sign == simm_sign) && (temp_sign != dest_sign)) as u32;
                 }
                 16 => {
                     let simm16 = simm as i16;
@@ -307,7 +293,7 @@ impl<'a> CPU<'a> {
                     let (s0, s1): (u64, u64) = (self.val(s0), self.val(s1));
                     let ret = s0 ^ s1;
                     self.scalar_reg.write64(sdst as usize, ret);
-                    self.scc = (ret != 0) as u32;
+                    *self.scc = (ret != 0) as u32;
                 }
                 9 | 13 | 40 | 41 => {
                     let (s0, s1): (u64, u32) = (self.val(s0), self.val(s1));
@@ -335,7 +321,7 @@ impl<'a> CPU<'a> {
                     };
                     self.scalar_reg.write64(sdst as usize, ret.0);
                     if let Some(val) = ret.1 {
-                        self.scc = val as u32
+                        *self.scc = val as u32
                     }
                 }
                 _ => {
@@ -345,15 +331,15 @@ impl<'a> CPU<'a> {
                             let (s0, s1) = (s0 as u64, s1 as u64);
                             let ret = match op {
                                 0 => s0 + s1,
-                                4 => s0 + s1 + self.scc as u64,
+                                4 => s0 + s1 + *self.scc as u64,
                                 _ => panic!(),
                             };
                             (ret as u32, Some(ret >= 0x100000000))
                         }
                         1 => (s0 - s1, Some(s1 > s0)),
                         5 => (
-                            s0 - s1 - self.scc,
-                            Some((s1 as u64 + self.scc as u64) > s0 as u64),
+                            s0 - s1 - *self.scc,
+                            Some((s1 as u64 + *self.scc as u64) > s0 as u64),
                         ),
                         2 | 3 => {
                             let s0 = s0 as i32 as i64;
@@ -419,7 +405,7 @@ impl<'a> CPU<'a> {
                             (((s0 as i32 as i64 * s1 as i32 as i64) as u64) >> 32u64) as i32 as u32,
                             None,
                         ),
-                        48 => match self.scc != 0 {
+                        48 => match *self.scc != 0 {
                             true => (s0, None),
                             false => (s1, None),
                         },
@@ -428,7 +414,7 @@ impl<'a> CPU<'a> {
 
                     self.write_to_sdst(sdst, ret.0);
                     if let Some(val) = ret.1 {
-                        self.scc = val as u32
+                        *self.scc = val as u32
                     }
                 }
             }
@@ -1584,13 +1570,32 @@ impl ALUSrc<u64> for CPU<'_> {
     }
 }
 
-pub fn _helper_test_cpu() -> CPU<'static> {
+fn _helper_test_cpu() -> CPU<'static> {
     let static_lds: &'static mut VecDataStore = Box::leak(Box::new(VecDataStore::new()));
-    let mut cpu = CPU::new(static_lds);
+    let static_sgpr: &'static mut Vec<u32> = Box::leak(Box::new(vec![0; 256]));
+    let static_vgpr: &'static mut VGPR = Box::leak(Box::new(VGPR::new()));
+    let static_scc: &'static mut u32 = Box::leak(Box::new(0));
+    let static_exec: &'static mut WaveValue = Box::leak(Box::new(WaveValue::new(u32::MAX)));
+    let static_vcc: &'static mut WaveValue = Box::leak(Box::new(WaveValue::new(0)));
+    let static_sds: &'static mut VecDataStore = Box::leak(Box::new(VecDataStore::new()));
+
+    let cpu = CPU {
+        scalar_reg: static_sgpr,
+        vec_reg: static_vgpr,
+        scc: static_scc,
+        vcc: static_vcc,
+        exec: static_exec,
+        lds: static_lds,
+        sds: static_sds,
+        simm: None,
+        pc: 0,
+        prg: vec![],
+    };
     cpu.vec_reg.default_lane = Some(0);
+    cpu.vcc.default_lane = Some(0);
+    cpu.exec.default_lane = Some(0);
     return cpu;
 }
-
 #[cfg(test)]
 mod test_alu_utils {
     use super::*;
@@ -1709,7 +1714,7 @@ mod test_sop1 {
                 cpu.scalar_reg[10] = *a;
                 cpu.interpret(&vec![0xBE8A1E0A, END_PRG]);
                 assert_eq!(cpu.scalar_reg[10], *ret);
-                assert_eq!(cpu.scc, *scc);
+                assert_eq!(*cpu.scc, *scc);
             });
     }
 }
@@ -1723,10 +1728,10 @@ mod test_sopk {
         let mut cpu = _helper_test_cpu();
         cpu.scalar_reg[20] = 0xcd14;
         cpu.interpret(&vec![0xB494CD14, END_PRG]);
-        assert_eq!(cpu.scc, 1);
+        assert_eq!(*cpu.scc, 1);
 
         cpu.interpret(&vec![0xB194CD14, END_PRG]);
-        assert_eq!(cpu.scc, 0);
+        assert_eq!(*cpu.scc, 0);
     }
 
     #[test]
@@ -1734,10 +1739,10 @@ mod test_sopk {
         let mut cpu = _helper_test_cpu();
         cpu.scalar_reg[6] = 0x2db4;
         cpu.interpret(&vec![0xB1862DB4, END_PRG]);
-        assert_eq!(cpu.scc, 1);
+        assert_eq!(*cpu.scc, 1);
 
         cpu.interpret(&vec![0xB1862DB4, END_PRG]);
-        assert_eq!(cpu.scc, 1);
+        assert_eq!(*cpu.scc, 1);
     }
 }
 
@@ -1759,7 +1764,7 @@ mod test_sop2 {
             cpu.scalar_reg[6] = *b;
             cpu.interpret(&vec![0x80060206, END_PRG]);
             assert_eq!(cpu.scalar_reg[6], *expected);
-            assert_eq!(cpu.scc, *scc);
+            assert_eq!(*cpu.scc, *scc);
         });
     }
 
@@ -1773,12 +1778,12 @@ mod test_sop2 {
         .iter()
         .for_each(|[a, b, expected, scc_before, scc_after]| {
             let mut cpu = _helper_test_cpu();
-            cpu.scc = *scc_before;
+            *cpu.scc = *scc_before;
             cpu.scalar_reg[7] = *a;
             cpu.scalar_reg[3] = *b;
             cpu.interpret(&vec![0x82070307, END_PRG]);
             assert_eq!(cpu.scalar_reg[7], *expected);
-            assert_eq!(cpu.scc, *scc_after);
+            assert_eq!(*cpu.scc, *scc_after);
         });
     }
 
@@ -1792,7 +1797,7 @@ mod test_sop2 {
                 cpu.scalar_reg[10] = *b as u32;
                 cpu.interpret(&vec![0x81060E0A, END_PRG]);
                 assert_eq!(cpu.scalar_reg[6], *expected as u32);
-                assert_eq!(cpu.scc, *scc as u32);
+                assert_eq!(*cpu.scc, *scc as u32);
             });
     }
 
@@ -1806,7 +1811,7 @@ mod test_sop2 {
                 cpu.scalar_reg[8] = *b as u32;
                 cpu.interpret(&vec![0x818C080D, END_PRG]);
                 assert_eq!(cpu.scalar_reg[12], *expected as u32);
-                assert_eq!(cpu.scc, *scc as u32);
+                assert_eq!(*cpu.scc, *scc as u32);
             });
     }
 
@@ -1819,7 +1824,7 @@ mod test_sop2 {
                 cpu.scalar_reg[15] = *a as u32;
                 cpu.interpret(&vec![0x8408810F, END_PRG]);
                 assert_eq!(cpu.scalar_reg[8], *expected as u32);
-                assert_eq!(cpu.scc, *scc as u32);
+                assert_eq!(*cpu.scc, *scc as u32);
             });
     }
 
@@ -1830,7 +1835,7 @@ mod test_sop2 {
         cpu.interpret(&vec![0x84828202, END_PRG]);
         assert_eq!(cpu.scalar_reg[2], 4294967172);
         assert_eq!(cpu.scalar_reg[3], 4294967295);
-        assert_eq!(cpu.scc, 1);
+        assert_eq!(*cpu.scc, 1);
     }
 
     #[test]
@@ -1839,7 +1844,7 @@ mod test_sop2 {
         cpu.scalar_reg[2] = 36855;
         cpu.interpret(&vec![0x86039F02, END_PRG]);
         assert_eq!(cpu.scalar_reg[3], 0);
-        assert_eq!(cpu.scc, 0);
+        assert_eq!(*cpu.scc, 0);
     }
 
     #[test]
@@ -1849,7 +1854,7 @@ mod test_sop2 {
         cpu.scalar_reg[3] = -92i32 as u32;
         cpu.interpret(&vec![0x89020203, END_PRG]);
         assert_eq!(cpu.scalar_reg[2], -92i32 as u32);
-        assert_eq!(cpu.scc, 1);
+        assert_eq!(*cpu.scc, 1);
     }
 
     #[test]

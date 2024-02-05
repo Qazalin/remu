@@ -1,6 +1,6 @@
 use crate::cpu::CPU;
 use crate::memory::VecDataStore;
-use crate::state::{Register, VGPR};
+use crate::state::{Register, WaveValue, VGPR};
 use std::collections::HashMap;
 
 pub struct WorkGroup<'a> {
@@ -65,33 +65,52 @@ impl<'a> WorkGroup<'a> {
     }
 
     fn exec_wave(&mut self, [x, y, z]: &[u32; 3], instructions: &Vec<u32>) {
-        let mut cpu = CPU::new(&mut self.lds);
-        cpu.vec_reg.default_lane = Some(0);
+        let mut scalar_reg = vec![0; 256];
+        let mut scc = 0;
+        let mut vec_reg = VGPR::new();
+        let mut vcc = WaveValue::new(0);
+        let mut exec = WaveValue::new(1);
+        vec_reg.default_lane = Some(0);
+        vcc.default_lane = Some(0);
+        exec.default_lane = Some(0);
+        let mut sds = VecDataStore::new();
         match self.thread_state.get(&[*x, *y, *z]) {
             Some(val) => {
-                cpu.scalar_reg = val.0.clone();
-                cpu.vec_reg = val.1.clone();
+                scalar_reg = val.0.clone();
+                vec_reg = val.1.clone();
             }
             None => {
-                cpu.scalar_reg.write64(0, self.kernel_args.as_ptr() as u64);
+                scalar_reg.write64(0, self.kernel_args.as_ptr() as u64);
 
                 match self.dispatch_dim {
                     3 => {
-                        (cpu.scalar_reg[13], cpu.scalar_reg[14], cpu.scalar_reg[15]) =
+                        (scalar_reg[13], scalar_reg[14], scalar_reg[15]) =
                             (self.id[0], self.id[1], self.id[2])
                     }
-                    2 => (cpu.scalar_reg[14], cpu.scalar_reg[15]) = (self.id[0], self.id[1]),
-                    _ => cpu.scalar_reg[15] = self.id[0],
+                    2 => (scalar_reg[14], scalar_reg[15]) = (self.id[0], self.id[1]),
+                    _ => scalar_reg[15] = self.id[0],
                 }
 
                 match (self.launch_bounds[1] != 1, self.launch_bounds[2] != 1) {
-                    (false, false) => cpu.vec_reg[0] = *x,
-                    _ => cpu.vec_reg[0] = (z << 20) | (y << 10) | x,
+                    (false, false) => vec_reg[0] = *x,
+                    _ => vec_reg[0] = (z << 20) | (y << 10) | x,
                 }
             }
         }
+        let mut cpu = CPU {
+            scalar_reg: &mut scalar_reg,
+            scc: &mut scc,
+            vec_reg: &mut vec_reg,
+            vcc: &mut vcc,
+            exec: &mut exec,
+            lds: &mut self.lds,
+            sds: &mut sds,
+            pc: 0,
+            prg: instructions.to_vec(),
+            simm: None,
+        };
         cpu.interpret(instructions);
         self.thread_state
-            .insert([*x, *y, *z], (cpu.scalar_reg, cpu.vec_reg));
+            .insert([*x, *y, *z], (scalar_reg, vec_reg));
     }
 }
