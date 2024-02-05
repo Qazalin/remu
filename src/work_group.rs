@@ -33,12 +33,13 @@ impl<'a> WorkGroup<'a> {
     }
 
     pub fn exec_waves(&mut self) {
-        let mut waves = vec![];
-        let mut start = 0;
-        while start < self.launch_bounds[0] {
-            let end = std::cmp::min(start + 32, self.launch_bounds[0]);
-            waves.push((start, end));
-            start = end;
+        let mut blocks = vec![];
+        for z in 0..self.launch_bounds[2] {
+            for y in 0..self.launch_bounds[1] {
+                for x in 0..self.launch_bounds[0] {
+                    blocks.push([x, y, z])
+                }
+            }
         }
 
         let mut barriers = vec![];
@@ -57,48 +58,40 @@ impl<'a> WorkGroup<'a> {
         barriers.push(self.kernel[last_idx..self.kernel.len()].to_vec());
 
         for instructions in barriers.iter() {
-            for wave in waves.iter() {
-                for x in wave.0..wave.1 {
-                    self.exec_wave(x, instructions)
-                }
+            for block in blocks.iter() {
+                self.exec_wave(block, instructions)
             }
         }
     }
 
-    fn exec_wave(&mut self, x: u32, instructions: &Vec<u32>) {
-        for y in 0..self.launch_bounds[1] {
-            for z in 0..self.launch_bounds[2] {
-                let mut cpu = CPU::new(&mut self.lds);
-                cpu.vec_reg.default_lane = Some(0);
-                match self.thread_state.get(&[x, y, z]) {
-                    Some(val) => {
-                        cpu.scalar_reg = val.0.clone();
-                        cpu.vec_reg = val.1.clone();
-                    }
-                    None => {
-                        cpu.scalar_reg.write64(0, self.kernel_args.as_ptr() as u64);
+    fn exec_wave(&mut self, [x, y, z]: &[u32; 3], instructions: &Vec<u32>) {
+        let mut cpu = CPU::new(&mut self.lds);
+        cpu.vec_reg.default_lane = Some(0);
+        match self.thread_state.get(&[*x, *y, *z]) {
+            Some(val) => {
+                cpu.scalar_reg = val.0.clone();
+                cpu.vec_reg = val.1.clone();
+            }
+            None => {
+                cpu.scalar_reg.write64(0, self.kernel_args.as_ptr() as u64);
 
-                        match self.dispatch_dim {
-                            3 => {
-                                (cpu.scalar_reg[13], cpu.scalar_reg[14], cpu.scalar_reg[15]) =
-                                    (self.id[0], self.id[1], self.id[2])
-                            }
-                            2 => {
-                                (cpu.scalar_reg[14], cpu.scalar_reg[15]) = (self.id[0], self.id[1])
-                            }
-                            _ => cpu.scalar_reg[15] = self.id[0],
-                        }
-
-                        match (self.launch_bounds[1] != 1, self.launch_bounds[2] != 1) {
-                            (false, false) => cpu.vec_reg[0] = x,
-                            _ => cpu.vec_reg[0] = (z << 20) | (y << 10) | x,
-                        }
+                match self.dispatch_dim {
+                    3 => {
+                        (cpu.scalar_reg[13], cpu.scalar_reg[14], cpu.scalar_reg[15]) =
+                            (self.id[0], self.id[1], self.id[2])
                     }
+                    2 => (cpu.scalar_reg[14], cpu.scalar_reg[15]) = (self.id[0], self.id[1]),
+                    _ => cpu.scalar_reg[15] = self.id[0],
                 }
-                cpu.interpret(instructions);
-                self.thread_state
-                    .insert([x, y, z], (cpu.scalar_reg, cpu.vec_reg));
+
+                match (self.launch_bounds[1] != 1, self.launch_bounds[2] != 1) {
+                    (false, false) => cpu.vec_reg[0] = *x,
+                    _ => cpu.vec_reg[0] = (z << 20) | (y << 10) | x,
+                }
             }
         }
+        cpu.interpret(instructions);
+        self.thread_state
+            .insert([*x, *y, *z], (cpu.scalar_reg, cpu.vec_reg));
     }
 }
