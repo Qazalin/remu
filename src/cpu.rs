@@ -867,6 +867,13 @@ impl<'a> CPU<'a> {
                     let sdst = ((instr >> 8) & 0x7f) as usize;
                     let mut s = |i: u32| -> u32 { self.val(((instr >> i) & 0x1ff) as usize) };
                     let (s0, s1, s2) = (s(32), s(41), s(50));
+                    let get_carry_in = || match (instr >> 50) & 0x1ff {
+                        idx => {
+                            let mut wave_value = WaveValue::new(self.scalar_reg[idx as usize]);
+                            wave_value.default_lane = self.vcc.default_lane;
+                            wave_value.read()
+                        }
+                    };
                     let omod = (instr >> 59) & 0x3;
                     let _neg = (instr >> 61) & 0x7;
                     let clmp = (instr >> 15) & 0x1;
@@ -881,38 +888,53 @@ impl<'a> CPU<'a> {
                         );
                     }
 
-                    let (ret, vcc) = match op {
-                        288 => {
-                            let ret = s0 as u64 + s1 as u64 + (s2 != 0) as u64;
-                            (ret as u32, ret >= 0x100000000)
-                        }
-                        289 => {
-                            let vcc = (s2 != 0) as u64;
-                            let ret = s0 as u64 - s1 as u64 - vcc;
-                            (ret as u32, s1 as u64 + vcc > s0 as u64)
-                        }
-                        764 => (0, false), // NOTE: div scaling isn't required
+                    let vcc = match op {
                         766 => {
-                            let ret = s0 as u64 * s1 as u64 + s2 as u64;
-                            assert!(sdst as u32 == NULL_SRC, "not yet implemented");
-                            (ret as u32, false)
+                            let s2: u64 = self.val(((instr >> 50) & 0x1ff) as usize);
+                            let (mul_result, overflow_mul) = (s0 as u64).overflowing_mul(s1 as u64);
+                            let (ret, overflow_add) = mul_result.overflowing_add(s2);
+                            let overflowed = overflow_mul || overflow_add;
+                            self.vec_reg.write64(vdst, ret);
+                            overflowed
                         }
-                        768 => {
-                            let ret = s0 as u64 + s1 as u64;
-                            (ret as u32, ret >= 0x100000000)
+                        _ => {
+                            let (ret, vcc) = match op {
+                                288 => {
+                                    let ret = s0 as u64 + s1 as u64 + get_carry_in() as u64;
+                                    (ret as u32, ret >= 0x100000000)
+                                }
+                                289 => {
+                                    let ret = (s0 as u64)
+                                        .wrapping_sub(s1 as u64)
+                                        .wrapping_sub(get_carry_in() as u64);
+                                    (ret as u32, s1 as u64 + (get_carry_in() as u64) > s0 as u64)
+                                }
+                                764 => (0, false), // NOTE: div scaling isn't required
+                                768 => {
+                                    let ret = s0 as u64 + s1 as u64;
+                                    (ret as u32, ret >= 0x100000000)
+                                }
+                                769 => {
+                                    let ret = s0.wrapping_sub(s1);
+                                    (ret as u32, s1 > s0)
+                                }
+                                _ => todo_instr!(instruction),
+                            };
+                            self.vec_reg[vdst] = ret;
+                            vcc
                         }
-                        769 => {
-                            let ret = s0.wrapping_sub(s1);
-                            (ret as u32, s1 > s0)
-                        }
-                        _ => todo_instr!(instruction),
                     };
+
                     match sdst {
                         106 => self.vcc.mut_lane(vcc),
                         124 => {}
-                        _ => self.scalar_reg[sdst] = vcc as u32,
+                        _ => {
+                            let mut wave_value = WaveValue::new(0);
+                            wave_value.default_lane = self.vcc.default_lane;
+                            wave_value.mut_lane(vcc);
+                            self.scalar_reg[sdst] = wave_value.value;
+                        }
                     }
-                    self.vec_reg[vdst] = ret;
                 }
                 _ => {
                     let vdst = (instr & 0xff) as usize;
@@ -2258,6 +2280,98 @@ mod test_vop2 {
 #[cfg(test)]
 mod test_vopsd {
     use super::*;
+
+    #[test]
+    fn test_v_add_co_u32_scalar_co_zero() {
+        let mut cpu = _helper_test_cpu();
+        cpu.scalar_reg[10] = 0;
+        cpu.vcc.default_lane = Some(1);
+        cpu.vec_reg.default_lane = Some(1);
+        cpu.vec_reg[10] = u32::MAX;
+        cpu.vec_reg[20] = 20;
+        r(&vec![0xD7000A0A, 0x0002290A, END_PRG], &mut cpu);
+        assert_eq!(cpu.vec_reg[10], 19);
+        assert_eq!(cpu.scalar_reg[10], 2);
+    }
+
+    #[test]
+    fn test_v_add_co_u32_scalar_co_override() {
+        let mut cpu = _helper_test_cpu();
+        cpu.scalar_reg[10] = 0b11111111111111111111111111111111;
+        cpu.vcc.default_lane = Some(2);
+        cpu.vec_reg.default_lane = Some(2);
+        cpu.vec_reg[10] = u32::MAX;
+        cpu.vec_reg[20] = 20;
+        r(&vec![0xD7000A0A, 0x0002290A, END_PRG], &mut cpu);
+        assert_eq!(cpu.vec_reg[10], 19);
+        // NOTE: the co mask only writes to the bit that it needs to write, then at the _wave_
+        // level, the final result accumulates
+        assert_eq!(cpu.scalar_reg[10], 0b100);
+    }
+
+    #[test]
+    fn test_v_add_co_ci_u32() {
+        [[0, 0, 0b0], [1, -1i32 as usize, 0b10]]
+            .iter()
+            .for_each(|[lane_id, result, carry_out]| {
+                let mut cpu = _helper_test_cpu();
+                cpu.vcc.default_lane = Some(*lane_id);
+                cpu.vec_reg.default_lane = Some(*lane_id);
+                cpu.scalar_reg[20] = 0b10;
+                cpu.vec_reg[1] = 2;
+                cpu.vec_reg[2] = 2;
+                r(&vec![0xD5211401, 0x00520501, END_PRG], &mut cpu);
+                assert_eq!(cpu.vec_reg[1], *result as u32);
+                assert_eq!(cpu.scalar_reg[20], *carry_out as u32);
+            })
+    }
+
+    #[test]
+    fn test_v_sub_co_ci_u32() {
+        [[3, 2, 0b1000], [2, 0, 0b100]]
+            .iter()
+            .for_each(|[lane_id, result, carry_out]| {
+                let mut cpu = _helper_test_cpu();
+                cpu.vcc.default_lane = Some(*lane_id);
+                cpu.vec_reg.default_lane = Some(*lane_id);
+                cpu.scalar_reg[20] = 0b1010;
+                cpu.vec_reg[1] = *lane_id as u32;
+                cpu.vec_reg[2] = u32::MAX - 1;
+                r(&vec![0xD5201401, 0x00520501, END_PRG], &mut cpu);
+                assert_eq!(cpu.vec_reg[1], *result as u32);
+                assert_eq!(cpu.scalar_reg[20], *carry_out as u32);
+            })
+    }
+
+    #[test]
+    fn test_v_mad_u64_u32() {
+        let mut cpu = _helper_test_cpu();
+        cpu.vec_reg.write64(3, u64::MAX - 3);
+        cpu.scalar_reg[13] = 3;
+        cpu.scalar_reg[10] = 1;
+        r(&vec![0xD6FE0D06, 0x040C140D, END_PRG], &mut cpu);
+        assert_eq!(cpu.vec_reg.read64(6), u64::MAX);
+        assert_eq!(cpu.scalar_reg[13], 0);
+
+        cpu.vec_reg.write64(3, u64::MAX - 3);
+        cpu.scalar_reg[13] = 4;
+        cpu.scalar_reg[10] = 1;
+        r(&vec![0xD6FE0D06, 0x040C140D, END_PRG], &mut cpu);
+        assert_eq!(cpu.vec_reg[6], 0);
+        assert_eq!(cpu.vec_reg[7], 0);
+        assert_eq!(cpu.scalar_reg[13], 1);
+    }
+
+    #[test]
+    fn test_v_add_co_u32() {
+        let mut cpu = _helper_test_cpu();
+        cpu.vcc.default_lane = Some(1);
+        cpu.vec_reg[2] = u32::MAX;
+        cpu.vec_reg[3] = 3;
+        r(&vec![0xD7000D02, 0x00020503, END_PRG], &mut cpu);
+        assert_eq!(cpu.vec_reg[2], 2);
+        assert_eq!(cpu.scalar_reg[13], 0b10);
+    }
 
     #[test]
     fn test_v_sub_co_u32() {
