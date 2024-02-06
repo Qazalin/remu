@@ -1244,7 +1244,7 @@ impl<'a> CPU<'a> {
             let op = (instr >> 18) & 0xff;
             let addr = (instr >> 32) & 0xff;
             let data0 = ((instr >> 40) & 0xff) as usize;
-            let data1 = (instr >> 48) & 0xff;
+            let data1 = ((instr >> 48) & 0xff) as usize;
             let vdst = ((instr >> 56) & 0xff) as usize;
 
             if *DEBUG >= DebugLevel::INSTRUCTION {
@@ -1253,15 +1253,31 @@ impl<'a> CPU<'a> {
                     "LDS".color("blue"),
                 );
             }
-            let addr = (self.vec_reg[addr as usize] as u64 + offset0) as usize;
 
             match op {
                 // load
-                255 => (0..4).for_each(|i| self.vec_reg[vdst + i] = self.lds.read(addr + 4 * i)),
+                255 => {
+                    let addr = (self.vec_reg[addr as usize] as u64 + offset0) as usize;
+                    (0..4).for_each(|i| self.vec_reg[vdst + i] = self.lds.read(addr + 4 * i));
+                }
+                55 => {
+
+                    let addr0 = (self.vec_reg[addr as usize] as u64 + offset0 * 4) as usize;
+                    let addr1 = (self.vec_reg[addr as usize] as u64 + offset1 * 4) as usize;
+                    self.vec_reg[vdst] = self.lds.read(addr0); 
+                    self.vec_reg[vdst + 1] = self.lds.read(addr1); 
+                }
                 // store
                 13 | 223 => {
+                    let addr = (self.vec_reg[addr as usize] as u64 + offset0) as usize;
                     let iters = if op == 223 { 4 } else { 1 };
                     (0..iters).for_each(|i| self.lds.write(addr + 4 * i, self.vec_reg[data0 + i]))
+                }
+                14 => {
+                    let addr0 = (self.vec_reg[addr as usize] as u64 + offset0 * 4) as usize;
+                    let addr1 = (self.vec_reg[addr as usize] as u64 + offset1 * 4) as usize;
+                    self.lds.write(addr0, self.vec_reg[data0]);
+                    self.lds.write(addr1, self.vec_reg[data1]);
                 }
                 _ => todo_instr!(instruction),
             }
