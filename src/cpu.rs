@@ -22,14 +22,15 @@ pub struct CPU<'a> {
     pub lds: &'a mut VecDataStore,
     pub sds: &'a mut VecDataStore,
 
-    pub pc: u64,
-    pub prg: Vec<u32>,
+    pub pc_offset: usize,
+    pub stream: Vec<u32>,
     pub simm: Option<u32>,
     pub vec_mutation: VecMutation,
 }
 
 impl<'a> CPU<'a> {
-    pub fn interpret(&mut self, instruction: u32) {
+    pub fn interpret(&mut self) {
+        let instruction = self.stream[self.pc_offset];
         // smem
         if instruction >> 26 == 0b111101 {
             let instr = self.u64_instr();
@@ -160,11 +161,7 @@ impl<'a> CPU<'a> {
             let simm16 = (instruction & 0xffff) as i16;
             let op = (instruction >> 16) & 0x7f;
             if *DEBUG >= DebugLevel::INSTRUCTION {
-                println!(
-                    "{} simm16={simm16} op={op} pc={}",
-                    "SOPP".color("blue"),
-                    self.pc,
-                );
+                println!("{} simm16={simm16} op={op}", "SOPP".color("blue"),);
             }
 
             match op {
@@ -180,7 +177,7 @@ impl<'a> CPU<'a> {
                         _ => todo_instr!(instruction),
                     };
                     if should_jump {
-                        self.pc = (self.pc as i64 + simm16 as i64) as u64;
+                        self.pc_offset = (self.pc_offset as i64 + simm16 as i64) as usize;
                     }
                 }
                 _ => todo_instr!(instruction),
@@ -1529,29 +1526,29 @@ impl<'a> CPU<'a> {
         if let Some(val) = self.simm {
             val
         } else {
-            self.pc += 1;
-            let val = self.prg[self.pc as usize - 1];
+            let val = self.stream[self.pc_offset + 1];
             self.simm = Some(val);
+            self.pc_offset += 1;
             val
         }
     }
     fn u64_instr(&mut self) -> u64 {
-        let msb = self.prg[self.pc as usize] as u64;
-        let instr = msb << 32 | self.prg[self.pc as usize - 1] as u64;
-        self.pc += 1;
+        let msb = self.stream[self.pc_offset + 1] as u64;
+        let instr = msb << 32 | self.stream[self.pc_offset] as u64;
+        self.pc_offset += 1;
         return instr;
     }
     fn exec(&self) -> bool {
         if !self.exec_mask.read() {
             if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
-                    "{}",
+                    "inactive thread {}",
                     self.vcc.default_lane.unwrap().to_string().color("gray")
                 );
             }
-            return true;
+            return false;
         }
-        return false;
+        return true;
     }
 }
 
@@ -3021,21 +3018,23 @@ mod test_flat {
 
 #[allow(dead_code)]
 fn r(prg: &Vec<u32>, cpu: &mut CPU) {
-    cpu.pc = 0;
-    cpu.prg = prg.to_vec();
-    loop {
-        cpu.vec_mutation = VecMutation::new();
-        let instruction = prg[cpu.pc as usize];
-        cpu.pc += 1;
+    let mut pc = 0;
+    let instructions = prg.to_vec();
+    cpu.pc_offset = 0;
+    cpu.exec_mask.value = u32::MAX;
 
-        if instruction == crate::utils::END_PRG {
+    loop {
+        if instructions[pc] == crate::utils::END_PRG {
             break;
         }
-        if instruction == 0xbfb60003 || instruction >> 20 == 0xbf8 {
+        if instructions[pc] == 0xbfb60003 || instructions[pc] >> 20 == 0xbf8 {
+            pc += 1;
             continue;
         }
-
-        cpu.interpret(instruction);
+        cpu.pc_offset = 0;
+        cpu.vec_mutation = VecMutation::new();
+        cpu.stream = instructions[pc..instructions.len()].to_vec();
+        cpu.interpret();
         if let Some(val) = cpu.vec_mutation.vcc {
             cpu.vcc.mut_lane(0, val);
         }
@@ -3056,6 +3055,7 @@ fn r(prg: &Vec<u32>, cpu: &mut CPU) {
             cpu.scalar_reg[idx] = val.value;
         }
         cpu.simm = None;
+        pc = ((pc as isize) + 1 + (cpu.pc_offset as isize)) as usize;
     }
 }
 fn _helper_test_cpu() -> CPU<'static> {
@@ -3076,8 +3076,8 @@ fn _helper_test_cpu() -> CPU<'static> {
         lds: static_lds,
         sds: static_sds,
         simm: None,
-        pc: 0,
-        prg: vec![],
+        pc_offset: 0,
+        stream: vec![],
         vec_mutation: VecMutation::new(),
     };
     cpu.vec_reg.default_lane = Some(0);

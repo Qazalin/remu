@@ -107,24 +107,25 @@ impl<'a> WorkGroup<'a> {
                 exec_mask: &mut exec,
                 lds: &mut self.lds,
                 sds: &mut sds,
-                pc: 0,
-                prg: instructions.to_vec(),
+                pc_offset: 0,
+                stream: vec![],
                 simm: None,
                 vec_mutation: VecMutation::new(),
             };
 
+            let mut pc = 0;
             loop {
-                let instruction = instructions[cpu.pc as usize];
-                cpu.pc += 1;
-
-                if instruction == crate::utils::END_PRG {
+                if instructions[pc] == crate::utils::END_PRG {
                     break;
                 }
-                if instruction == 0xbfb60003 || instruction >> 20 == 0xbf8 {
+                if instructions[pc] == 0xbfb60003 || instructions[pc] >> 20 == 0xbf8 {
+                    pc += 1;
                     continue;
                 }
-
-                cpu.interpret(instruction);
+                cpu.pc_offset = 0;
+                cpu.vec_mutation = VecMutation::new();
+                cpu.stream = instructions[pc..instructions.len()].to_vec();
+                cpu.interpret();
                 if let Some(val) = cpu.vec_mutation.vcc {
                     cpu.vcc.mut_lane(0, val);
                 }
@@ -138,6 +139,7 @@ impl<'a> WorkGroup<'a> {
 
                 cpu.simm = None;
                 cpu.vec_mutation = VecMutation::new();
+                pc = ((pc as isize) + 1 + (cpu.pc_offset as isize)) as usize;
             }
 
             self.thread_state
