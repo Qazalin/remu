@@ -14,7 +14,7 @@ const WAIT_CNT_0: u32 = 0xBF89FC07;
 pub enum DebugLevel {
     NONE,
     INSTRUCTION,
-    MISC,
+    WAVE,
 }
 pub static DEBUG: Lazy<DebugLevel> = Lazy::new(|| {
     let var = env::var("REMU_DEBUG")
@@ -24,7 +24,7 @@ pub static DEBUG: Lazy<DebugLevel> = Lazy::new(|| {
     match var {
         0 => DebugLevel::NONE,
         1 => DebugLevel::INSTRUCTION,
-        2 => DebugLevel::MISC,
+        2 => DebugLevel::WAVE,
         _ => panic!(),
     }
 });
@@ -77,16 +77,6 @@ pub fn read_asm(lib: &Vec<u8>) -> (Vec<u32>, String) {
     parse_rdna3(&asm.to_string())
 }
 fn parse_rdna3(content: &str) -> (Vec<u32>, String) {
-    if *DEBUG >= DebugLevel::MISC {
-        println!(
-            "{}",
-            content
-                .lines()
-                .filter(|x| !x.contains("s_code_end"))
-                .collect::<Vec<&str>>()
-                .join("\n")
-        );
-    }
     let mut kernel = content.lines().skip(5);
     let name = kernel
         .nth(0)
@@ -168,6 +158,7 @@ impl<'a> Colorize for &'a str {
     fn color(self, color: &str) -> String {
         let ansi_code = match color {
             "blue" => format!("\x1b[{};2;112;184;255m", 38),
+            "green" => format!("\x1b[{};2;39;176;139m", 38),
             "gray" => format!("\x1b[{};2;169;169;169m", 38),
             _ => format!("\x1b[{};2;255;255;255m", 38),
         };

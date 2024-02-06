@@ -2,10 +2,10 @@ use crate::utils::{DebugLevel, DEBUG};
 use crate::work_group::WorkGroup;
 use std::os::raw::{c_char, c_void};
 mod alu_modifiers;
-mod cpu;
 mod dtype;
 mod memory;
 mod state;
+mod thread;
 mod utils;
 mod work_group;
 

@@ -1,6 +1,7 @@
-use crate::cpu::CPU;
 use crate::memory::VecDataStore;
 use crate::state::{Register, VecMutation, WaveValue, VGPR};
+use crate::thread::Thread;
+use crate::utils::{Colorize, DebugLevel, DEBUG};
 use std::collections::HashMap;
 
 pub struct WorkGroup<'a> {
@@ -10,7 +11,7 @@ pub struct WorkGroup<'a> {
     kernel: &'a Vec<u32>,
     kernel_args: &'a Vec<u64>,
     launch_bounds: [u32; 3],
-    thread_state: HashMap<[u32; 3], (Vec<u32>, VGPR)>,
+    wave_state: HashMap<usize, (Vec<u32>, VGPR)>,
 }
 
 impl<'a> WorkGroup<'a> {
@@ -28,7 +29,7 @@ impl<'a> WorkGroup<'a> {
             launch_bounds,
             kernel_args,
             lds: VecDataStore::new(),
-            thread_state: HashMap::new(),
+            wave_state: HashMap::new(),
         };
     }
 
@@ -59,92 +60,105 @@ impl<'a> WorkGroup<'a> {
         barriers.push(self.kernel[last_idx..self.kernel.len()].to_vec());
 
         for instructions in barriers.iter() {
-            for wave in waves.iter() {
+            for wave in waves.iter().enumerate() {
                 self.exec_wave(wave, instructions)
             }
         }
     }
 
-    fn exec_wave(&mut self, threads: &Vec<[u32; 3]>, instructions: &Vec<u32>) {
-        for [x, y, z] in threads.iter() {
-            let mut scalar_reg = vec![0; 256];
-            let mut scc = 0;
-            let mut vec_reg = VGPR::new();
-            let mut vcc = WaveValue::new(0);
-            let mut exec = WaveValue::new(1);
-            vec_reg.default_lane = Some(0);
-            vcc.default_lane = Some(0);
-            exec.default_lane = Some(0);
-            let mut sds = VecDataStore::new();
-            match self.thread_state.get(&[*x, *y, *z]) {
-                Some(val) => {
-                    scalar_reg = val.0.clone();
-                    vec_reg = val.1.clone();
+    fn exec_wave(&mut self, (wave_id, threads): (usize, &Vec<[u32; 3]>), instructions: &Vec<u32>) {
+        let mut scalar_reg = match self.wave_state.get(&wave_id) {
+            Some(val) => val.0.to_vec(),
+            None => {
+                let mut scalar_reg = vec![0; 256];
+                scalar_reg.write64(0, self.kernel_args.as_ptr() as u64);
+                let [gx, gy, gz] = self.id;
+                match self.dispatch_dim {
+                    3 => (scalar_reg[13], scalar_reg[14], scalar_reg[15]) = (gx, gy, gz),
+                    2 => (scalar_reg[14], scalar_reg[15]) = (gx, gy),
+                    _ => scalar_reg[15] = gx,
                 }
-                None => {
-                    scalar_reg.write64(0, self.kernel_args.as_ptr() as u64);
+                scalar_reg
+            }
+        };
+        let mut scc = 0;
+        let mut vec_reg = match self.wave_state.get(&wave_id) {
+            Some(val) => val.1.clone(),
+            _ => VGPR::new(),
+        };
+        let mut vcc = WaveValue::new(0);
+        let mut exec = WaveValue::new(u32::MAX);
 
-                    match self.dispatch_dim {
-                        3 => {
-                            (scalar_reg[13], scalar_reg[14], scalar_reg[15]) =
-                                (self.id[0], self.id[1], self.id[2])
-                        }
-                        2 => (scalar_reg[14], scalar_reg[15]) = (self.id[0], self.id[1]),
-                        _ => scalar_reg[15] = self.id[0],
-                    }
+        let mut seeded_lanes = vec![];
+        let mut pc = 0;
+        loop {
+            if instructions[pc] == crate::utils::END_PRG {
+                self.wave_state
+                    .insert(wave_id, (scalar_reg, vec_reg.clone()));
+                break;
+            }
+            if instructions[pc] == 0xbfb60003 || instructions[pc] >> 20 == 0xbf8 {
+                pc += 1;
+                continue;
+            }
 
+            let mut vec_mutations = vec![];
+            for (lane_id, [x, y, z]) in threads.iter().enumerate() {
+                vec_reg.default_lane = Some(lane_id);
+                vcc.default_lane = Some(lane_id);
+                exec.default_lane = Some(lane_id);
+                if *DEBUG >= DebugLevel::WAVE {
+                    let lane = format!("{lane_id} {:08X} ", instructions[pc]);
+                    let state = match exec.read() {
+                        true => "green",
+                        false => "gray",
+                    };
+                    print!("{}", lane.color(state));
+                }
+                if !seeded_lanes.contains(&lane_id) && self.wave_state.get(&wave_id).is_none() {
                     match (self.launch_bounds[1] != 1, self.launch_bounds[2] != 1) {
                         (false, false) => vec_reg[0] = *x,
                         _ => vec_reg[0] = (z << 20) | (y << 10) | x,
                     }
+                    seeded_lanes.push(lane_id);
                 }
-            }
-            let mut cpu = CPU {
-                scalar_reg: &mut scalar_reg,
-                scc: &mut scc,
-                vec_reg: &mut vec_reg,
-                vcc: &mut vcc,
-                exec_mask: &mut exec,
-                lds: &mut self.lds,
-                sds: &mut sds,
-                pc_offset: 0,
-                stream: vec![],
-                simm: None,
-                vec_mutation: VecMutation::new(),
-                scalar: false,
-            };
-
-            let mut pc = 0;
-            loop {
-                if instructions[pc] == crate::utils::END_PRG {
+                let mut sds = VecDataStore::new();
+                let mut thread = Thread {
+                    scalar_reg: &mut scalar_reg,
+                    scc: &mut scc,
+                    vec_reg: &mut vec_reg,
+                    vcc: &mut vcc,
+                    exec: &mut exec,
+                    lds: &mut self.lds,
+                    sds: &mut sds,
+                    pc_offset: 0,
+                    stream: instructions[pc..instructions.len()].to_vec(),
+                    scalar: false,
+                    simm: None,
+                    vec_mutation: VecMutation::new(),
+                };
+                thread.interpret();
+                vec_mutations.push(thread.vec_mutation);
+                if thread.scalar {
+                    pc = ((pc as isize) + 1 + (thread.pc_offset as isize)) as usize;
                     break;
                 }
-                if instructions[pc] == 0xbfb60003 || instructions[pc] >> 20 == 0xbf8 {
-                    pc += 1;
-                    continue;
+                if lane_id == threads.len() - 1 {
+                    pc = ((pc as isize) + 1 + (thread.pc_offset as isize)) as usize;
                 }
-                cpu.pc_offset = 0;
-                cpu.vec_mutation = VecMutation::new();
-                cpu.stream = instructions[pc..instructions.len()].to_vec();
-                cpu.interpret();
-                if let Some(val) = cpu.vec_mutation.vcc {
-                    cpu.vcc.mut_lane(0, val);
-                }
-                if let Some(val) = cpu.vec_mutation.exec {
-                    cpu.exec_mask.mut_lane(0, val);
-                }
-                if let Some(_) = cpu.vec_mutation.sgpr {
-                    let (idx, val) = get_sgpr_carry_out(vec![cpu.vec_mutation]);
-                    cpu.scalar_reg[idx] = val.value;
-                }
-
-                cpu.simm = None;
-                cpu.vec_mutation = VecMutation::new();
-                pc = ((pc as isize) + 1 + (cpu.pc_offset as isize)) as usize;
             }
-
-            self.thread_state
-                .insert([*x, *y, *z], (scalar_reg, vec_reg));
+            vec_mutations.iter().enumerate().for_each(|(lane_id, m)| {
+                if let Some(val) = m.vcc {
+                    vcc.mut_lane(lane_id, val);
+                }
+                if let Some(val) = m.exec {
+                    exec.mut_lane(lane_id, val);
+                }
+            });
+            if vec_mutations[0].sgpr.is_some() {
+                let (idx, val) = get_sgpr_carry_out(vec_mutations);
+                scalar_reg[idx] = val.value;
+            }
         }
     }
 }

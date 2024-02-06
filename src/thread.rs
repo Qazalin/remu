@@ -11,13 +11,13 @@ pub const SGPR_COUNT: usize = 105;
 pub const VGPR_COUNT: usize = 256;
 const NULL_SRC: u32 = 124;
 
-pub struct CPU<'a> {
+pub struct Thread<'a> {
     pub scalar_reg: &'a mut Vec<u32>,
     pub scc: &'a mut u32,
 
     pub vec_reg: &'a mut VGPR,
     pub vcc: &'a mut WaveValue,
-    pub exec_mask: &'a mut WaveValue,
+    pub exec: &'a mut WaveValue,
 
     pub lds: &'a mut VecDataStore,
     pub sds: &'a mut VecDataStore,
@@ -29,7 +29,7 @@ pub struct CPU<'a> {
     pub scalar: bool,
 }
 
-impl<'a> CPU<'a> {
+impl<'a> Thread<'a> {
     pub fn interpret(&mut self) {
         let instruction = self.stream[self.pc_offset];
         // smem
@@ -102,14 +102,14 @@ impl<'a> CPU<'a> {
                             ret
                         }
                         32 | 34 | 48 => {
-                            let saveexec = self.exec_mask.read() as u32;
-                            self.exec_mask.value = match op {
+                            let saveexec = self.exec.read() as u32;
+                            self.exec.value = match op {
                                 32 => s0 & saveexec,
                                 34 => s0 | saveexec,
                                 48 => s0 & !saveexec,
                                 _ => panic!(),
                             };
-                            *self.scc = self.exec_mask.read() as u32;
+                            *self.scc = self.exec.read() as u32;
                             saveexec
                         }
                         _ => todo_instr!(instruction),
@@ -176,8 +176,8 @@ impl<'a> CPU<'a> {
                         34 => *self.scc == 1,
                         35 => self.vcc.value == 0,
                         36 => self.vcc.value != 0,
-                        37 => self.exec_mask.value == 0,
-                        38 => self.exec_mask.value != 0,
+                        37 => self.exec.value == 0,
+                        38 => self.exec.value != 0,
                         _ => todo_instr!(instruction),
                     };
                     if should_jump {
@@ -470,7 +470,7 @@ impl<'a> CPU<'a> {
                     let ret = ((fxn(src_hi[0], src_hi[1], src_hi[2]) as u32) << 16)
                         | (fxn(src_lo[0], src_lo[1], src_lo[2]) as u32);
 
-                    if self.exec() {
+                    if self.exec.read() {
                         self.vec_reg[vdst] = ret;
                     }
                 }
@@ -500,7 +500,7 @@ impl<'a> CPU<'a> {
                         }
                         _ => todo_instr!(instruction),
                     };
-                    if self.exec() {
+                    if self.exec.read() {
                         self.vec_reg[vdst] = ret;
                     }
                 }
@@ -530,7 +530,7 @@ impl<'a> CPU<'a> {
                                         26 => f64::floor(s0),
                                         _ => panic!(),
                                     };
-                                    if self.exec() {
+                                    if self.exec.read() {
                                         self.vec_reg.write64(vdst, ret.to_bits())
                                     }
                                 }
@@ -541,7 +541,7 @@ impl<'a> CPU<'a> {
                                         21 => s0 as u32,
                                         _ => panic!(),
                                     };
-                                    if self.exec() {
+                                    if self.exec.read() {
                                         self.vec_reg[vdst] = ret;
                                     }
                                 }
@@ -558,7 +558,7 @@ impl<'a> CPU<'a> {
                         88 => f16::exp2(s0),
                         _ => todo_instr!(instruction),
                     };
-                    if self.exec() {
+                    if self.exec.read() {
                         self.vec_reg[vdst] = ret.to_bits() as u32;
                     }
                 }
@@ -572,12 +572,12 @@ impl<'a> CPU<'a> {
                                 16 => (f32::from_bits(s0) as f64).to_bits(),
                                 _ => panic!(),
                             };
-                            if self.exec() {
+                            if self.exec.read() {
                                 self.vec_reg.write64(vdst, ret)
                             }
                         }
                         2 => {
-                            assert!(self.exec_mask.read());
+                            assert!(self.exec.read());
                             self.scalar_reg[vdst] = s0;
                         }
                         _ => {
@@ -623,7 +623,7 @@ impl<'a> CPU<'a> {
                                 83 => f32::from(f16::from_bits(s0 as u16)) as u32,
                                 _ => todo_instr!(instruction),
                             };
-                            if self.exec() {
+                            if self.exec.read() {
                                 self.vec_reg[vdst] = ret;
                             }
                         }
@@ -694,7 +694,7 @@ impl<'a> CPU<'a> {
                             _ => todo_instr!(instruction),
                         },
                     };
-                    if self.exec() {
+                    if self.exec.read() {
                         self.vec_reg[*dst] = ret;
                     }
                 });
@@ -786,7 +786,7 @@ impl<'a> CPU<'a> {
                         56 => f16::mul_add(s0, s1, f16::from_bits(self.simm() as u16)),
                         _ => todo_instr!(instruction),
                     };
-                    if self.exec() {
+                    if self.exec.read() {
                         self.vec_reg[vdst] = ret.to_bits() as u32;
                     }
                 }
@@ -871,7 +871,7 @@ impl<'a> CPU<'a> {
                         39 => s1 - s0,
                         _ => todo_instr!(instruction),
                     };
-                    if self.exec() {
+                    if self.exec.read() {
                         self.vec_reg[vdst] = ret;
                     }
                 }
@@ -1049,7 +1049,7 @@ impl<'a> CPU<'a> {
                                 830 => ((s1 as i64) >> shift) as u64,
                                 _ => todo_instr!(instruction),
                             };
-                            if self.exec() {
+                            if self.exec.read() {
                                 self.vec_reg.write64(vdst, ret)
                             }
                         }
@@ -1075,7 +1075,7 @@ impl<'a> CPU<'a> {
                                 }
                                 _ => panic!(),
                             };
-                            if self.exec() {
+                            if self.exec.read() {
                                 self.vec_reg.write64(vdst, ret)
                             }
                         }
@@ -1091,7 +1091,7 @@ impl<'a> CPU<'a> {
                                 _ => panic!(),
                             }
                             .to_bits();
-                            if self.exec() {
+                            if self.exec.read() {
                                 self.vec_reg[vdst] = ret as u32;
                             }
                         }
@@ -1099,13 +1099,13 @@ impl<'a> CPU<'a> {
                             let s0 = f16::from_bits(self.val(src.0))
                                 .negate(0, neg)
                                 .absolute(0, abs);
-                            if self.exec() {
+                            if self.exec.read() {
                                 self.vec_reg[vdst] = f32::from(s0).to_bits();
                             }
                         }
                         785 => {
                             let (s0, s1) = (self.val(src.0), self.val(src.1));
-                            if self.exec() {
+                            if self.exec.read() {
                                 self.vec_reg[vdst] = (f16::from_bits(s1).to_bits() as u32) << 16
                                     | f16::from_bits(s0).to_bits() as u32;
                             }
@@ -1114,7 +1114,7 @@ impl<'a> CPU<'a> {
                             let (s0, s1, s2) = (self.val(src.0), self.val(src.1), self.val(src.2));
                             match op {
                                 865 => {
-                                    if self.exec() {
+                                    if self.exec.read() {
                                         self.vec_reg.get_lane_mut(s1 as usize)[vdst] = s0;
                                     }
                                     return;
@@ -1126,7 +1126,7 @@ impl<'a> CPU<'a> {
                                     return;
                                 }
                                 826 => {
-                                    if self.exec() {
+                                    if self.exec.read() {
                                         self.vec_reg[vdst]
                                             .mut_lo16(((s1 as i16) >> (s0 & 0xf)) as u16);
                                     }
@@ -1143,7 +1143,7 @@ impl<'a> CPU<'a> {
                                         825 => s1 >> s0,
                                         _ => panic!(),
                                     };
-                                    if self.exec() {
+                                    if self.exec.read() {
                                         self.vec_reg[vdst].mut_lo16(ret);
                                     }
                                     return;
@@ -1268,7 +1268,7 @@ impl<'a> CPU<'a> {
                                     }
                                 }
                             };
-                            if self.exec() {
+                            if self.exec.read() {
                                 self.vec_reg[vdst] = ret;
                             }
                         }
@@ -1277,7 +1277,7 @@ impl<'a> CPU<'a> {
             }
         } else if instruction >> 26 == 0b110110 {
             let instr = self.u64_instr();
-            if !self.exec() {
+            if !self.exec.read() {
                 return;
             }
             let offset0 = instr & 0xff;
@@ -1326,7 +1326,7 @@ impl<'a> CPU<'a> {
         // flat
         else if instruction >> 26 == 0b110111 {
             let instr = self.u64_instr();
-            if !self.exec() {
+            if !self.exec.read() {
                 return;
             }
             let offset = as_signed(instr & 0x1fff, 13);
@@ -1513,7 +1513,7 @@ impl<'a> CPU<'a> {
     fn _common_srcs(&mut self, code: u32) -> u32 {
         match code {
             106 => self.vcc.read() as u32,
-            126 => self.exec_mask.read() as u32,
+            126 => self.exec.read() as u32,
             128 => 0,
             124 => NULL_SRC,
             255 => self.simm(),
@@ -1524,7 +1524,7 @@ impl<'a> CPU<'a> {
         match sdst_bf as usize {
             0..=SGPR_COUNT => self.scalar_reg[sdst_bf as usize] = val,
             106 => self.vcc.value = val,
-            126 => self.exec_mask.value = val,
+            126 => self.exec.value = val,
             _ => todo!("write to sdst {}", sdst_bf),
         }
     }
@@ -1545,24 +1545,12 @@ impl<'a> CPU<'a> {
         self.pc_offset += 1;
         return instr;
     }
-    fn exec(&self) -> bool {
-        if !self.exec_mask.read() {
-            if *DEBUG >= DebugLevel::INSTRUCTION {
-                println!(
-                    "inactive thread {}",
-                    self.vcc.default_lane.unwrap().to_string().color("gray")
-                );
-            }
-            return false;
-        }
-        return true;
-    }
 }
 
 pub trait ALUSrc<T> {
     fn val(&mut self, code: usize) -> T;
 }
-impl ALUSrc<u16> for CPU<'_> {
+impl ALUSrc<u16> for Thread<'_> {
     fn val(&mut self, code: usize) -> u16 {
         match code {
             0..=SGPR_COUNT => self.scalar_reg[code] as u16,
@@ -1590,7 +1578,7 @@ impl ALUSrc<u16> for CPU<'_> {
         }
     }
 }
-impl ALUSrc<u32> for CPU<'_> {
+impl ALUSrc<u32> for Thread<'_> {
     fn val(&mut self, code: usize) -> u32 {
         match code {
             0..=SGPR_COUNT => self.scalar_reg[code],
@@ -1616,7 +1604,7 @@ impl ALUSrc<u32> for CPU<'_> {
         }
     }
 }
-impl ALUSrc<u64> for CPU<'_> {
+impl ALUSrc<u64> for Thread<'_> {
     fn val(&mut self, code: usize) -> u64 {
         match code {
             0..=SGPR_COUNT => self.scalar_reg.read64(code),
@@ -1649,38 +1637,38 @@ mod test_alu_utils {
 
     #[test]
     fn test_write_to_sdst_sgpr() {
-        let mut cpu = _helper_test_cpu();
-        cpu.write_to_sdst(10, 200);
-        assert_eq!(cpu.scalar_reg[10], 200);
+        let mut thread = _helper_test_thread();
+        thread.write_to_sdst(10, 200);
+        assert_eq!(thread.scalar_reg[10], 200);
     }
 
     #[test]
     fn test_write_to_sdst_vcc_val() {
-        let mut cpu = _helper_test_cpu();
+        let mut thread = _helper_test_thread();
         let val = 0b1011101011011011111011101111;
-        cpu.write_to_sdst(106, val);
-        assert_eq!(cpu.vcc.value, 195935983);
+        thread.write_to_sdst(106, val);
+        assert_eq!(thread.vcc.value, 195935983);
     }
 
     #[test]
     fn test_clz_i32_u32() {
-        let cpu = _helper_test_cpu();
-        assert_eq!(cpu.clz_i32_u32(0x00000000), 0xffffffff);
-        assert_eq!(cpu.clz_i32_u32(0x0000cccc), 16);
-        assert_eq!(cpu.clz_i32_u32(0xffff3333), 0);
-        assert_eq!(cpu.clz_i32_u32(0x7fffffff), 1);
-        assert_eq!(cpu.clz_i32_u32(0x80000000), 0);
-        assert_eq!(cpu.clz_i32_u32(0xffffffff), 0);
+        let thread = _helper_test_thread();
+        assert_eq!(thread.clz_i32_u32(0x00000000), 0xffffffff);
+        assert_eq!(thread.clz_i32_u32(0x0000cccc), 16);
+        assert_eq!(thread.clz_i32_u32(0xffff3333), 0);
+        assert_eq!(thread.clz_i32_u32(0x7fffffff), 1);
+        assert_eq!(thread.clz_i32_u32(0x80000000), 0);
+        assert_eq!(thread.clz_i32_u32(0xffffffff), 0);
     }
 
     #[test]
     fn test_cls_i32() {
-        let cpu = _helper_test_cpu();
-        assert_eq!(cpu.cls_i32(0x00000000), 0xffffffff);
-        assert_eq!(cpu.cls_i32(0x0000cccc), 16);
-        assert_eq!(cpu.cls_i32(0xffff3333), 16);
-        assert_eq!(cpu.cls_i32(0x7fffffff), 1);
-        assert_eq!(cpu.cls_i32(0x80000000), 1);
+        let thread = _helper_test_thread();
+        assert_eq!(thread.cls_i32(0x00000000), 0xffffffff);
+        assert_eq!(thread.cls_i32(0x0000cccc), 16);
+        assert_eq!(thread.cls_i32(0xffff3333), 16);
+        assert_eq!(thread.cls_i32(0x7fffffff), 1);
+        assert_eq!(thread.cls_i32(0x80000000), 1);
     }
 }
 
@@ -1690,19 +1678,19 @@ mod test_sop1 {
 
     #[test]
     fn test_s_mov_b64() {
-        let mut cpu = _helper_test_cpu();
-        cpu.scalar_reg.write64(16, 5236523008);
-        r(&vec![0xBE880110, END_PRG], &mut cpu);
-        assert_eq!(cpu.scalar_reg.read64(8), 5236523008);
-        assert_eq!(cpu.scalar, true);
+        let mut thread = _helper_test_thread();
+        thread.scalar_reg.write64(16, 5236523008);
+        r(&vec![0xBE880110, END_PRG], &mut thread);
+        assert_eq!(thread.scalar_reg.read64(8), 5236523008);
+        assert_eq!(thread.scalar, true);
     }
 
     #[test]
     fn test_s_mov_b32() {
-        let mut cpu = _helper_test_cpu();
-        cpu.scalar_reg[15] = 42;
-        r(&vec![0xbe82000f, END_PRG], &mut cpu);
-        assert_eq!(cpu.scalar_reg[2], 42);
+        let mut thread = _helper_test_thread();
+        thread.scalar_reg[15] = 42;
+        r(&vec![0xbe82000f, END_PRG], &mut thread);
+        assert_eq!(thread.scalar_reg[2], 42);
     }
 
     #[test]
@@ -1721,11 +1709,11 @@ mod test_sop1 {
         ]
         .iter()
         .for_each(|[a, b, ret]| {
-            let mut cpu = _helper_test_cpu();
-            cpu.scalar_reg[20] = *a;
-            cpu.scalar_reg[10] = *b;
-            r(&vec![0xBE94100A, END_PRG], &mut cpu);
-            assert_eq!(cpu.scalar_reg[20], *ret);
+            let mut thread = _helper_test_thread();
+            thread.scalar_reg[20] = *a;
+            thread.scalar_reg[10] = *b;
+            r(&vec![0xBE94100A, END_PRG], &mut thread);
+            assert_eq!(thread.scalar_reg[20], *ret);
         });
     }
 
@@ -1745,11 +1733,11 @@ mod test_sop1 {
         ]
         .iter()
         .for_each(|[a, b, ret]| {
-            let mut cpu = _helper_test_cpu();
-            cpu.scalar_reg[20] = *a;
-            cpu.scalar_reg[10] = *b;
-            r(&vec![0xbe94120a, END_PRG], &mut cpu);
-            assert_eq!(cpu.scalar_reg[20], *ret);
+            let mut thread = _helper_test_thread();
+            thread.scalar_reg[20] = *a;
+            thread.scalar_reg[10] = *b;
+            r(&vec![0xbe94120a, END_PRG], &mut thread);
+            assert_eq!(thread.scalar_reg[20], *ret);
         });
     }
 
@@ -1758,11 +1746,11 @@ mod test_sop1 {
         [[0, 4294967295, 1], [1, 4294967294, 1], [u32::MAX, 0, 0]]
             .iter()
             .for_each(|[a, ret, scc]| {
-                let mut cpu = _helper_test_cpu();
-                cpu.scalar_reg[10] = *a;
-                r(&vec![0xBE8A1E0A, END_PRG], &mut cpu);
-                assert_eq!(cpu.scalar_reg[10], *ret);
-                assert_eq!(*cpu.scc, *scc);
+                let mut thread = _helper_test_thread();
+                thread.scalar_reg[10] = *a;
+                r(&vec![0xBE8A1E0A, END_PRG], &mut thread);
+                assert_eq!(thread.scalar_reg[10], *ret);
+                assert_eq!(*thread.scc, *scc);
             });
     }
 }
@@ -1773,24 +1761,24 @@ mod test_sopk {
 
     #[test]
     fn test_cmp_zero_extend() {
-        let mut cpu = _helper_test_cpu();
-        cpu.scalar_reg[20] = 0xcd14;
-        r(&vec![0xB494CD14, END_PRG], &mut cpu);
-        assert_eq!(*cpu.scc, 1);
+        let mut thread = _helper_test_thread();
+        thread.scalar_reg[20] = 0xcd14;
+        r(&vec![0xB494CD14, END_PRG], &mut thread);
+        assert_eq!(*thread.scc, 1);
 
-        r(&vec![0xB194CD14, END_PRG], &mut cpu);
-        assert_eq!(*cpu.scc, 0);
+        r(&vec![0xB194CD14, END_PRG], &mut thread);
+        assert_eq!(*thread.scc, 0);
     }
 
     #[test]
     fn test_cmp_sign_extend() {
-        let mut cpu = _helper_test_cpu();
-        cpu.scalar_reg[6] = 0x2db4;
-        r(&vec![0xB1862DB4, END_PRG], &mut cpu);
-        assert_eq!(*cpu.scc, 1);
+        let mut thread = _helper_test_thread();
+        thread.scalar_reg[6] = 0x2db4;
+        r(&vec![0xB1862DB4, END_PRG], &mut thread);
+        assert_eq!(*thread.scc, 1);
 
-        r(&vec![0xB1862DB4, END_PRG], &mut cpu);
-        assert_eq!(*cpu.scc, 1);
+        r(&vec![0xB1862DB4, END_PRG], &mut thread);
+        assert_eq!(*thread.scc, 1);
     }
 }
 
@@ -1807,12 +1795,12 @@ mod test_sop2 {
         ]
         .iter()
         .for_each(|[a, b, expected, scc]| {
-            let mut cpu = _helper_test_cpu();
-            cpu.scalar_reg[2] = *a;
-            cpu.scalar_reg[6] = *b;
-            r(&vec![0x80060206, END_PRG], &mut cpu);
-            assert_eq!(cpu.scalar_reg[6], *expected);
-            assert_eq!(*cpu.scc, *scc);
+            let mut thread = _helper_test_thread();
+            thread.scalar_reg[2] = *a;
+            thread.scalar_reg[6] = *b;
+            r(&vec![0x80060206, END_PRG], &mut thread);
+            assert_eq!(thread.scalar_reg[6], *expected);
+            assert_eq!(*thread.scc, *scc);
         });
     }
 
@@ -1825,13 +1813,13 @@ mod test_sop2 {
         ]
         .iter()
         .for_each(|[a, b, expected, scc_before, scc_after]| {
-            let mut cpu = _helper_test_cpu();
-            *cpu.scc = *scc_before;
-            cpu.scalar_reg[7] = *a;
-            cpu.scalar_reg[3] = *b;
-            r(&vec![0x82070307, END_PRG], &mut cpu);
-            assert_eq!(cpu.scalar_reg[7], *expected);
-            assert_eq!(*cpu.scc, *scc_after);
+            let mut thread = _helper_test_thread();
+            *thread.scc = *scc_before;
+            thread.scalar_reg[7] = *a;
+            thread.scalar_reg[3] = *b;
+            r(&vec![0x82070307, END_PRG], &mut thread);
+            assert_eq!(thread.scalar_reg[7], *expected);
+            assert_eq!(*thread.scc, *scc_after);
         });
     }
 
@@ -1840,12 +1828,12 @@ mod test_sop2 {
         [[-10, 20, 10, 0], [i32::MAX, 1, -2147483648, 1]]
             .iter()
             .for_each(|[a, b, expected, scc]| {
-                let mut cpu = _helper_test_cpu();
-                cpu.scalar_reg[14] = *a as u32;
-                cpu.scalar_reg[10] = *b as u32;
-                r(&vec![0x81060E0A, END_PRG], &mut cpu);
-                assert_eq!(cpu.scalar_reg[6], *expected as u32);
-                assert_eq!(*cpu.scc, *scc as u32);
+                let mut thread = _helper_test_thread();
+                thread.scalar_reg[14] = *a as u32;
+                thread.scalar_reg[10] = *b as u32;
+                r(&vec![0x81060E0A, END_PRG], &mut thread);
+                assert_eq!(thread.scalar_reg[6], *expected as u32);
+                assert_eq!(*thread.scc, *scc as u32);
             });
     }
 
@@ -1854,12 +1842,12 @@ mod test_sop2 {
         [[-10, 20, -30, 0], [i32::MAX, -1, -2147483648, 1]]
             .iter()
             .for_each(|[a, b, expected, scc]| {
-                let mut cpu = _helper_test_cpu();
-                cpu.scalar_reg[13] = *a as u32;
-                cpu.scalar_reg[8] = *b as u32;
-                r(&vec![0x818C080D, END_PRG], &mut cpu);
-                assert_eq!(cpu.scalar_reg[12], *expected as u32);
-                assert_eq!(*cpu.scc, *scc as u32);
+                let mut thread = _helper_test_thread();
+                thread.scalar_reg[13] = *a as u32;
+                thread.scalar_reg[8] = *b as u32;
+                r(&vec![0x818C080D, END_PRG], &mut thread);
+                assert_eq!(thread.scalar_reg[12], *expected as u32);
+                assert_eq!(*thread.scc, *scc as u32);
             });
     }
 
@@ -1868,41 +1856,41 @@ mod test_sop2 {
         [[20, 40, 1], [0, 0, 0]]
             .iter()
             .for_each(|[a, expected, scc]| {
-                let mut cpu = _helper_test_cpu();
-                cpu.scalar_reg[15] = *a as u32;
-                r(&vec![0x8408810F, END_PRG], &mut cpu);
-                assert_eq!(cpu.scalar_reg[8], *expected as u32);
-                assert_eq!(*cpu.scc, *scc as u32);
+                let mut thread = _helper_test_thread();
+                thread.scalar_reg[15] = *a as u32;
+                r(&vec![0x8408810F, END_PRG], &mut thread);
+                assert_eq!(thread.scalar_reg[8], *expected as u32);
+                assert_eq!(*thread.scc, *scc as u32);
             });
     }
 
     #[test]
     fn test_s_lshl_b64() {
-        let mut cpu = _helper_test_cpu();
-        cpu.scalar_reg.write64(2, u64::MAX - 30);
-        r(&vec![0x84828202, END_PRG], &mut cpu);
-        assert_eq!(cpu.scalar_reg[2], 4294967172);
-        assert_eq!(cpu.scalar_reg[3], 4294967295);
-        assert_eq!(*cpu.scc, 1);
+        let mut thread = _helper_test_thread();
+        thread.scalar_reg.write64(2, u64::MAX - 30);
+        r(&vec![0x84828202, END_PRG], &mut thread);
+        assert_eq!(thread.scalar_reg[2], 4294967172);
+        assert_eq!(thread.scalar_reg[3], 4294967295);
+        assert_eq!(*thread.scc, 1);
     }
 
     #[test]
     fn test_s_ashr_i32() {
-        let mut cpu = _helper_test_cpu();
-        cpu.scalar_reg[2] = 36855;
-        r(&vec![0x86039F02, END_PRG], &mut cpu);
-        assert_eq!(cpu.scalar_reg[3], 0);
-        assert_eq!(*cpu.scc, 0);
+        let mut thread = _helper_test_thread();
+        thread.scalar_reg[2] = 36855;
+        r(&vec![0x86039F02, END_PRG], &mut thread);
+        assert_eq!(thread.scalar_reg[3], 0);
+        assert_eq!(*thread.scc, 0);
     }
 
     #[test]
     fn test_s_min_i32() {
-        let mut cpu = _helper_test_cpu();
-        cpu.scalar_reg[2] = -42i32 as u32;
-        cpu.scalar_reg[3] = -92i32 as u32;
-        r(&vec![0x89020203, END_PRG], &mut cpu);
-        assert_eq!(cpu.scalar_reg[2], -92i32 as u32);
-        assert_eq!(*cpu.scc, 1);
+        let mut thread = _helper_test_thread();
+        thread.scalar_reg[2] = -42i32 as u32;
+        thread.scalar_reg[3] = -92i32 as u32;
+        r(&vec![0x89020203, END_PRG], &mut thread);
+        assert_eq!(thread.scalar_reg[2], -92i32 as u32);
+        assert_eq!(*thread.scc, 1);
     }
 
     #[test]
@@ -1910,11 +1898,11 @@ mod test_sop2 {
         [[u32::MAX, 10, 9], [u32::MAX / 2, 4, 1]]
             .iter()
             .for_each(|[a, b, expected]| {
-                let mut cpu = _helper_test_cpu();
-                cpu.scalar_reg[0] = *a;
-                cpu.scalar_reg[8] = *b;
-                r(&vec![0x96810800, END_PRG], &mut cpu);
-                assert_eq!(cpu.scalar_reg[1], *expected);
+                let mut thread = _helper_test_thread();
+                thread.scalar_reg[0] = *a;
+                thread.scalar_reg[8] = *b;
+                r(&vec![0x96810800, END_PRG], &mut thread);
+                assert_eq!(thread.scalar_reg[1], *expected);
             });
     }
 
@@ -1923,11 +1911,11 @@ mod test_sop2 {
         [[(u64::MAX) as i32, (u64::MAX / 2) as i32, 0], [2, -2, -1]]
             .iter()
             .for_each(|[a, b, expected]| {
-                let mut cpu = _helper_test_cpu();
-                cpu.scalar_reg[0] = *a as u32;
-                cpu.scalar_reg[8] = *b as u32;
-                r(&vec![0x97010800, END_PRG], &mut cpu);
-                assert_eq!(cpu.scalar_reg[1], *expected as u32);
+                let mut thread = _helper_test_thread();
+                thread.scalar_reg[0] = *a as u32;
+                thread.scalar_reg[8] = *b as u32;
+                r(&vec![0x97010800, END_PRG], &mut thread);
+                assert_eq!(thread.scalar_reg[1], *expected as u32);
             });
     }
 
@@ -1936,11 +1924,11 @@ mod test_sop2 {
         [[40, 2, 80], [-10, -10, 100]]
             .iter()
             .for_each(|[a, b, expected]| {
-                let mut cpu = _helper_test_cpu();
-                cpu.scalar_reg[0] = *a as u32;
-                cpu.scalar_reg[6] = *b as u32;
-                r(&vec![0x96000600, END_PRG], &mut cpu);
-                assert_eq!(cpu.scalar_reg[0], *expected as u32);
+                let mut thread = _helper_test_thread();
+                thread.scalar_reg[0] = *a as u32;
+                thread.scalar_reg[6] = *b as u32;
+                r(&vec![0x96000600, END_PRG], &mut thread);
+                assert_eq!(thread.scalar_reg[0], *expected as u32);
             });
     }
 
@@ -1954,12 +1942,12 @@ mod test_sop2 {
         ]
         .iter()
         .for_each(|[a_lo, a_hi, ret_lo, ret_hi]| {
-            let mut cpu = _helper_test_cpu();
-            cpu.scalar_reg[6] = *a_lo;
-            cpu.scalar_reg[7] = *a_hi;
-            r(&vec![0x940cff06, 524288, END_PRG], &mut cpu);
-            assert_eq!(cpu.scalar_reg[12], *ret_lo);
-            assert_eq!(cpu.scalar_reg[13], *ret_hi);
+            let mut thread = _helper_test_thread();
+            thread.scalar_reg[6] = *a_lo;
+            thread.scalar_reg[7] = *a_hi;
+            r(&vec![0x940cff06, 524288, END_PRG], &mut thread);
+            assert_eq!(thread.scalar_reg[12], *ret_lo);
+            assert_eq!(thread.scalar_reg[13], *ret_hi);
         });
     }
 
@@ -1972,12 +1960,12 @@ mod test_sop2 {
         ]
         .iter()
         .for_each(|[a_lo, a_hi, ret_lo, ret_hi, shift]| {
-            let mut cpu = _helper_test_cpu();
-            cpu.scalar_reg[6] = *a_lo as u32;
-            cpu.scalar_reg[7] = *a_hi as u32;
-            r(&vec![0x948cff06, *shift as u32, END_PRG], &mut cpu);
-            assert_eq!(cpu.scalar_reg[12], *ret_lo as u32);
-            assert_eq!(cpu.scalar_reg[13], *ret_hi as u32);
+            let mut thread = _helper_test_thread();
+            thread.scalar_reg[6] = *a_lo as u32;
+            thread.scalar_reg[7] = *a_hi as u32;
+            r(&vec![0x948cff06, *shift as u32, END_PRG], &mut thread);
+            assert_eq!(thread.scalar_reg[12], *ret_lo as u32);
+            assert_eq!(thread.scalar_reg[13], *ret_hi as u32);
         });
     }
 
@@ -1992,10 +1980,10 @@ mod test_sop2 {
         ]
         .iter()
         .for_each(|[a, ret]| {
-            let mut cpu = _helper_test_cpu();
-            cpu.scalar_reg[0] = *a;
-            r(&vec![0x9303FF00, 0x00080008, END_PRG], &mut cpu);
-            assert_eq!(cpu.scalar_reg[3], *ret);
+            let mut thread = _helper_test_thread();
+            thread.scalar_reg[0] = *a;
+            r(&vec![0x9303FF00, 0x00080008, END_PRG], &mut thread);
+            assert_eq!(thread.scalar_reg[3], *ret);
         });
     }
 }
@@ -2006,92 +1994,110 @@ mod test_vopd {
 
     #[test]
     fn test_inline_const_vopx_only() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[0] = f32::to_bits(0.5);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[0] = f32::to_bits(0.5);
         let constant = f32::from_bits(0x39a8b099);
-        cpu.vec_reg[1] = 10;
-        r(&vec![0xC8D000FF, 0x00000080, 0x39A8B099, END_PRG], &mut cpu);
-        assert_eq!(f32::from_bits(cpu.vec_reg[0]), 0.5 * constant);
-        assert_eq!(cpu.vec_reg[1], 0);
+        thread.vec_reg[1] = 10;
+        r(
+            &vec![0xC8D000FF, 0x00000080, 0x39A8B099, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(f32::from_bits(thread.vec_reg[0]), 0.5 * constant);
+        assert_eq!(thread.vec_reg[1], 0);
     }
 
     #[test]
     fn test_inline_const_vopy_only() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[0] = 10;
-        cpu.vec_reg[1] = 10;
-        r(&vec![0xCA100080, 0x000000FF, 0x3E15F480, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[0], 0);
-        assert_eq!(cpu.vec_reg[1], 0x3e15f480);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[0] = 10;
+        thread.vec_reg[1] = 10;
+        r(
+            &vec![0xCA100080, 0x000000FF, 0x3E15F480, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(thread.vec_reg[0], 0);
+        assert_eq!(thread.vec_reg[1], 0x3e15f480);
 
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[18] = f32::to_bits(2.0);
-        cpu.vec_reg[32] = f32::to_bits(4.0);
-        cpu.vec_reg[7] = 10;
-        r(&vec![0xC9204112, 0x00060EFF, 0x0000006E, END_PRG], &mut cpu);
-        assert_eq!(f32::from_bits(cpu.vec_reg[0]), 2.0f32 + 4.0f32);
-        assert_eq!(cpu.vec_reg[7], 120);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[18] = f32::to_bits(2.0);
+        thread.vec_reg[32] = f32::to_bits(4.0);
+        thread.vec_reg[7] = 10;
+        r(
+            &vec![0xC9204112, 0x00060EFF, 0x0000006E, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(f32::from_bits(thread.vec_reg[0]), 2.0f32 + 4.0f32);
+        assert_eq!(thread.vec_reg[7], 120);
     }
 
     #[test]
     fn test_inline_const_shared() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[2] = f32::to_bits(2.0);
-        cpu.vec_reg[3] = f32::to_bits(4.0);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[2] = f32::to_bits(2.0);
+        thread.vec_reg[3] = f32::to_bits(4.0);
         let constant = f32::from_bits(0x3e800000);
-        r(&vec![0xC8C604FF, 0x020206FF, 0x3E800000, END_PRG], &mut cpu);
-        assert_eq!(f32::from_bits(cpu.vec_reg[2]), 2.0 * constant);
-        assert_eq!(f32::from_bits(cpu.vec_reg[3]), 4.0 * constant);
+        r(
+            &vec![0xC8C604FF, 0x020206FF, 0x3E800000, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(f32::from_bits(thread.vec_reg[2]), 2.0 * constant);
+        assert_eq!(f32::from_bits(thread.vec_reg[3]), 4.0 * constant);
     }
 
     #[test]
     fn test_simm_op_shared_1() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[23] = f32::to_bits(4.0);
-        cpu.vec_reg[12] = f32::to_bits(2.0);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[23] = f32::to_bits(4.0);
+        thread.vec_reg[12] = f32::to_bits(2.0);
 
-        cpu.vec_reg[13] = f32::to_bits(10.0);
-        cpu.vec_reg[24] = f32::to_bits(3.0);
+        thread.vec_reg[13] = f32::to_bits(10.0);
+        thread.vec_reg[24] = f32::to_bits(3.0);
 
         let simm = f32::from_bits(0x3e000000);
-        r(&vec![0xC8841917, 0x0C0C1B18, 0x3E000000, END_PRG], &mut cpu);
-        assert_eq!(f32::from_bits(cpu.vec_reg[12]), 4.0 * simm + 2.0);
-        assert_eq!(f32::from_bits(cpu.vec_reg[13]), 3.0 * simm + 10.0);
+        r(
+            &vec![0xC8841917, 0x0C0C1B18, 0x3E000000, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(f32::from_bits(thread.vec_reg[12]), 4.0 * simm + 2.0);
+        assert_eq!(f32::from_bits(thread.vec_reg[13]), 3.0 * simm + 10.0);
     }
 
     #[test]
     fn test_simm_op_shared_2() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[29] = f32::to_bits(4.0);
-        cpu.vec_reg[10] = f32::to_bits(2.0);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[29] = f32::to_bits(4.0);
+        thread.vec_reg[10] = f32::to_bits(2.0);
 
-        cpu.vec_reg[11] = f32::to_bits(10.0);
-        cpu.vec_reg[26] = f32::to_bits(6.5);
+        thread.vec_reg[11] = f32::to_bits(10.0);
+        thread.vec_reg[26] = f32::to_bits(6.5);
 
         let simm = 0.125;
-        r(&vec![0xC880151D, 0x0A0A34FF, 0x3E000000, END_PRG], &mut cpu);
-        assert_eq!(f32::from_bits(cpu.vec_reg[10]), 4.0 * simm + 2.0);
-        assert_eq!(f32::from_bits(cpu.vec_reg[11]), simm * 6.5 + 10.0);
+        r(
+            &vec![0xC880151D, 0x0A0A34FF, 0x3E000000, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(f32::from_bits(thread.vec_reg[10]), 4.0 * simm + 2.0);
+        assert_eq!(f32::from_bits(thread.vec_reg[11]), simm * 6.5 + 10.0);
     }
 
     #[test]
     fn test_add_mov() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[0] = f32::to_bits(10.5);
-        r(&vec![0xC9100300, 0x00000080, END_PRG], &mut cpu);
-        assert_eq!(f32::from_bits(cpu.vec_reg[0]), 10.5);
-        assert_eq!(cpu.vec_reg[1], 0);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[0] = f32::to_bits(10.5);
+        r(&vec![0xC9100300, 0x00000080, END_PRG], &mut thread);
+        assert_eq!(f32::from_bits(thread.vec_reg[0]), 10.5);
+        assert_eq!(thread.vec_reg[1], 0);
     }
 
     #[test]
     fn test_max_add() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[0] = f32::to_bits(5.0);
-        cpu.vec_reg[3] = f32::to_bits(2.0);
-        cpu.vec_reg[1] = f32::to_bits(2.0);
-        r(&vec![0xCA880280, 0x01000700, END_PRG], &mut cpu);
-        assert_eq!(f32::from_bits(cpu.vec_reg[0]), 7.0);
-        assert_eq!(f32::from_bits(cpu.vec_reg[1]), 2.0);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[0] = f32::to_bits(5.0);
+        thread.vec_reg[3] = f32::to_bits(2.0);
+        thread.vec_reg[1] = f32::to_bits(2.0);
+        r(&vec![0xCA880280, 0x01000700, END_PRG], &mut thread);
+        assert_eq!(f32::from_bits(thread.vec_reg[0]), 7.0);
+        assert_eq!(f32::from_bits(thread.vec_reg[1]), 2.0);
     }
 }
 #[cfg(test)]
@@ -2100,28 +2106,28 @@ mod test_vop1 {
 
     #[test]
     fn test_v_mov_b32_srrc_const0() {
-        let mut cpu = _helper_test_cpu();
-        r(&vec![0x7e000280, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[0], 0);
-        r(&vec![0x7e020280, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[1], 0);
-        r(&vec![0x7e040280, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[2], 0);
+        let mut thread = _helper_test_thread();
+        r(&vec![0x7e000280, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[0], 0);
+        r(&vec![0x7e020280, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[1], 0);
+        r(&vec![0x7e040280, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[2], 0);
     }
 
     #[test]
     fn test_v_mov_b32_srrc_register() {
-        let mut cpu = _helper_test_cpu();
-        cpu.scalar_reg[6] = 31;
-        r(&vec![0x7e020206, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[1], 31);
+        let mut thread = _helper_test_thread();
+        thread.scalar_reg[6] = 31;
+        r(&vec![0x7e020206, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[1], 31);
     }
 
     fn helper_test_fexp(val: f32) -> f32 {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[6] = val.to_bits();
-        r(&vec![0x7E0C4B06, END_PRG], &mut cpu);
-        f32::from_bits(cpu.vec_reg[6])
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[6] = val.to_bits();
+        r(&vec![0x7E0C4B06, END_PRG], &mut thread);
+        f32::from_bits(thread.vec_reg[6])
     }
 
     #[test]
@@ -2145,59 +2151,59 @@ mod test_vop1 {
 
     #[test]
     fn test_cast_f32_i32() {
-        let mut cpu = _helper_test_cpu();
+        let mut thread = _helper_test_thread();
         [(10.42, 10i32), (-20.08, -20i32)]
             .iter()
             .for_each(|(src, expected)| {
-                cpu.scalar_reg[2] = f32::to_bits(*src);
-                r(&vec![0x7E001002, END_PRG], &mut cpu);
-                assert_eq!(cpu.vec_reg[0] as i32, *expected);
+                thread.scalar_reg[2] = f32::to_bits(*src);
+                r(&vec![0x7E001002, END_PRG], &mut thread);
+                assert_eq!(thread.vec_reg[0] as i32, *expected);
             })
     }
 
     #[test]
     fn test_cast_f32_u32() {
-        let mut cpu = _helper_test_cpu();
-        cpu.scalar_reg[4] = 2;
-        r(&vec![0x7E000C04, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[0], 1073741824);
+        let mut thread = _helper_test_thread();
+        thread.scalar_reg[4] = 2;
+        r(&vec![0x7E000C04, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[0], 1073741824);
     }
 
     #[test]
     fn test_cast_u32_f32() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[0] = 1325400062;
-        r(&vec![0x7E000F00, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[0], 2147483392);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[0] = 1325400062;
+        r(&vec![0x7E000F00, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[0], 2147483392);
     }
 
     #[test]
     fn test_cast_i32_f32() {
-        let mut cpu = _helper_test_cpu();
+        let mut thread = _helper_test_thread();
         [(10.0, 10i32), (-20.0, -20i32)]
             .iter()
             .for_each(|(expected, src)| {
-                cpu.vec_reg[0] = *src as u32;
-                r(&vec![0x7E000B00, END_PRG], &mut cpu);
-                assert_eq!(f32::from_bits(cpu.vec_reg[0]), *expected);
+                thread.vec_reg[0] = *src as u32;
+                r(&vec![0x7E000B00, END_PRG], &mut thread);
+                assert_eq!(f32::from_bits(thread.vec_reg[0]), *expected);
             })
     }
 
     #[test]
     fn test_v_readfirstlane_b32_basic() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[0] = 2147483392;
-        r(&vec![0x7E060500, END_PRG], &mut cpu);
-        assert_eq!(cpu.scalar_reg[3], 2147483392);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[0] = 2147483392;
+        r(&vec![0x7E060500, END_PRG], &mut thread);
+        assert_eq!(thread.scalar_reg[3], 2147483392);
     }
 
     #[test]
     fn test_v_cls_i32() {
         fn t(val: u32) -> u32 {
-            let mut cpu = _helper_test_cpu();
-            cpu.vec_reg[2] = val;
-            r(&vec![0x7E087702, END_PRG], &mut cpu);
-            return cpu.vec_reg[4];
+            let mut thread = _helper_test_thread();
+            thread.vec_reg[2] = val;
+            r(&vec![0x7E087702, END_PRG], &mut thread);
+            return thread.vec_reg[4];
         }
 
         assert_eq!(t(0x00000000), 0xffffffff);
@@ -2218,11 +2224,11 @@ mod test_vop1 {
         ]
         .iter()
         .for_each(|[a, ret]| {
-            let mut cpu = _helper_test_cpu();
-            cpu.vec_reg[0] = f32::to_bits(*a);
+            let mut thread = _helper_test_thread();
+            thread.vec_reg[0] = f32::to_bits(*a);
             println!("a={} ret={}", a.to_bits(), ret.to_bits());
-            r(&vec![0x7E024700, END_PRG], &mut cpu);
-            assert_eq!(f32::from_bits(cpu.vec_reg[1]), *ret);
+            r(&vec![0x7E024700, END_PRG], &mut thread);
+            assert_eq!(f32::from_bits(thread.vec_reg[1]), *ret);
         })
     }
 }
@@ -2233,53 +2239,53 @@ mod test_vopc {
 
     #[test]
     fn test_v_cmp_gt_i32() {
-        let mut cpu = _helper_test_cpu();
+        let mut thread = _helper_test_thread();
 
-        cpu.vec_reg[1] = (4_i32 * -1) as u32;
-        r(&vec![0x7c8802c1, END_PRG], &mut cpu);
-        assert_eq!(cpu.vcc.read(), true);
+        thread.vec_reg[1] = (4_i32 * -1) as u32;
+        r(&vec![0x7c8802c1, END_PRG], &mut thread);
+        assert_eq!(thread.vcc.read(), true);
 
-        cpu.vec_reg[1] = 4;
-        r(&vec![0x7c8802c1, END_PRG], &mut cpu);
-        assert_eq!(cpu.vcc.read(), false);
+        thread.vec_reg[1] = 4;
+        r(&vec![0x7c8802c1, END_PRG], &mut thread);
+        assert_eq!(thread.vcc.read(), false);
     }
 
     #[test]
     fn test_v_cmpx_nlt_f32() {
-        let mut cpu = _helper_test_cpu();
-        // cpu.exec_mask.value = 0; TODO exec should be reset once the exec skipping rewrite is done
-        cpu.vec_reg[0] = f32::to_bits(0.9);
-        cpu.vec_reg[3] = f32::to_bits(0.4);
-        r(&vec![0x7D3C0700, END_PRG], &mut cpu);
-        assert_eq!(cpu.exec_mask.read(), true);
+        let mut thread = _helper_test_thread();
+        // thread.exec.value = 0; TODO exec should be reset once the exec skipping rewrite is done
+        thread.vec_reg[0] = f32::to_bits(0.9);
+        thread.vec_reg[3] = f32::to_bits(0.4);
+        r(&vec![0x7D3C0700, END_PRG], &mut thread);
+        assert_eq!(thread.exec.read(), true);
     }
 
     #[test]
     fn test_cmp_class_f32() {
-        let cpu = _helper_test_cpu();
-        assert!(!cpu.cmp_class_f32(f32::NAN, 0b00001));
-        assert!(cpu.cmp_class_f32(f32::NAN, 0b00010));
+        let thread = _helper_test_thread();
+        assert!(!thread.cmp_class_f32(f32::NAN, 0b00001));
+        assert!(thread.cmp_class_f32(f32::NAN, 0b00010));
 
-        assert!(cpu.cmp_class_f32(f32::INFINITY, 0b00000000000000000000001000000000));
-        assert!(!cpu.cmp_class_f32(f32::INFINITY, 0b00000000000000000000000000000010));
+        assert!(thread.cmp_class_f32(f32::INFINITY, 0b00000000000000000000001000000000));
+        assert!(!thread.cmp_class_f32(f32::INFINITY, 0b00000000000000000000000000000010));
 
-        assert!(cpu.cmp_class_f32(f32::NEG_INFINITY, 0b00000000000000000000000000000100));
-        assert!(!cpu.cmp_class_f32(f32::NEG_INFINITY, 0b00000000000000000000010000000000));
+        assert!(thread.cmp_class_f32(f32::NEG_INFINITY, 0b00000000000000000000000000000100));
+        assert!(!thread.cmp_class_f32(f32::NEG_INFINITY, 0b00000000000000000000010000000000));
 
-        assert!(!cpu.cmp_class_f32(0.752, 0b00000000000000000000000000000000));
-        assert!(cpu.cmp_class_f32(0.752, 0b00000000000000000000000100000000));
+        assert!(!thread.cmp_class_f32(0.752, 0b00000000000000000000000000000000));
+        assert!(thread.cmp_class_f32(0.752, 0b00000000000000000000000100000000));
 
-        assert!(!cpu.cmp_class_f32(-0.752, 0b00000000000000000000010000000000));
-        assert!(cpu.cmp_class_f32(-0.752, 0b00000000000000000000010000001000));
+        assert!(!thread.cmp_class_f32(-0.752, 0b00000000000000000000010000000000));
+        assert!(thread.cmp_class_f32(-0.752, 0b00000000000000000000010000001000));
 
-        assert!(!cpu.cmp_class_f32(1.0e-42, 0b11111111111111111111111101111111));
-        assert!(cpu.cmp_class_f32(1.0e-42, 0b00000000000000000000000010000000));
+        assert!(!thread.cmp_class_f32(1.0e-42, 0b11111111111111111111111101111111));
+        assert!(thread.cmp_class_f32(1.0e-42, 0b00000000000000000000000010000000));
 
-        assert!(cpu.cmp_class_f32(-1.0e-42, 0b00000000000000000000000000010000));
-        assert!(!cpu.cmp_class_f32(-1.0e-42, 0b11111111111111111111111111101111));
+        assert!(thread.cmp_class_f32(-1.0e-42, 0b00000000000000000000000000010000));
+        assert!(!thread.cmp_class_f32(-1.0e-42, 0b11111111111111111111111111101111));
 
-        assert!(cpu.cmp_class_f32(-0.0, 0b00000000000000000000000000100000));
-        assert!(cpu.cmp_class_f32(0.0, 0b00000000000000000000000001000000));
+        assert!(thread.cmp_class_f32(-0.0, 0b00000000000000000000000000100000));
+        assert!(thread.cmp_class_f32(0.0, 0b00000000000000000000000001000000));
     }
 }
 #[cfg(test)]
@@ -2288,28 +2294,28 @@ mod test_vop2 {
 
     #[test]
     fn test_v_add_f32_e32() {
-        let mut cpu = _helper_test_cpu();
-        cpu.scalar_reg[2] = f32::to_bits(42.0);
-        cpu.vec_reg[0] = f32::to_bits(1.0);
-        r(&vec![0x06000002, END_PRG], &mut cpu);
-        assert_eq!(f32::from_bits(cpu.vec_reg[0]), 43.0);
+        let mut thread = _helper_test_thread();
+        thread.scalar_reg[2] = f32::to_bits(42.0);
+        thread.vec_reg[0] = f32::to_bits(1.0);
+        r(&vec![0x06000002, END_PRG], &mut thread);
+        assert_eq!(f32::from_bits(thread.vec_reg[0]), 43.0);
     }
 
     #[test]
     fn test_v_mul_f32_e32() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[2] = f32::to_bits(21.0);
-        cpu.vec_reg[4] = f32::to_bits(2.0);
-        r(&vec![0x10060504, END_PRG], &mut cpu);
-        assert_eq!(f32::from_bits(cpu.vec_reg[3]), 42.0);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[2] = f32::to_bits(21.0);
+        thread.vec_reg[4] = f32::to_bits(2.0);
+        r(&vec![0x10060504, END_PRG], &mut thread);
+        assert_eq!(f32::from_bits(thread.vec_reg[3]), 42.0);
     }
 
     #[test]
     fn test_v_ashrrev_i32() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[0] = 4294967295;
-        r(&vec![0x3402009F, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[1] as i32, -1);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[0] = 4294967295;
+        r(&vec![0x3402009F, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[1] as i32, -1);
     }
 
     #[test]
@@ -2325,28 +2331,28 @@ mod test_vop2 {
         ]
         .iter()
         .for_each(|[a, b, ret]| {
-            let mut cpu = _helper_test_cpu();
-            cpu.vec_reg[1] = *a;
-            r(&vec![0x124E02FF, *b, END_PRG], &mut cpu);
-            assert_eq!(cpu.vec_reg[39], *ret);
+            let mut thread = _helper_test_thread();
+            thread.vec_reg[1] = *a;
+            r(&vec![0x124E02FF, *b, END_PRG], &mut thread);
+            assert_eq!(thread.vec_reg[39], *ret);
         });
     }
 
     #[test]
     fn test_v_add_nc_u32_const() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[18] = 7;
-        r(&vec![0x4A3024B8, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[24], 63);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[18] = 7;
+        r(&vec![0x4A3024B8, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[24], 63);
     }
 
     #[test]
     fn test_v_add_nc_u32_sint() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[14] = 7;
-        cpu.vec_reg[6] = 4294967279;
-        r(&vec![0x4A0C1D06, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[6], 4294967286);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[14] = 7;
+        thread.vec_reg[6] = 4294967279;
+        r(&vec![0x4A0C1D06, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[6], 4294967286);
     }
 }
 
@@ -2356,30 +2362,30 @@ mod test_vopsd {
 
     #[test]
     fn test_v_add_co_u32_scalar_co_zero() {
-        let mut cpu = _helper_test_cpu();
-        cpu.scalar_reg[10] = 0;
-        cpu.vcc.default_lane = Some(1);
-        cpu.vec_reg.default_lane = Some(1);
-        cpu.vec_reg[10] = u32::MAX;
-        cpu.vec_reg[20] = 20;
-        r(&vec![0xD7000A0A, 0x0002290A, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[10], 19);
-        assert_eq!(cpu.scalar_reg[10], 2);
+        let mut thread = _helper_test_thread();
+        thread.scalar_reg[10] = 0;
+        thread.vcc.default_lane = Some(1);
+        thread.vec_reg.default_lane = Some(1);
+        thread.vec_reg[10] = u32::MAX;
+        thread.vec_reg[20] = 20;
+        r(&vec![0xD7000A0A, 0x0002290A, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[10], 19);
+        assert_eq!(thread.scalar_reg[10], 2);
     }
 
     #[test]
     fn test_v_add_co_u32_scalar_co_override() {
-        let mut cpu = _helper_test_cpu();
-        cpu.scalar_reg[10] = 0b11111111111111111111111111111111;
-        cpu.vcc.default_lane = Some(2);
-        cpu.vec_reg.default_lane = Some(2);
-        cpu.vec_reg[10] = u32::MAX;
-        cpu.vec_reg[20] = 20;
-        r(&vec![0xD7000A0A, 0x0002290A, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[10], 19);
+        let mut thread = _helper_test_thread();
+        thread.scalar_reg[10] = 0b11111111111111111111111111111111;
+        thread.vcc.default_lane = Some(2);
+        thread.vec_reg.default_lane = Some(2);
+        thread.vec_reg[10] = u32::MAX;
+        thread.vec_reg[20] = 20;
+        r(&vec![0xD7000A0A, 0x0002290A, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[10], 19);
         // NOTE: the co mask only writes to the bit that it needs to write, then at the _wave_
         // level, the final result accumulates
-        assert_eq!(cpu.scalar_reg[10], 0b100);
+        assert_eq!(thread.scalar_reg[10], 0b100);
     }
 
     #[test]
@@ -2387,15 +2393,15 @@ mod test_vopsd {
         [[0, 0, 0b0], [1, -1i32 as usize, 0b10]]
             .iter()
             .for_each(|[lane_id, result, carry_out]| {
-                let mut cpu = _helper_test_cpu();
-                cpu.vcc.default_lane = Some(*lane_id);
-                cpu.vec_reg.default_lane = Some(*lane_id);
-                cpu.scalar_reg[20] = 0b10;
-                cpu.vec_reg[1] = 2;
-                cpu.vec_reg[2] = 2;
-                r(&vec![0xD5211401, 0x00520501, END_PRG], &mut cpu);
-                assert_eq!(cpu.vec_reg[1], *result as u32);
-                assert_eq!(cpu.scalar_reg[20], *carry_out as u32);
+                let mut thread = _helper_test_thread();
+                thread.vcc.default_lane = Some(*lane_id);
+                thread.vec_reg.default_lane = Some(*lane_id);
+                thread.scalar_reg[20] = 0b10;
+                thread.vec_reg[1] = 2;
+                thread.vec_reg[2] = 2;
+                r(&vec![0xD5211401, 0x00520501, END_PRG], &mut thread);
+                assert_eq!(thread.vec_reg[1], *result as u32);
+                assert_eq!(thread.scalar_reg[20], *carry_out as u32);
             })
     }
 
@@ -2404,46 +2410,46 @@ mod test_vopsd {
         [[3, 2, 0b1000], [2, 0, 0b100]]
             .iter()
             .for_each(|[lane_id, result, carry_out]| {
-                let mut cpu = _helper_test_cpu();
-                cpu.vcc.default_lane = Some(*lane_id);
-                cpu.vec_reg.default_lane = Some(*lane_id);
-                cpu.scalar_reg[20] = 0b1010;
-                cpu.vec_reg[1] = *lane_id as u32;
-                cpu.vec_reg[2] = u32::MAX - 1;
-                r(&vec![0xD5201401, 0x00520501, END_PRG], &mut cpu);
-                assert_eq!(cpu.vec_reg[1], *result as u32);
-                assert_eq!(cpu.scalar_reg[20], *carry_out as u32);
+                let mut thread = _helper_test_thread();
+                thread.vcc.default_lane = Some(*lane_id);
+                thread.vec_reg.default_lane = Some(*lane_id);
+                thread.scalar_reg[20] = 0b1010;
+                thread.vec_reg[1] = *lane_id as u32;
+                thread.vec_reg[2] = u32::MAX - 1;
+                r(&vec![0xD5201401, 0x00520501, END_PRG], &mut thread);
+                assert_eq!(thread.vec_reg[1], *result as u32);
+                assert_eq!(thread.scalar_reg[20], *carry_out as u32);
             })
     }
 
     #[test]
     fn test_v_mad_u64_u32() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg.write64(3, u64::MAX - 3);
-        cpu.scalar_reg[13] = 3;
-        cpu.scalar_reg[10] = 1;
-        r(&vec![0xD6FE0D06, 0x040C140D, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg.read64(6), u64::MAX);
-        assert_eq!(cpu.scalar_reg[13], 0);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg.write64(3, u64::MAX - 3);
+        thread.scalar_reg[13] = 3;
+        thread.scalar_reg[10] = 1;
+        r(&vec![0xD6FE0D06, 0x040C140D, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg.read64(6), u64::MAX);
+        assert_eq!(thread.scalar_reg[13], 0);
 
-        cpu.vec_reg.write64(3, u64::MAX - 3);
-        cpu.scalar_reg[13] = 4;
-        cpu.scalar_reg[10] = 1;
-        r(&vec![0xD6FE0D06, 0x040C140D, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[6], 0);
-        assert_eq!(cpu.vec_reg[7], 0);
-        assert_eq!(cpu.scalar_reg[13], 1);
+        thread.vec_reg.write64(3, u64::MAX - 3);
+        thread.scalar_reg[13] = 4;
+        thread.scalar_reg[10] = 1;
+        r(&vec![0xD6FE0D06, 0x040C140D, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[6], 0);
+        assert_eq!(thread.vec_reg[7], 0);
+        assert_eq!(thread.scalar_reg[13], 1);
     }
 
     #[test]
     fn test_v_add_co_u32() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vcc.default_lane = Some(1);
-        cpu.vec_reg[2] = u32::MAX;
-        cpu.vec_reg[3] = 3;
-        r(&vec![0xD7000D02, 0x00020503, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[2], 2);
-        assert_eq!(cpu.scalar_reg[13], 0b10);
+        let mut thread = _helper_test_thread();
+        thread.vcc.default_lane = Some(1);
+        thread.vec_reg[2] = u32::MAX;
+        thread.vec_reg[3] = 3;
+        r(&vec![0xD7000D02, 0x00020503, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[2], 2);
+        assert_eq!(thread.scalar_reg[13], 0b10);
     }
 
     #[test]
@@ -2451,12 +2457,12 @@ mod test_vopsd {
         [[69, 0, 69, 0], [100, 200, 4294967196, 1]]
             .iter()
             .for_each(|[a, b, ret, scc]| {
-                let mut cpu = _helper_test_cpu();
-                cpu.vec_reg[4] = *a;
-                cpu.vec_reg[15] = *b;
-                r(&vec![0xD7016A04, 0x00021F04, END_PRG], &mut cpu);
-                assert_eq!(cpu.vec_reg[4], *ret);
-                assert_eq!(cpu.vcc.read(), *scc != 0);
+                let mut thread = _helper_test_thread();
+                thread.vec_reg[4] = *a;
+                thread.vec_reg[15] = *b;
+                r(&vec![0xD7016A04, 0x00021F04, END_PRG], &mut thread);
+                assert_eq!(thread.vec_reg[4], *ret);
+                assert_eq!(thread.vcc.read(), *scc != 0);
             })
     }
 }
@@ -2467,11 +2473,11 @@ mod test_vop3 {
     use float_cmp::approx_eq;
 
     fn helper_test_vop3(op: u32, a: f32, b: f32) -> f32 {
-        let mut cpu = _helper_test_cpu();
-        cpu.scalar_reg[0] = f32::to_bits(a);
-        cpu.scalar_reg[6] = f32::to_bits(b);
-        r(&vec![op, 0x00000006, END_PRG], &mut cpu);
-        return f32::from_bits(cpu.vec_reg[0]);
+        let mut thread = _helper_test_thread();
+        thread.scalar_reg[0] = f32::to_bits(a);
+        thread.scalar_reg[6] = f32::to_bits(b);
+        r(&vec![op, 0x00000006, END_PRG], &mut thread);
+        return f32::from_bits(thread.vec_reg[0]);
     }
 
     #[test]
@@ -2493,37 +2499,37 @@ mod test_vop3 {
     #[test]
     fn test_signed_src() {
         // v0, max(s2, s2)
-        let mut cpu = _helper_test_cpu();
-        cpu.scalar_reg[2] = f32::to_bits(0.5);
-        r(&vec![0xd5100000, 0x00000402, END_PRG], &mut cpu);
-        assert_eq!(f32::from_bits(cpu.vec_reg[0]), 0.5);
+        let mut thread = _helper_test_thread();
+        thread.scalar_reg[2] = f32::to_bits(0.5);
+        r(&vec![0xd5100000, 0x00000402, END_PRG], &mut thread);
+        assert_eq!(f32::from_bits(thread.vec_reg[0]), 0.5);
 
         // v1, max(-s2, -s2)
-        let mut cpu = _helper_test_cpu();
-        cpu.scalar_reg[2] = f32::to_bits(0.5);
-        r(&vec![0xd5100001, 0x60000402, END_PRG], &mut cpu);
-        assert_eq!(f32::from_bits(cpu.vec_reg[1]), -0.5);
+        let mut thread = _helper_test_thread();
+        thread.scalar_reg[2] = f32::to_bits(0.5);
+        r(&vec![0xd5100001, 0x60000402, END_PRG], &mut thread);
+        assert_eq!(f32::from_bits(thread.vec_reg[1]), -0.5);
     }
 
     #[test]
     fn test_cnd_mask_cond_src_sgpr() {
-        let mut cpu = _helper_test_cpu();
-        cpu.scalar_reg[3] = 30;
-        r(&vec![0xD5010000, 0x000D0280, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[0], 1);
+        let mut thread = _helper_test_thread();
+        thread.scalar_reg[3] = 30;
+        r(&vec![0xD5010000, 0x000D0280, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[0], 1);
 
-        cpu.scalar_reg[3] = 0;
-        r(&vec![0xD5010000, 0x000D0280, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[0], 0);
+        thread.scalar_reg[3] = 0;
+        r(&vec![0xD5010000, 0x000D0280, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[0], 0);
     }
 
     #[test]
     fn test_cnd_mask_cond_src_vcclo() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[2] = 20;
-        cpu.vec_reg[0] = 100;
-        r(&vec![0xD5010002, 0x41AA0102, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[2], 20);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[2] = 20;
+        thread.vec_reg[0] = 100;
+        r(&vec![0xD5010002, 0x41AA0102, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[2], 20);
     }
 
     #[test]
@@ -2531,73 +2537,82 @@ mod test_vop3 {
         [[0.0f32, 0.0], [1.0f32, -1.0], [-1.0f32, 1.0]]
             .iter()
             .for_each(|[input, ret]| {
-                let mut cpu = _helper_test_cpu();
-                cpu.scalar_reg[0] = false as u32;
-                cpu.vec_reg[3] = input.to_bits();
-                r(&vec![0xD5010003, 0x2001FF03, 0x80000000, END_PRG], &mut cpu);
-                assert_eq!(cpu.vec_reg[3], ret.to_bits());
+                let mut thread = _helper_test_thread();
+                thread.scalar_reg[0] = false as u32;
+                thread.vec_reg[3] = input.to_bits();
+                r(
+                    &vec![0xD5010003, 0x2001FF03, 0x80000000, END_PRG],
+                    &mut thread,
+                );
+                assert_eq!(thread.vec_reg[3], ret.to_bits());
             });
     }
 
     #[test]
     fn test_v_mul_hi_i32() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[2] = -2i32 as u32;
-        r(&vec![0xD72E0003, 0x000204FF, 0x2E8BA2E9, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[3] as i32, -1);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[2] = -2i32 as u32;
+        r(
+            &vec![0xD72E0003, 0x000204FF, 0x2E8BA2E9, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(thread.vec_reg[3] as i32, -1);
 
-        cpu.vec_reg[2] = 2;
-        r(&vec![0xD72E0003, 0x000204FF, 0x2E8BA2E9, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[3], 0);
+        thread.vec_reg[2] = 2;
+        r(
+            &vec![0xD72E0003, 0x000204FF, 0x2E8BA2E9, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(thread.vec_reg[3], 0);
     }
 
     #[test]
     fn test_v_writelane_b32() {
-        let mut cpu = _helper_test_cpu();
-        cpu.scalar_reg[8] = 25056;
-        r(&vec![0xD7610004, 0x00010008, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg.get_lane(0)[4], 25056);
+        let mut thread = _helper_test_thread();
+        thread.scalar_reg[8] = 25056;
+        r(&vec![0xD7610004, 0x00010008, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg.get_lane(0)[4], 25056);
 
-        cpu.scalar_reg[9] = 25056;
-        r(&vec![0xD7610004, 0x00010209, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg.get_lane(1)[4], 25056);
+        thread.scalar_reg[9] = 25056;
+        r(&vec![0xD7610004, 0x00010209, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg.get_lane(1)[4], 25056);
     }
 
     #[test]
     fn test_v_readlane_b32() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg.get_lane_mut(15)[4] = 0b1111;
-        r(&vec![0xD760006A, 0x00011F04, END_PRG], &mut cpu);
-        assert_eq!(cpu.vcc.read(), true);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg.get_lane_mut(15)[4] = 0b1111;
+        r(&vec![0xD760006A, 0x00011F04, END_PRG], &mut thread);
+        assert_eq!(thread.vcc.read(), true);
     }
 
     #[test]
     fn test_v_lshlrev_b64() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg.write64(2, 100);
-        cpu.vec_reg[4] = 2;
-        r(&vec![0xD73C0002, 0x00020504, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg.read64(2), 400);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg.write64(2, 100);
+        thread.vec_reg[4] = 2;
+        r(&vec![0xD73C0002, 0x00020504, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg.read64(2), 400);
     }
 
     #[test]
     fn test_v_lshrrev_b64() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg.write64(2, 100);
-        cpu.vec_reg[4] = 2;
-        r(&vec![0xd73d0002, 0x00020504, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg.read64(2), 25);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg.write64(2, 100);
+        thread.vec_reg[4] = 2;
+        r(&vec![0xd73d0002, 0x00020504, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg.read64(2), 25);
     }
 
     #[test]
     fn test_v_cvt_f32_f16_abs_modifier() {
         [[0.4, 0.4], [-0.4, 0.4]].iter().for_each(|[a, ret]| {
-            let mut cpu = _helper_test_cpu();
-            cpu.vec_reg[1] = f16::from_f32_const(*a).to_bits() as u32;
-            r(&vec![0xD58B0102, 0x00000101, END_PRG], &mut cpu);
+            let mut thread = _helper_test_thread();
+            thread.vec_reg[1] = f16::from_f32_const(*a).to_bits() as u32;
+            r(&vec![0xD58B0102, 0x00000101, END_PRG], &mut thread);
             assert!(approx_eq!(
                 f32,
-                f32::from_bits(cpu.vec_reg[2]),
+                f32::from_bits(thread.vec_reg[2]),
                 *ret,
                 (0.01, 2)
             ));
@@ -2606,12 +2621,12 @@ mod test_vop3 {
 
     #[test]
     fn test_v_alignbit_b32() {
-        let mut cpu = _helper_test_cpu();
-        cpu.scalar_reg[4] = 5340353;
-        cpu.scalar_reg[10] = 3072795146;
-        cpu.vec_reg[0] = 8;
-        r(&vec![0xD6160001, 0x04001404, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[1], 3250005794);
+        let mut thread = _helper_test_thread();
+        thread.scalar_reg[4] = 5340353;
+        thread.scalar_reg[10] = 3072795146;
+        thread.vec_reg[0] = 8;
+        r(&vec![0xD6160001, 0x04001404, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[1], 3250005794);
     }
 
     #[test]
@@ -2623,10 +2638,10 @@ mod test_vop3 {
         ]
         .iter()
         .for_each(|[a, ret]| {
-            let mut cpu = _helper_test_cpu();
-            cpu.vec_reg[2] = *a as u32;
-            r(&vec![0xD6110005, 0x02050102, END_PRG], &mut cpu);
-            assert_eq!(cpu.vec_reg[5] as i32, *ret);
+            let mut thread = _helper_test_thread();
+            thread.vec_reg[2] = *a as u32;
+            r(&vec![0xD6110005, 0x02050102, END_PRG], &mut thread);
+            assert_eq!(thread.vec_reg[5] as i32, *ret);
         });
 
         [
@@ -2636,10 +2651,10 @@ mod test_vop3 {
         ]
         .iter()
         .for_each(|[a, ret]| {
-            let mut cpu = _helper_test_cpu();
-            cpu.vec_reg[2] = *a as u32;
-            r(&vec![0xD6110005, 0x02090102, END_PRG], &mut cpu);
-            assert_eq!(cpu.vec_reg[5] as i32, *ret);
+            let mut thread = _helper_test_thread();
+            thread.vec_reg[2] = *a as u32;
+            r(&vec![0xD6110005, 0x02090102, END_PRG], &mut thread);
+            assert_eq!(thread.vec_reg[5] as i32, *ret);
         });
 
         [
@@ -2652,16 +2667,16 @@ mod test_vop3 {
         ]
         .iter()
         .for_each(|[a, ret]| {
-            let mut cpu = _helper_test_cpu();
-            cpu.vec_reg[2] = *a as u32;
-            r(&vec![0xD6110005, 0x03050102, END_PRG], &mut cpu);
-            assert_eq!(cpu.vec_reg[5] as i32, *ret);
+            let mut thread = _helper_test_thread();
+            thread.vec_reg[2] = *a as u32;
+            r(&vec![0xD6110005, 0x03050102, END_PRG], &mut thread);
+            assert_eq!(thread.vec_reg[5] as i32, *ret);
         });
     }
 
     #[test]
     fn test_v_ashrrev_i16() {
-        let mut cpu = _helper_test_cpu();
+        let mut thread = _helper_test_thread();
         [
             [0b10000000000000000000000000000000, 0],
             [0b10000000000000000000000000000111, 3],
@@ -2675,13 +2690,13 @@ mod test_vop3 {
         ]
         .iter()
         .for_each(|[a, ret]| {
-            cpu.vec_reg[2] = *a;
-            cpu.scalar_reg[1] = 1;
+            thread.vec_reg[2] = *a;
+            thread.scalar_reg[1] = 1;
             r(
                 &vec![0xd73a0005, 0b11000001100000010000000001, END_PRG],
-                &mut cpu,
+                &mut thread,
             );
-            assert_eq!(cpu.vec_reg[5], *ret);
+            assert_eq!(thread.vec_reg[5], *ret);
         });
 
         [
@@ -2691,55 +2706,58 @@ mod test_vop3 {
         ]
         .iter()
         .for_each(|[a, shift, ret]| {
-            cpu.vec_reg[2] = *a;
-            cpu.scalar_reg[1] = *shift;
+            thread.vec_reg[2] = *a;
+            thread.scalar_reg[1] = *shift;
             r(
                 &vec![0xd73a0005, 0b11000001100000010000000001, END_PRG],
-                &mut cpu,
+                &mut thread,
             );
-            assert_eq!(cpu.vec_reg[5], *ret);
+            assert_eq!(thread.vec_reg[5], *ret);
         });
 
-        cpu.vec_reg[5] = 0b11100000000000001111111111111111;
-        cpu.vec_reg[2] = 0b0100000000000000;
-        cpu.scalar_reg[1] = 1;
+        thread.vec_reg[5] = 0b11100000000000001111111111111111;
+        thread.vec_reg[2] = 0b0100000000000000;
+        thread.scalar_reg[1] = 1;
         r(
             &vec![0xd73a0005, 0b11000001100000010000000001, END_PRG],
-            &mut cpu,
+            &mut thread,
         );
-        assert_eq!(cpu.vec_reg[5], 0b11100000000000000010000000000000);
+        assert_eq!(thread.vec_reg[5], 0b11100000000000000010000000000000);
     }
 
     #[test]
     fn test_v_add_nc_u16() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[5] = 10;
-        cpu.vec_reg[8] = 20;
-        r(&vec![0xD7030005, 0x00021105, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[5], 30);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[5] = 10;
+        thread.vec_reg[8] = 20;
+        r(&vec![0xD7030005, 0x00021105, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[5], 30);
     }
 
     #[test]
     fn test_v_mul_lo_u16() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[5] = 2;
-        cpu.vec_reg[15] = 0;
-        r(&vec![0xD705000F, 0x00010B05, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[15], 10);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[5] = 2;
+        thread.vec_reg[15] = 0;
+        r(&vec![0xD705000F, 0x00010B05, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[15], 10);
 
-        cpu.vec_reg[5] = 2;
-        cpu.vec_reg[15] = 0b10000000000000000000000000000000;
-        r(&vec![0xD705000F, 0x00010B05, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[15], 0b10000000000000000000000000000000 + 10);
+        thread.vec_reg[5] = 2;
+        thread.vec_reg[15] = 0b10000000000000000000000000000000;
+        r(&vec![0xD705000F, 0x00010B05, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[15], 0b10000000000000000000000000000000 + 10);
     }
 
     #[test]
     fn test_v_cmp_gt_u16() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[1] = 52431;
-        cpu.scalar_reg[5] = 0;
-        r(&vec![0xD43C0005, 0x000202FF, 0x00003334, END_PRG], &mut cpu);
-        assert_eq!(cpu.scalar_reg[5], 0);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[1] = 52431;
+        thread.scalar_reg[5] = 0;
+        r(
+            &vec![0xD43C0005, 0x000202FF, 0x00003334, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(thread.scalar_reg[5], 0);
     }
 
     #[test]
@@ -2752,31 +2770,31 @@ mod test_vop3 {
         ]
         .iter()
         .for_each(|(x, y, ret)| {
-            let mut cpu = _helper_test_cpu();
-            cpu.scalar_reg[2] = x.to_bits();
+            let mut thread = _helper_test_thread();
+            thread.scalar_reg[2] = x.to_bits();
             r(
                 &vec![0xD41B0203, 0x000004FF, y.to_bits(), END_PRG],
-                &mut cpu,
+                &mut thread,
             );
-            assert_eq!(cpu.scalar_reg[3], *ret);
+            assert_eq!(thread.scalar_reg[3], *ret);
         })
     }
     #[test]
     fn test_fma() {
         fn v_fma_f32(a: u32, b: u32, c: u32, ret: u32) {
-            let mut cpu = _helper_test_cpu();
-            cpu.vec_reg[1] = b;
-            cpu.scalar_reg[3] = c;
-            r(&vec![0xD6130000, 0x000E02FF, a, END_PRG], &mut cpu);
-            assert_eq!(cpu.vec_reg[0], ret);
+            let mut thread = _helper_test_thread();
+            thread.vec_reg[1] = b;
+            thread.scalar_reg[3] = c;
+            r(&vec![0xD6130000, 0x000E02FF, a, END_PRG], &mut thread);
+            assert_eq!(thread.vec_reg[0], ret);
         }
         fn v_fmac_f32(a: u32, b: u32, c: u32, ret: u32) {
-            let mut cpu = _helper_test_cpu();
-            cpu.scalar_reg[1] = a;
-            cpu.scalar_reg[2] = b;
-            cpu.vec_reg[0] = c;
-            r(&vec![0xd52b0000, 0x401, END_PRG], &mut cpu);
-            assert_eq!(cpu.vec_reg[0], ret);
+            let mut thread = _helper_test_thread();
+            thread.scalar_reg[1] = a;
+            thread.scalar_reg[2] = b;
+            thread.vec_reg[0] = c;
+            r(&vec![0xd52b0000, 0x401, END_PRG], &mut thread);
+            assert_eq!(thread.vec_reg[0], ret);
         }
         [[0xbfc90fda, 1186963456, 1192656896, 3204127872]]
             .iter()
@@ -2788,11 +2806,14 @@ mod test_vop3 {
 
     #[test]
     fn test_v_perm_b32() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[1] = 15944;
-        cpu.vec_reg[0] = 84148480;
-        r(&vec![0xD644000F, 0x03FE0101, 0x05040100, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[15], 1044906240);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[1] = 15944;
+        thread.vec_reg[0] = 84148480;
+        r(
+            &vec![0xD644000F, 0x03FE0101, 0x05040100, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(thread.vec_reg[15], 1044906240);
     }
 }
 
@@ -2802,125 +2823,173 @@ mod test_vopp {
 
     #[test]
     fn test_v_fma_mix_f32() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[2] = 1065353216;
-        cpu.scalar_reg[2] = 3217620992;
-        cpu.vec_reg[1] = 15360;
-        r(&vec![0xCC204403, 0x04040502, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[3], 3205627904);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[2] = 1065353216;
+        thread.scalar_reg[2] = 3217620992;
+        thread.vec_reg[1] = 15360;
+        r(&vec![0xCC204403, 0x04040502, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[3], 3205627904);
 
-        cpu.vec_reg[2] = 1065353216;
-        cpu.scalar_reg[2] = 3217620992;
-        cpu.vec_reg[1] = 48128;
-        r(&vec![0xCC204403, 0x04040502, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[3], 3205627904);
+        thread.vec_reg[2] = 1065353216;
+        thread.scalar_reg[2] = 3217620992;
+        thread.vec_reg[1] = 48128;
+        r(&vec![0xCC204403, 0x04040502, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[3], 3205627904);
     }
 
     #[test]
     fn test_packed_opsel_000_op_000() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[1] = 1;
-        cpu.vec_reg[2] = 2;
-        cpu.vec_reg[3] = 3;
-        r(&vec![0xCC090004, 0x040E0501, 0xBFB00000, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[4], 0b1010000000000000101);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[1] = 1;
+        thread.vec_reg[2] = 2;
+        thread.vec_reg[3] = 3;
+        r(
+            &vec![0xCC090004, 0x040E0501, 0xBFB00000, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(thread.vec_reg[4], 0b1010000000000000101);
     }
 
     #[test]
     fn test_packed_opsel_001_op_100() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[1] = 1;
-        cpu.vec_reg[2] = 2;
-        cpu.vec_reg[3] = 3;
-        r(&vec![0xCC092004, 0x0C0E0501, 0xBFB00000, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[4], 0b110000000000000010);
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[1] = 1;
+        thread.vec_reg[2] = 2;
+        thread.vec_reg[3] = 3;
+        r(
+            &vec![0xCC092004, 0x0C0E0501, 0xBFB00000, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(thread.vec_reg[4], 0b110000000000000010);
     }
 
     #[test]
     fn test_packed_inline_const_int() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[1] = 1;
-        cpu.vec_reg[2] = 2;
-        cpu.vec_reg[3] = 3;
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[1] = 1;
+        thread.vec_reg[2] = 2;
+        thread.vec_reg[3] = 3;
 
-        r(&vec![0xCC090004, 0x020E0501, 0xBFB00000, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[4], 0b1010000000000000101);
+        r(
+            &vec![0xCC090004, 0x020E0501, 0xBFB00000, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(thread.vec_reg[4], 0b1010000000000000101);
 
-        r(&vec![0xCC090804, 0x0A0E0501, 0xBFB00000, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[4], 0b110000000000000011);
+        r(
+            &vec![0xCC090804, 0x0A0E0501, 0xBFB00000, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(thread.vec_reg[4], 0b110000000000000011);
 
-        r(&vec![0xCC096004, 0x020E0501, 0xBFB00000, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[4], 0b100000000000000010);
+        r(
+            &vec![0xCC096004, 0x020E0501, 0xBFB00000, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(thread.vec_reg[4], 0b100000000000000010);
 
-        r(&vec![0xCC090004, 0x03FE0501, 0x00000080, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[4], 8519810);
+        r(
+            &vec![0xCC090004, 0x03FE0501, 0x00000080, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(thread.vec_reg[4], 8519810);
     }
 
     #[test]
     fn test_pk_fma_f16_inline_const() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[2] = 0x393a35f6;
-        cpu.vec_reg[3] = 0x2800;
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[2] = 0x393a35f6;
+        thread.vec_reg[3] = 0x2800;
 
-        r(&vec![0xCC0E0004, 0x03FE0702, 0x0000A400, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[4], 2618596372);
+        r(
+            &vec![0xCC0E0004, 0x03FE0702, 0x0000A400, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(thread.vec_reg[4], 2618596372);
 
-        r(&vec![0xCC0E0004, 0x0BFE0702, 0x0000A400, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[4], 485006356);
+        r(
+            &vec![0xCC0E0004, 0x0BFE0702, 0x0000A400, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(thread.vec_reg[4], 485006356);
 
-        r(&vec![0xCC0E0004, 0x1BFE0702, 0x0000A400, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[4], 2751503380);
+        r(
+            &vec![0xCC0E0004, 0x1BFE0702, 0x0000A400, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(thread.vec_reg[4], 2751503380);
 
-        r(&vec![0xCC0E0804, 0x03FE0702, 0x0000A400, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[4], 2618563816);
+        r(
+            &vec![0xCC0E0804, 0x03FE0702, 0x0000A400, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(thread.vec_reg[4], 2618563816);
 
-        r(&vec![0xCC0E1804, 0x03FE0702, 0x0000A400, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[4], 2618598400);
+        r(
+            &vec![0xCC0E1804, 0x03FE0702, 0x0000A400, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(thread.vec_reg[4], 2618598400);
     }
 
     #[test]
     fn test_v_fma_mixhilo_f16() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[11] = 1065353216;
-        cpu.vec_reg[7] = 3047825943;
-        cpu.vec_reg[16] = 3047825943;
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[11] = 1065353216;
+        thread.vec_reg[7] = 3047825943;
+        thread.vec_reg[16] = 3047825943;
 
-        cpu.vec_reg[14] = 0b10101010101010101111111111111111;
-        r(&vec![0xCC21000E, 0x04420F0B, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[14], 0b10101010101010101000000000101011);
+        thread.vec_reg[14] = 0b10101010101010101111111111111111;
+        r(&vec![0xCC21000E, 0x04420F0B, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[14], 0b10101010101010101000000000101011);
 
-        cpu.vec_reg[14] = 0b10101010101010101111111111111111;
-        r(&vec![0xCC22000E, 0x04420F0B, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[14], 0b10000000001010111111111111111111);
+        thread.vec_reg[14] = 0b10101010101010101111111111111111;
+        r(&vec![0xCC22000E, 0x04420F0B, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[14], 0b10000000001010111111111111111111);
     }
 
     #[test]
     fn test_v_pk_lshlrev_b16() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[3] = 0b1010101011101101;
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[3] = 0b1010101011101101;
 
-        r(&vec![0xCC044004, 0x0002068E, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[4], 0b1000000000000000100000000000000);
+        r(&vec![0xCC044004, 0x0002068E, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[4], 0b1000000000000000100000000000000);
 
-        r(&vec![0xCC044004, 0x1002068E, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[4], 0b100000000000000);
+        r(&vec![0xCC044004, 0x1002068E, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[4], 0b100000000000000);
 
-        r(&vec![0xCC044004, 0x100206FF, 0x00010002, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[4], 0b1010101110110100);
-        r(&vec![0xCC044004, 0x100206FF, 0x05012002, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[4], 0b1010101110110100);
+        r(
+            &vec![0xCC044004, 0x100206FF, 0x00010002, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(thread.vec_reg[4], 0b1010101110110100);
+        r(
+            &vec![0xCC044004, 0x100206FF, 0x05012002, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(thread.vec_reg[4], 0b1010101110110100);
 
-        r(&vec![0xCC044004, 0x100206FF, 0x0503E00F, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[4], 0b1000000000000000);
-        r(&vec![0xCC044004, 0x100206FF, 0x0503E007, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[4], 0b111011010000000);
-        r(&vec![0xCC044004, 0x100206FF, 0x0503E01F, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[4], 0b1000000000000000);
+        r(
+            &vec![0xCC044004, 0x100206FF, 0x0503E00F, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(thread.vec_reg[4], 0b1000000000000000);
+        r(
+            &vec![0xCC044004, 0x100206FF, 0x0503E007, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(thread.vec_reg[4], 0b111011010000000);
+        r(
+            &vec![0xCC044004, 0x100206FF, 0x0503E01F, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(thread.vec_reg[4], 0b1000000000000000);
     }
 
     #[test]
     fn test_pk_fma_with_neg() {
-        let mut cpu = _helper_test_cpu();
+        let mut thread = _helper_test_thread();
         let a1 = f16::from_f32(1.0);
         let b1 = f16::from_f32(2.0);
         let c1 = f16::from_f32(3.0);
@@ -2929,41 +2998,41 @@ mod test_vopp {
         let b2 = f16::from_f32(5.0);
         let c2 = f16::from_f32(6.0);
 
-        cpu.vec_reg[0] = (a1.to_bits() as u32) << 16 | (a2.to_bits() as u32);
-        cpu.vec_reg[9] = (b1.to_bits() as u32) << 16 | (b2.to_bits() as u32);
-        cpu.vec_reg[10] = (c1.to_bits() as u32) << 16 | (c2.to_bits() as u32);
+        thread.vec_reg[0] = (a1.to_bits() as u32) << 16 | (a2.to_bits() as u32);
+        thread.vec_reg[9] = (b1.to_bits() as u32) << 16 | (b2.to_bits() as u32);
+        thread.vec_reg[10] = (c1.to_bits() as u32) << 16 | (c2.to_bits() as u32);
 
-        r(&vec![0xCC0E3805, 0x042A1300, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[5], 1317029120);
+        r(&vec![0xCC0E3805, 0x042A1300, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[5], 1317029120);
 
-        r(&vec![0xCC0E3805, 0x242A1300, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[5], 1317026816);
+        r(&vec![0xCC0E3805, 0x242A1300, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[5], 1317026816);
 
-        r(&vec![0xCC0E3B05, 0x042A1300, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[5], 1317029120);
+        r(&vec![0xCC0E3B05, 0x042A1300, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[5], 1317029120);
 
-        r(&vec![0xCC0E3905, 0x042A1300, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[5], 3405792512);
+        r(&vec![0xCC0E3905, 0x042A1300, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[5], 3405792512);
     }
 
     #[test]
     fn test_pk_add_f16_with_float_const() {
-        let mut cpu = _helper_test_cpu();
+        let mut thread = _helper_test_thread();
         let a1 = f16::from_f32(5.0);
         let a2 = f16::from_f32(10.0);
 
-        cpu.vec_reg[1] = (a1.to_bits() as u32) << 16 | (a2.to_bits() as u32);
-        r(&vec![0xCC0F4002, 0x0001E501, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[2], 1233144192);
+        thread.vec_reg[1] = (a1.to_bits() as u32) << 16 | (a2.to_bits() as u32);
+        r(&vec![0xCC0F4002, 0x0001E501, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[2], 1233144192);
 
-        r(&vec![0xCC0F5002, 0x0001E501, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[2], 1233144064);
+        r(&vec![0xCC0F5002, 0x0001E501, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[2], 1233144064);
 
-        r(&vec![0xCC0F5002, 0x1001E501, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[2], 1224755456);
+        r(&vec![0xCC0F5002, 0x1001E501, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[2], 1224755456);
 
-        r(&vec![0xCC0F5802, 0x1801E501, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[2], 1157645568);
+        r(&vec![0xCC0F5802, 0x1801E501, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[2], 1157645568);
     }
 }
 
@@ -2974,42 +3043,42 @@ mod test_flat {
 
     #[test]
     fn test_scratch_swap_values() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[13] = 42;
-        cpu.vec_reg[14] = 10;
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[13] = 42;
+        thread.vec_reg[14] = 10;
         r(
             &vec![
                 0xDC690096, 0x007C0D00, 0xDC69001E, 0x007C0E00, 0xDC51001E, 0x0D7C0000, 0xDC510096,
                 0x0E7C0000, END_PRG,
             ],
-            &mut cpu,
+            &mut thread,
         );
-        assert_eq!(cpu.vec_reg[13], 10);
-        assert_eq!(cpu.vec_reg[14], 42);
+        assert_eq!(thread.vec_reg[13], 10);
+        assert_eq!(thread.vec_reg[14], 42);
     }
 
     #[test]
     fn test_scratch_load_dword_offset() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[14] = 14;
-        cpu.vec_reg[15] = 23;
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[14] = 14;
+        thread.vec_reg[15] = 23;
         r(
             &vec![0xDC6D000A, 0x007C0E00, 0xDC51000A, 0x0E7C0000, END_PRG],
-            &mut cpu,
+            &mut thread,
         );
-        assert_eq!(cpu.vec_reg[14], 14);
+        assert_eq!(thread.vec_reg[14], 14);
 
         r(
             &vec![0xDC6D000A, 0x007C0E00, 0xDC51000E, 0x0E7C0000, END_PRG],
-            &mut cpu,
+            &mut thread,
         );
-        assert_eq!(cpu.vec_reg[14], 23);
+        assert_eq!(thread.vec_reg[14], 23);
     }
 
     #[test]
     fn test_global_load_d16_hi_b16() {
-        let mut cpu = _helper_test_cpu();
-        cpu.vec_reg[13] = 0b10101011101101001111111111111111;
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[13] = 0b10101011101101001111111111111111;
         unsafe {
             let layout = Layout::new::<u16>();
             let ptr = alloc(layout);
@@ -3017,19 +3086,19 @@ mod test_flat {
                 handle_alloc_error(layout)
             }
             *(ptr as *mut u16) = 42;
-            cpu.vec_reg.write64(10, ptr as u64);
+            thread.vec_reg.write64(10, ptr as u64);
         }
-        r(&vec![0xDC8E0000, 0x0D7C000A, END_PRG], &mut cpu);
-        assert_eq!(cpu.vec_reg[13], 0b00000000001010101111111111111111);
+        r(&vec![0xDC8E0000, 0x0D7C000A, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[13], 0b00000000001010101111111111111111);
     }
 }
 
 #[allow(dead_code)]
-fn r(prg: &Vec<u32>, cpu: &mut CPU) {
+fn r(prg: &Vec<u32>, thread: &mut Thread) {
     let mut pc = 0;
     let instructions = prg.to_vec();
-    cpu.pc_offset = 0;
-    cpu.exec_mask.value = u32::MAX;
+    thread.pc_offset = 0;
+    thread.exec.value = u32::MAX;
 
     loop {
         if instructions[pc] == crate::utils::END_PRG {
@@ -3039,18 +3108,18 @@ fn r(prg: &Vec<u32>, cpu: &mut CPU) {
             pc += 1;
             continue;
         }
-        cpu.pc_offset = 0;
-        cpu.vec_mutation = VecMutation::new();
-        cpu.stream = instructions[pc..instructions.len()].to_vec();
-        cpu.interpret();
-        if let Some(val) = cpu.vec_mutation.vcc {
-            cpu.vcc.mut_lane(0, val);
+        thread.pc_offset = 0;
+        thread.vec_mutation = VecMutation::new();
+        thread.stream = instructions[pc..instructions.len()].to_vec();
+        thread.interpret();
+        if let Some(val) = thread.vec_mutation.vcc {
+            thread.vcc.mut_lane(0, val);
         }
-        if let Some(val) = cpu.vec_mutation.exec {
-            cpu.exec_mask.mut_lane(0, val);
+        if let Some(val) = thread.vec_mutation.exec {
+            thread.exec.mut_lane(0, val);
         }
-        if let Some(val) = cpu.vec_mutation.sgpr {
-            let mut sgpr_muts = (0..cpu.vcc.default_lane.unwrap())
+        if let Some(val) = thread.vec_mutation.sgpr {
+            let mut sgpr_muts = (0..thread.vcc.default_lane.unwrap())
                 .into_iter()
                 .map(|_| VecMutation {
                     sgpr: Some((val.0, false)),
@@ -3058,15 +3127,15 @@ fn r(prg: &Vec<u32>, cpu: &mut CPU) {
                     exec: None,
                 })
                 .collect::<Vec<_>>();
-            sgpr_muts.push(cpu.vec_mutation);
+            sgpr_muts.push(thread.vec_mutation);
             let (idx, val) = crate::work_group::get_sgpr_carry_out(sgpr_muts);
-            cpu.scalar_reg[idx] = val.value;
+            thread.scalar_reg[idx] = val.value;
         }
-        cpu.simm = None;
-        pc = ((pc as isize) + 1 + (cpu.pc_offset as isize)) as usize;
+        thread.simm = None;
+        pc = ((pc as isize) + 1 + (thread.pc_offset as isize)) as usize;
     }
 }
-fn _helper_test_cpu() -> CPU<'static> {
+fn _helper_test_thread() -> Thread<'static> {
     let static_lds: &'static mut VecDataStore = Box::leak(Box::new(VecDataStore::new()));
     let static_sgpr: &'static mut Vec<u32> = Box::leak(Box::new(vec![0; 256]));
     let static_vgpr: &'static mut VGPR = Box::leak(Box::new(VGPR::new()));
@@ -3075,12 +3144,12 @@ fn _helper_test_cpu() -> CPU<'static> {
     let static_vcc: &'static mut WaveValue = Box::leak(Box::new(WaveValue::new(0)));
     let static_sds: &'static mut VecDataStore = Box::leak(Box::new(VecDataStore::new()));
 
-    let cpu = CPU {
+    let thread = Thread {
         scalar_reg: static_sgpr,
         vec_reg: static_vgpr,
         scc: static_scc,
         vcc: static_vcc,
-        exec_mask: static_exec,
+        exec: static_exec,
         lds: static_lds,
         sds: static_sds,
         simm: None,
@@ -3089,10 +3158,10 @@ fn _helper_test_cpu() -> CPU<'static> {
         vec_mutation: VecMutation::new(),
         scalar: false,
     };
-    cpu.vec_reg.default_lane = Some(0);
-    cpu.vcc.default_lane = Some(0);
-    cpu.exec_mask.default_lane = Some(0);
-    return cpu;
+    thread.vec_reg.default_lane = Some(0);
+    thread.vcc.default_lane = Some(0);
+    thread.exec.default_lane = Some(0);
+    return thread;
 }
 #[allow(dead_code)]
 const END_PRG: u32 = 0xbfb00000;
