@@ -75,6 +75,22 @@ impl Value for u32 {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct VecMutation {
+    pub sgpr: Option<(usize, bool)>,
+    pub vcc: Option<bool>,
+    pub exec: Option<bool>,
+}
+impl VecMutation {
+    pub fn new() -> Self {
+        VecMutation {
+            sgpr: None,
+            vcc: None,
+            exec: None,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct WaveValue {
     pub value: u32,
@@ -90,11 +106,11 @@ impl WaveValue {
     pub fn read(&self) -> bool {
         (self.value >> self.default_lane.unwrap()) & 1 == 1
     }
-    pub fn mut_lane(&mut self, value: bool) {
+    pub fn mut_lane(&mut self, lane_id: usize, value: bool) {
         if value {
-            self.value |= 1 << self.default_lane.unwrap();
+            self.value |= 1 << lane_id;
         } else {
-            self.value &= !(1 << self.default_lane.unwrap());
+            self.value &= !(1 << lane_id);
         }
     }
 }

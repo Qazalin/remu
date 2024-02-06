@@ -1,7 +1,7 @@
 use crate::alu_modifiers::VOPModifier;
 use crate::dtype::IEEEClass;
 use crate::memory::VecDataStore;
-use crate::state::{Register, Value, WaveValue, VGPR};
+use crate::state::{Register, Value, VecMutation, WaveValue, VGPR};
 use crate::todo_instr;
 use crate::utils::{as_signed, f16_hi, f16_lo, nth, Colorize, DebugLevel, DEBUG};
 use half::f16;
@@ -25,6 +25,7 @@ pub struct CPU<'a> {
     pub pc: u64,
     pub prg: Vec<u32>,
     pub simm: Option<u32>,
+    pub vec_mutation: VecMutation,
 }
 
 impl<'a> CPU<'a> {
@@ -744,8 +745,8 @@ impl<'a> CPU<'a> {
             };
 
             match op >= 128 {
-                true => self.exec.mut_lane(ret),
-                false => self.vcc.mut_lane(ret),
+                true => self.vec_mutation.vcc = Some(ret),
+                false => self.vec_mutation.vcc = Some(ret),
             };
         }
         // vop2
@@ -828,7 +829,7 @@ impl<'a> CPU<'a> {
                         }
                         32 => {
                             let temp = s0 as u64 + s1 as u64 + self.vcc.read() as u64;
-                            self.vcc.mut_lane(temp >= 0x100000000);
+                            self.vec_mutation.vcc = Some(temp >= 0x100000000);
                             temp as u32
                         }
                         33 | 34 => {
@@ -837,8 +838,8 @@ impl<'a> CPU<'a> {
                                 34 => s1 - s0 - self.vcc.read() as u32,
                                 _ => panic!(),
                             };
-                            self.vcc
-                                .mut_lane((s1 as u64 + self.vcc.read() as u64) > s0 as u64);
+                            self.vec_mutation.vcc =
+                                Some((s1 as u64 + self.vcc.read() as u64) > s0 as u64);
                             temp
                         }
                         11 => s0 * s1,
@@ -926,14 +927,9 @@ impl<'a> CPU<'a> {
                     };
 
                     match sdst {
-                        106 => self.vcc.mut_lane(vcc),
+                        106 => self.vec_mutation.vcc = Some(vcc),
                         124 => {}
-                        _ => {
-                            let mut wave_value = WaveValue::new(0);
-                            wave_value.default_lane = self.vcc.default_lane;
-                            wave_value.mut_lane(vcc);
-                            self.scalar_reg[sdst] = wave_value.value;
-                        }
+                        _ => self.vec_mutation.sgpr = Some((sdst, vcc)),
                     }
                 }
                 _ => {
@@ -1014,12 +1010,12 @@ impl<'a> CPU<'a> {
                                     self.cmpi(s0, s1, op - 88 - dest_offset)
                                 }
                                 _ => todo_instr!(instruction),
-                            } as u32;
+                            };
 
                             match vdst {
-                                0..=SGPR_COUNT => self.scalar_reg[vdst] = ret,
-                                106 => self.vcc.mut_lane(ret != 0),
-                                126 => self.exec.mut_lane(ret != 0),
+                                0..=SGPR_COUNT => self.vec_mutation.sgpr = Some((vdst, ret)),
+                                106 => self.vec_mutation.vcc = Some(ret),
+                                126 => self.vec_mutation.exec = Some(ret),
                                 _ => todo_instr!(instruction),
                             }
                         }
@@ -1261,11 +1257,10 @@ impl<'a> CPU<'a> {
                     (0..4).for_each(|i| self.vec_reg[vdst + i] = self.lds.read(addr + 4 * i));
                 }
                 55 => {
-
                     let addr0 = (self.vec_reg[addr as usize] as u64 + offset0 * 4) as usize;
                     let addr1 = (self.vec_reg[addr as usize] as u64 + offset1 * 4) as usize;
-                    self.vec_reg[vdst] = self.lds.read(addr0); 
-                    self.vec_reg[vdst + 1] = self.lds.read(addr1); 
+                    self.vec_reg[vdst] = self.lds.read(addr0);
+                    self.vec_reg[vdst + 1] = self.lds.read(addr1);
                 }
                 // store
                 13 | 223 => {
@@ -2191,6 +2186,7 @@ mod test_vopc {
     #[test]
     fn test_v_cmpx_nlt_f32() {
         let mut cpu = _helper_test_cpu();
+        // cpu.exec.value = 0; TODO exec should be reset once the exec skipping rewrite is done
         cpu.vec_reg[0] = f32::to_bits(0.9);
         cpu.vec_reg[3] = f32::to_bits(0.4);
         r(&vec![0x7D3C0700, END_PRG], &mut cpu);
@@ -2972,6 +2968,7 @@ fn r(prg: &Vec<u32>, cpu: &mut CPU) {
     cpu.pc = 0;
     cpu.prg = prg.to_vec();
     loop {
+        cpu.vec_mutation = VecMutation::new();
         let instruction = prg[cpu.pc as usize];
         cpu.pc += 1;
 
@@ -2983,7 +2980,26 @@ fn r(prg: &Vec<u32>, cpu: &mut CPU) {
         }
 
         cpu.exec(instruction);
-        cpu.simm = None
+        if let Some(val) = cpu.vec_mutation.vcc {
+            cpu.vcc.mut_lane(0, val);
+        }
+        if let Some(val) = cpu.vec_mutation.exec {
+            cpu.exec.mut_lane(0, val);
+        }
+        if let Some(val) = cpu.vec_mutation.sgpr {
+            let mut sgpr_muts = (0..cpu.vcc.default_lane.unwrap())
+                .into_iter()
+                .map(|_| VecMutation {
+                    sgpr: Some((val.0, false)),
+                    vcc: None,
+                    exec: None,
+                })
+                .collect::<Vec<_>>();
+            sgpr_muts.push(cpu.vec_mutation);
+            let (idx, val) = crate::work_group::get_sgpr_carry_out(sgpr_muts);
+            cpu.scalar_reg[idx] = val.value;
+        }
+        cpu.simm = None;
     }
 }
 fn _helper_test_cpu() -> CPU<'static> {
@@ -3006,6 +3022,7 @@ fn _helper_test_cpu() -> CPU<'static> {
         simm: None,
         pc: 0,
         prg: vec![],
+        vec_mutation: VecMutation::new(),
     };
     cpu.vec_reg.default_lane = Some(0);
     cpu.vcc.default_lane = Some(0);

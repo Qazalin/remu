@@ -1,6 +1,6 @@
 use crate::cpu::CPU;
 use crate::memory::VecDataStore;
-use crate::state::{Register, WaveValue, VGPR};
+use crate::state::{Register, VecMutation, WaveValue, VGPR};
 use std::collections::HashMap;
 
 pub struct WorkGroup<'a> {
@@ -110,6 +110,7 @@ impl<'a> WorkGroup<'a> {
                 pc: 0,
                 prg: instructions.to_vec(),
                 simm: None,
+                vec_mutation: VecMutation::new(),
             };
 
             loop {
@@ -124,11 +125,51 @@ impl<'a> WorkGroup<'a> {
                 }
 
                 cpu.exec(instruction);
-                cpu.simm = None
+                if let Some(val) = cpu.vec_mutation.vcc {
+                    cpu.vcc.mut_lane(0, val);
+                }
+                if let Some(val) = cpu.vec_mutation.exec {
+                    cpu.exec.mut_lane(0, val);
+                }
+                if let Some(_) = cpu.vec_mutation.sgpr {
+                    let (idx, val) = get_sgpr_carry_out(vec![cpu.vec_mutation]);
+                    cpu.scalar_reg[idx] = val.value;
+                }
+
+                cpu.simm = None;
+                cpu.vec_mutation = VecMutation::new();
             }
 
             self.thread_state
                 .insert([*x, *y, *z], (scalar_reg, vec_reg));
         }
+    }
+}
+
+pub fn get_sgpr_carry_out(lane_mutations: Vec<VecMutation>) -> (usize, WaveValue) {
+    let mut carry_out = WaveValue::new(0);
+    lane_mutations.iter().enumerate().for_each(|(lane_id, m)| {
+        carry_out.mut_lane(lane_id, m.sgpr.unwrap().1);
+    });
+    (lane_mutations[0].sgpr.unwrap().0, carry_out)
+}
+
+#[cfg(test)]
+mod test_workgroup {
+    use super::*;
+
+    #[test]
+    fn test_get_sgpr_carry_out() {
+        let results = [false, true, false, false, true]
+            .iter()
+            .map(|x| VecMutation {
+                sgpr: Some((13, *x)),
+                vcc: None,
+                exec: None,
+            })
+            .collect::<Vec<_>>();
+        let sgpr = get_sgpr_carry_out(results);
+        assert_eq!(sgpr.0, 13);
+        assert_eq!(sgpr.1.value, 0b10010);
     }
 }
