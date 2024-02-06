@@ -168,7 +168,8 @@ impl<'a> Colorize for &'a str {
     fn color(self, color: &str) -> String {
         let ansi_code = match color {
             "blue" => format!("\x1b[{};2;112;184;255m", 38),
-            _ => format!("\x1b[{};2;255;255;255m", 38), // default white
+            "gray" => format!("\x1b[{};2;169;169;169m", 38),
+            _ => format!("\x1b[{};2;255;255;255m", 38),
         };
         format!("{}{}{}", ansi_code, self, "\x1b[0m")
     }

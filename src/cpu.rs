@@ -17,7 +17,7 @@ pub struct CPU<'a> {
 
     pub vec_reg: &'a mut VGPR,
     pub vcc: &'a mut WaveValue,
-    pub exec: &'a mut WaveValue,
+    pub exec_mask: &'a mut WaveValue,
 
     pub lds: &'a mut VecDataStore,
     pub sds: &'a mut VecDataStore,
@@ -29,16 +29,7 @@ pub struct CPU<'a> {
 }
 
 impl<'a> CPU<'a> {
-    pub fn exec(&mut self, instruction: u32) {
-        if (instruction >> 25 == 0b0111111
-            || instruction >> 26 == 0b110010
-            || instruction >> 25 == 0b0111110
-            || instruction >> 31 == 0b0
-            || instruction >> 26 == 0b110101)
-            && !self.exec.read()
-        {
-            return;
-        }
+    pub fn interpret(&mut self, instruction: u32) {
         // smem
         if instruction >> 26 == 0b111101 {
             let instr = self.u64_instr();
@@ -108,14 +99,14 @@ impl<'a> CPU<'a> {
                             ret
                         }
                         32 | 34 | 48 => {
-                            let saveexec = self.exec.read() as u32;
-                            self.exec.value = match op {
+                            let saveexec = self.exec_mask.read() as u32;
+                            self.exec_mask.value = match op {
                                 32 => s0 & saveexec,
                                 34 => s0 | saveexec,
                                 48 => s0 & !saveexec,
                                 _ => panic!(),
                             };
-                            *self.scc = self.exec.read() as u32;
+                            *self.scc = self.exec_mask.read() as u32;
                             saveexec
                         }
                         _ => todo_instr!(instruction),
@@ -184,8 +175,8 @@ impl<'a> CPU<'a> {
                         34 => *self.scc == 1,
                         35 => self.vcc.value == 0,
                         36 => self.vcc.value != 0,
-                        37 => self.exec.value == 0,
-                        38 => self.exec.value != 0,
+                        37 => self.exec_mask.value == 0,
+                        38 => self.exec_mask.value != 0,
                         _ => todo_instr!(instruction),
                     };
                     if should_jump {
@@ -474,7 +465,10 @@ impl<'a> CPU<'a> {
                     let (src_hi, src_lo) = (src(opsel_hi), src(opsel));
                     let ret = ((fxn(src_hi[0], src_hi[1], src_hi[2]) as u32) << 16)
                         | (fxn(src_lo[0], src_lo[1], src_lo[2]) as u32);
-                    self.vec_reg[vdst] = ret;
+
+                    if self.exec() {
+                        self.vec_reg[vdst] = ret;
+                    }
                 }
                 32..=34 => {
                     let src: Vec<f32> = src_parts
@@ -502,7 +496,9 @@ impl<'a> CPU<'a> {
                         }
                         _ => todo_instr!(instruction),
                     };
-                    self.vec_reg[vdst] = ret;
+                    if self.exec() {
+                        self.vec_reg[vdst] = ret;
+                    }
                 }
                 _ => todo_instr!(instruction),
             }
@@ -530,15 +526,20 @@ impl<'a> CPU<'a> {
                                         26 => f64::floor(s0),
                                         _ => panic!(),
                                     };
-                                    self.vec_reg.write64(vdst, ret.to_bits())
+                                    if self.exec() {
+                                        self.vec_reg.write64(vdst, ret.to_bits())
+                                    }
                                 }
                                 _ => {
-                                    self.vec_reg[vdst] = match op {
+                                    let ret = match op {
                                         3 => s0 as i32 as u32,
                                         15 => (s0 as f32).to_bits(),
                                         21 => s0 as u32,
                                         _ => panic!(),
                                     };
+                                    if self.exec() {
+                                        self.vec_reg[vdst] = ret;
+                                    }
                                 }
                             }
                         }
@@ -553,7 +554,9 @@ impl<'a> CPU<'a> {
                         88 => f16::exp2(s0),
                         _ => todo_instr!(instruction),
                     };
-                    self.vec_reg[vdst] = ret.to_bits() as u32;
+                    if self.exec() {
+                        self.vec_reg[vdst] = ret.to_bits() as u32;
+                    }
                 }
                 _ => {
                     let s0: u32 = self.val(s0);
@@ -565,14 +568,16 @@ impl<'a> CPU<'a> {
                                 16 => (f32::from_bits(s0) as f64).to_bits(),
                                 _ => panic!(),
                             };
-                            self.vec_reg.write64(vdst, ret)
+                            if self.exec() {
+                                self.vec_reg.write64(vdst, ret)
+                            }
                         }
                         2 => {
-                            assert!(self.exec.read());
+                            assert!(self.exec_mask.read());
                             self.scalar_reg[vdst] = s0;
                         }
                         _ => {
-                            self.vec_reg[vdst] = match op {
+                            let ret = match op {
                                 1 => s0,
                                 5 => (s0 as i32 as f32).to_bits(),
                                 6 => (s0 as f32).to_bits(),
@@ -613,6 +618,9 @@ impl<'a> CPU<'a> {
                                 82 => f32::from(f16::from_bits(s0 as u16)) as i16 as u32,
                                 83 => f32::from(f16::from_bits(s0 as u16)) as u32,
                                 _ => todo_instr!(instruction),
+                            };
+                            if self.exec() {
+                                self.vec_reg[vdst] = ret;
                             }
                         }
                     }
@@ -653,7 +661,7 @@ impl<'a> CPU<'a> {
             ([(opx, srcx0, vsrcx1, vdstx), (opy, srcy0, vsrcy1, vdsty)])
                 .iter()
                 .for_each(|(op, s0, s1, dst)| {
-                    self.vec_reg[*dst] = match *op {
+                    let ret = match *op {
                         0 | 1 | 2 | 3 | 4 | 5 | 6 | 10 => {
                             let s0 = f32::from_bits(*s0 as u32);
                             let s1 = f32::from_bits(*s1 as u32);
@@ -681,6 +689,9 @@ impl<'a> CPU<'a> {
                             18 => s0 & s1,
                             _ => todo_instr!(instruction),
                         },
+                    };
+                    if self.exec() {
+                        self.vec_reg[*dst] = ret;
                     }
                 });
         }
@@ -771,11 +782,13 @@ impl<'a> CPU<'a> {
                         56 => f16::mul_add(s0, s1, f16::from_bits(self.simm() as u16)),
                         _ => todo_instr!(instruction),
                     };
-                    self.vec_reg[vdst] = ret.to_bits() as u32;
+                    if self.exec() {
+                        self.vec_reg[vdst] = ret.to_bits() as u32;
+                    }
                 }
                 _ => {
                     let s0 = self.val(s0);
-                    self.vec_reg[vdst] = match op {
+                    let ret = match op {
                         1 => match self.vcc.read() {
                             true => s1,
                             false => s0,
@@ -853,6 +866,9 @@ impl<'a> CPU<'a> {
                         38 => s0 - s1,
                         39 => s1 - s0,
                         _ => todo_instr!(instruction),
+                    };
+                    if self.exec() {
+                        self.vec_reg[vdst] = ret;
                     }
                 }
             };
@@ -1029,7 +1045,9 @@ impl<'a> CPU<'a> {
                                 830 => ((s1 as i64) >> shift) as u64,
                                 _ => todo_instr!(instruction),
                             };
-                            self.vec_reg.write64(vdst, ret)
+                            if self.exec() {
+                                self.vec_reg.write64(vdst, ret)
+                            }
                         }
                         808 | 807 | 811 | 532 => {
                             let (s0, s1, s2): (u64, u64, u64) =
@@ -1053,37 +1071,48 @@ impl<'a> CPU<'a> {
                                 }
                                 _ => panic!(),
                             };
-                            self.vec_reg.write64(vdst, ret)
+                            if self.exec() {
+                                self.vec_reg.write64(vdst, ret)
+                            }
                         }
                         306 | 596 | 584 => {
                             let (s0, s1, s2) = (self.val(src.0), self.val(src.1), self.val(src.2));
                             let s0 = f16::from_bits(s0).negate(0, neg).absolute(0, abs);
                             let s1 = f16::from_bits(s1).negate(1, neg).absolute(1, abs);
                             let s2 = f16::from_bits(s2).negate(1, neg).absolute(1, abs);
-                            self.vec_reg[vdst] = match op {
+                            let ret = match op {
                                 306 => s0 + s1,
                                 584 => f16::mul_add(s0, s1, s2),
                                 596 => s2 / s1,
                                 _ => panic!(),
                             }
-                            .to_bits() as u32
+                            .to_bits();
+                            if self.exec() {
+                                self.vec_reg[vdst] = ret as u32;
+                            }
                         }
                         395 => {
                             let s0 = f16::from_bits(self.val(src.0))
                                 .negate(0, neg)
                                 .absolute(0, abs);
-                            self.vec_reg[vdst] = f32::from(s0).to_bits();
+                            if self.exec() {
+                                self.vec_reg[vdst] = f32::from(s0).to_bits();
+                            }
                         }
                         785 => {
                             let (s0, s1) = (self.val(src.0), self.val(src.1));
-                            self.vec_reg[vdst] = (f16::from_bits(s1).to_bits() as u32) << 16
-                                | f16::from_bits(s0).to_bits() as u32
+                            if self.exec() {
+                                self.vec_reg[vdst] = (f16::from_bits(s1).to_bits() as u32) << 16
+                                    | f16::from_bits(s0).to_bits() as u32;
+                            }
                         }
                         _ => {
                             let (s0, s1, s2) = (self.val(src.0), self.val(src.1), self.val(src.2));
                             match op {
                                 865 => {
-                                    self.vec_reg.get_lane_mut(s1 as usize)[vdst] = s0;
+                                    if self.exec() {
+                                        self.vec_reg.get_lane_mut(s1 as usize)[vdst] = s0;
+                                    }
                                     return;
                                 }
                                 864 => {
@@ -1093,7 +1122,10 @@ impl<'a> CPU<'a> {
                                     return;
                                 }
                                 826 => {
-                                    self.vec_reg[vdst].mut_lo16(((s1 as i16) >> (s0 & 0xf)) as u16);
+                                    if self.exec() {
+                                        self.vec_reg[vdst]
+                                            .mut_lo16(((s1 as i16) >> (s0 & 0xf)) as u16);
+                                    }
                                     return;
                                 }
                                 577 | 771 | 772 | 773 | 824 | 825 => {
@@ -1107,13 +1139,15 @@ impl<'a> CPU<'a> {
                                         825 => s1 >> s0,
                                         _ => panic!(),
                                     };
-                                    self.vec_reg[vdst].mut_lo16(ret);
+                                    if self.exec() {
+                                        self.vec_reg[vdst].mut_lo16(ret);
+                                    }
                                     return;
                                 }
                                 _ => {}
                             }
 
-                            self.vec_reg[vdst] = match op {
+                            let ret = match op {
                                 257 | 259 | 299 | 260 | 264 | 272 | 531 | 537 | 540 | 551 | 567
                                 | 796 => {
                                     let s0 = f32::from_bits(s0).negate(0, neg).absolute(0, abs);
@@ -1140,6 +1174,7 @@ impl<'a> CPU<'a> {
                                         }
                                         796 => s0 * 2f32.powi(s1.to_bits() as i32),
                                         // cnd_mask isn't a float only ALU but supports neg
+                                        // TODO: This should be a WaveValue
                                         257 => match s2.to_bits() != 0 {
                                             true => s1,
                                             false => s0,
@@ -1228,6 +1263,9 @@ impl<'a> CPU<'a> {
                                         _ => todo_instr!(instruction),
                                     }
                                 }
+                            };
+                            if self.exec() {
+                                self.vec_reg[vdst] = ret;
                             }
                         }
                     };
@@ -1235,6 +1273,9 @@ impl<'a> CPU<'a> {
             }
         } else if instruction >> 26 == 0b110110 {
             let instr = self.u64_instr();
+            if !self.exec() {
+                return;
+            }
             let offset0 = instr & 0xff;
             let offset1 = (instr >> 8) & 0xff;
             let op = (instr >> 18) & 0xff;
@@ -1281,6 +1322,9 @@ impl<'a> CPU<'a> {
         // flat
         else if instruction >> 26 == 0b110111 {
             let instr = self.u64_instr();
+            if !self.exec() {
+                return;
+            }
             let offset = as_signed(instr & 0x1fff, 13);
             let seg = (instr >> 16) & 0x3;
             let op = ((instr >> 18) & 0x7f) as usize;
@@ -1465,7 +1509,7 @@ impl<'a> CPU<'a> {
     fn _common_srcs(&mut self, code: u32) -> u32 {
         match code {
             106 => self.vcc.read() as u32,
-            126 => self.exec.read() as u32,
+            126 => self.exec_mask.read() as u32,
             128 => 0,
             124 => NULL_SRC,
             255 => self.simm(),
@@ -1476,7 +1520,7 @@ impl<'a> CPU<'a> {
         match sdst_bf as usize {
             0..=SGPR_COUNT => self.scalar_reg[sdst_bf as usize] = val,
             106 => self.vcc.value = val,
-            126 => self.exec.value = val,
+            126 => self.exec_mask.value = val,
             _ => todo!("write to sdst {}", sdst_bf),
         }
     }
@@ -1496,6 +1540,18 @@ impl<'a> CPU<'a> {
         let instr = msb << 32 | self.prg[self.pc as usize - 1] as u64;
         self.pc += 1;
         return instr;
+    }
+    fn exec(&self) -> bool {
+        if !self.exec_mask.read() {
+            if *DEBUG >= DebugLevel::INSTRUCTION {
+                println!(
+                    "{}",
+                    self.vcc.default_lane.unwrap().to_string().color("gray")
+                );
+            }
+            return true;
+        }
+        return false;
     }
 }
 
@@ -2186,11 +2242,11 @@ mod test_vopc {
     #[test]
     fn test_v_cmpx_nlt_f32() {
         let mut cpu = _helper_test_cpu();
-        // cpu.exec.value = 0; TODO exec should be reset once the exec skipping rewrite is done
+        // cpu.exec_mask.value = 0; TODO exec should be reset once the exec skipping rewrite is done
         cpu.vec_reg[0] = f32::to_bits(0.9);
         cpu.vec_reg[3] = f32::to_bits(0.4);
         r(&vec![0x7D3C0700, END_PRG], &mut cpu);
-        assert_eq!(cpu.exec.read(), true);
+        assert_eq!(cpu.exec_mask.read(), true);
     }
 
     #[test]
@@ -2979,12 +3035,12 @@ fn r(prg: &Vec<u32>, cpu: &mut CPU) {
             continue;
         }
 
-        cpu.exec(instruction);
+        cpu.interpret(instruction);
         if let Some(val) = cpu.vec_mutation.vcc {
             cpu.vcc.mut_lane(0, val);
         }
         if let Some(val) = cpu.vec_mutation.exec {
-            cpu.exec.mut_lane(0, val);
+            cpu.exec_mask.mut_lane(0, val);
         }
         if let Some(val) = cpu.vec_mutation.sgpr {
             let mut sgpr_muts = (0..cpu.vcc.default_lane.unwrap())
@@ -3016,7 +3072,7 @@ fn _helper_test_cpu() -> CPU<'static> {
         vec_reg: static_vgpr,
         scc: static_scc,
         vcc: static_vcc,
-        exec: static_exec,
+        exec_mask: static_exec,
         lds: static_lds,
         sds: static_sds,
         simm: None,
@@ -3026,7 +3082,7 @@ fn _helper_test_cpu() -> CPU<'static> {
     };
     cpu.vec_reg.default_lane = Some(0);
     cpu.vcc.default_lane = Some(0);
-    cpu.exec.default_lane = Some(0);
+    cpu.exec_mask.default_lane = Some(0);
     return cpu;
 }
 #[allow(dead_code)]

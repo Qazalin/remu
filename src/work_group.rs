@@ -104,7 +104,7 @@ impl<'a> WorkGroup<'a> {
                 scc: &mut scc,
                 vec_reg: &mut vec_reg,
                 vcc: &mut vcc,
-                exec: &mut exec,
+                exec_mask: &mut exec,
                 lds: &mut self.lds,
                 sds: &mut sds,
                 pc: 0,
@@ -124,12 +124,12 @@ impl<'a> WorkGroup<'a> {
                     continue;
                 }
 
-                cpu.exec(instruction);
+                cpu.interpret(instruction);
                 if let Some(val) = cpu.vec_mutation.vcc {
                     cpu.vcc.mut_lane(0, val);
                 }
                 if let Some(val) = cpu.vec_mutation.exec {
-                    cpu.exec.mut_lane(0, val);
+                    cpu.exec_mask.mut_lane(0, val);
                 }
                 if let Some(_) = cpu.vec_mutation.sgpr {
                     let (idx, val) = get_sgpr_carry_out(vec![cpu.vec_mutation]);
