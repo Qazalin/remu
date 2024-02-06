@@ -26,6 +26,7 @@ pub struct CPU<'a> {
     pub stream: Vec<u32>,
     pub simm: Option<u32>,
     pub vec_mutation: VecMutation,
+    pub scalar: bool,
 }
 
 impl<'a> CPU<'a> {
@@ -58,7 +59,8 @@ impl<'a> CPU<'a> {
                     self.scalar_reg[sdata + i] = *((addr + (4 * i as u64)) as *const u32);
                 }),
                 _ => todo_instr!(instruction),
-            }
+            };
+            self.scalar = true;
         }
         // sop1
         else if instruction >> 23 == 0b10_1111101 {
@@ -116,6 +118,7 @@ impl<'a> CPU<'a> {
                     self.write_to_sdst(sdst, ret);
                 }
             };
+            self.scalar = true;
         }
         // sopc
         else if (instruction >> 23) & 0x3ff == 0b101111110 {
@@ -155,6 +158,7 @@ impl<'a> CPU<'a> {
                 }
                 _ => todo_instr!(instruction),
             } as u32;
+            self.scalar = true;
         }
         // sopp
         else if instruction >> 23 == 0b10_1111111 {
@@ -181,7 +185,8 @@ impl<'a> CPU<'a> {
                     }
                 }
                 _ => todo_instr!(instruction),
-            }
+            };
+            self.scalar = true;
         }
         // sopk
         else if instruction >> 28 == 0b1011 {
@@ -234,7 +239,8 @@ impl<'a> CPU<'a> {
                     self.write_to_sdst(sdst as u32, ret);
                 }
                 _ => todo_instr!(instruction),
-            }
+            };
+            self.scalar = true;
         }
         // sop2
         else if instruction >> 30 == 0b10 {
@@ -379,7 +385,8 @@ impl<'a> CPU<'a> {
                         *self.scc = val as u32
                     }
                 }
-            }
+            };
+            self.scalar = true;
         }
         // vopp
         else if instruction >> 24 == 0b11001100 {
@@ -1686,7 +1693,8 @@ mod test_sop1 {
         let mut cpu = _helper_test_cpu();
         cpu.scalar_reg.write64(16, 5236523008);
         r(&vec![0xBE880110, END_PRG], &mut cpu);
-        assert_eq!(cpu.scalar_reg.read64(8), 5236523008)
+        assert_eq!(cpu.scalar_reg.read64(8), 5236523008);
+        assert_eq!(cpu.scalar, true);
     }
 
     #[test]
@@ -3079,6 +3087,7 @@ fn _helper_test_cpu() -> CPU<'static> {
         pc_offset: 0,
         stream: vec![],
         vec_mutation: VecMutation::new(),
+        scalar: false,
     };
     cpu.vec_reg.default_lane = Some(0);
     cpu.vcc.default_lane = Some(0);

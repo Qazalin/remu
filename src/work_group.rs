@@ -111,6 +111,7 @@ impl<'a> WorkGroup<'a> {
                 stream: vec![],
                 simm: None,
                 vec_mutation: VecMutation::new(),
+                scalar: false,
             };
 
             let mut pc = 0;
