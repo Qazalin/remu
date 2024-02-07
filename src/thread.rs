@@ -5,6 +5,7 @@ use crate::state::{Register, Value, VecMutation, WaveValue, VGPR};
 use crate::todo_instr;
 use crate::utils::{as_signed, f16_hi, f16_lo, nth, Colorize, DebugLevel, DEBUG};
 use half::f16;
+use ndarray::Array;
 use num_traits::Float;
 
 pub const SGPR_COUNT: usize = 105;
@@ -503,6 +504,39 @@ impl<'a> Thread<'a> {
                     if self.exec.read() {
                         self.vec_reg[vdst] = ret;
                     }
+                }
+                66 => {
+                    let src = src_fields
+                        .iter()
+                        .map(|src| {
+                            let values = (0..16)
+                                .into_iter()
+                                .map(|lane_id| {
+                                    let lane = self.vec_reg.get_lane(lane_id);
+                                    (*src..=*src + 7)
+                                        .into_iter()
+                                        .map(|x| {
+                                            let val = lane[x - VGPR_COUNT];
+                                            [
+                                                f16::from_bits((val & 0xffff) as u16),
+                                                f16::from_bits(((val >> 16) & 0xffff) as u16),
+                                            ]
+                                        })
+                                        .flatten()
+                                        .collect::<Vec<_>>()
+                                })
+                                .flatten()
+                                .collect::<Vec<_>>();
+                            Array::from_shape_vec((16, 16), values).unwrap()
+                        })
+                        .collect::<Vec<_>>();
+                    let ret = src[0].dot(&src[1].t()) + &src[2];
+                    for (i, val) in ret.iter().cloned().enumerate() {
+                        let register = (i / 32) + vdst;
+                        let lane = i % 32;
+                        self.vec_reg.get_lane_mut(lane)[register].mut_lo16(val.to_bits());
+                    }
+                    self.scalar = true;
                 }
                 _ => todo_instr!(instruction),
             }
