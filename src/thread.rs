@@ -1332,42 +1332,57 @@ impl<'a> Thread<'a> {
             if !self.exec.read() {
                 return;
             }
-            let offset0 = instr & 0xff;
-            let offset1 = (instr >> 8) & 0xff;
             let op = (instr >> 18) & 0xff;
-            let addr = (instr >> 32) & 0xff;
+            assert_eq!((instr >> 17) & 0x1, 0);
+            let addr = ((instr >> 32) & 0xff) as usize;
             let data0 = ((instr >> 40) & 0xff) as usize;
             let data1 = ((instr >> 48) & 0xff) as usize;
             let vdst = ((instr >> 56) & 0xff) as usize;
-
             if *DEBUG >= DebugLevel::INSTRUCTION {
                 println!(
-                    "{} offset0={offset0} offset1={offset1} op={op} addr={addr} data0={data0} data1={data1} vdst={vdst}",
+                    "{} op={op} addr={addr} data0={data0} data1={data1} vdst={vdst}",
                     "LDS".color("blue"),
                 );
             }
+            let lds_base = self.vec_reg[addr];
+            let single_addr = || (lds_base + (instr & 0xffff) as u32) as usize;
+            let double_addr = |adj: u32| {
+                let addr0 = lds_base + (instr & 0xff) as u32 * adj;
+                let addr1 = lds_base + ((instr >> 8) & 0xff) as u32 * adj;
+                (addr0 as usize, addr1 as usize)
+            };
 
             match op {
                 // load
-                255 => {
-                    let addr = (self.vec_reg[addr as usize] as u64 + offset0) as usize;
-                    (0..4).for_each(|i| self.vec_reg[vdst + i] = self.lds.read(addr + 4 * i));
+                54 | 118 | 255 => {
+                    let dwords = match op {
+                        255 => 4,
+                        118 => 2,
+                        _ => 1,
+                    };
+                    (0..dwords).for_each(|i| {
+                        self.vec_reg[vdst + i] = self.lds.read(single_addr() + 4 * i);
+                    });
                 }
                 55 => {
-                    let addr0 = (self.vec_reg[addr as usize] as u64 + offset0 * 4) as usize;
-                    let addr1 = (self.vec_reg[addr as usize] as u64 + offset1 * 4) as usize;
+                    let (addr0, addr1) = double_addr(4);
                     self.vec_reg[vdst] = self.lds.read(addr0);
                     self.vec_reg[vdst + 1] = self.lds.read(addr1);
                 }
                 // store
-                13 | 223 => {
-                    let addr = (self.vec_reg[addr as usize] as u64 + offset0) as usize;
-                    let iters = if op == 223 { 4 } else { 1 };
-                    (0..iters).for_each(|i| self.lds.write(addr + 4 * i, self.vec_reg[data0 + i]))
+                13 | 77 | 223 => {
+                    let dwords = match op {
+                        223 => 4,
+                        77 => 2,
+                        _ => 1,
+                    };
+                    (0..dwords).for_each(|i| {
+                        self.lds
+                            .write(single_addr() + 4 * i, self.vec_reg[data0 + i]);
+                    })
                 }
                 14 => {
-                    let addr0 = (self.vec_reg[addr as usize] as u64 + offset0 * 4) as usize;
-                    let addr1 = (self.vec_reg[addr as usize] as u64 + offset1 * 4) as usize;
+                    let (addr0, addr1) = double_addr(4);
                     self.lds.write(addr0, self.vec_reg[data0]);
                     self.lds.write(addr1, self.vec_reg[data1]);
                 }
@@ -3145,6 +3160,58 @@ mod test_flat {
     }
 }
 
+#[cfg(test)]
+mod test_lds {
+    use super::*;
+    #[test]
+    fn test_ds_load_offset() {
+        let mut thread = _helper_test_thread();
+        thread.lds.write(256, 69);
+        thread.vec_reg[9] = 0;
+        r(&vec![0xD8D80100, 0x01000009, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[1], 69);
+
+        thread.lds.write(800, 69);
+        thread.vec_reg[9] = 0;
+        r(&vec![0xD8D80320, 0x01000009, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[1], 69);
+
+        thread.lds.write(3, 69);
+        thread.vec_reg[9] = 0;
+        r(&vec![0xD8D80003, 0x01000009, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[1], 69);
+    }
+
+    #[test]
+    fn test_ds_load_dwords() {
+        let mut thread = _helper_test_thread();
+        thread.lds.write(0, 100);
+        thread.lds.write(4, 200);
+        thread.vec_reg[9] = 0;
+        r(&vec![0xD9D80000, 0x00000009, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg.read64(0), 858993459300);
+
+        thread.lds.write(0, 1);
+        thread.lds.write(4, 2);
+        thread.lds.write(8, 3);
+        thread.lds.write(12, 4);
+        thread.vec_reg[9] = 0;
+        r(&vec![0xDBFC0000, 0x00000009, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[0], 1);
+        assert_eq!(thread.vec_reg[1], 2);
+        assert_eq!(thread.vec_reg[2], 3);
+        assert_eq!(thread.vec_reg[3], 4);
+    }
+
+    #[test]
+    fn test_ds_store_dwords() {
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[9] = 69;
+        thread.vec_reg[0] = 0;
+        r(&vec![0xD83403E8, 0x00000900, END_PRG], &mut thread);
+        assert_eq!(thread.lds.read(1000), 69);
+    }
+}
 #[allow(dead_code)]
 fn r(prg: &Vec<u32>, thread: &mut Thread) {
     let mut pc = 0;
