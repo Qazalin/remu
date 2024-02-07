@@ -412,11 +412,11 @@ impl<'a> Thread<'a> {
                 }
             };
 
-            let src_fields = [32, 41, 50]
+            let s = [32, 41, 50]
                 .iter()
                 .map(|x| ((instr >> x) & 0x1ff) as usize)
                 .collect::<Vec<_>>();
-            let src_parts = src_fields.iter().map(|x| src(*x)).collect::<Vec<_>>();
+            let src_parts = s.iter().map(|x| src(*x)).collect::<Vec<_>>();
 
             let b = |i: usize| (instr >> i) & 0x1 != 0;
             let neg_hi = ((instr >> 8) & 0x7) as usize;
@@ -505,37 +505,55 @@ impl<'a> Thread<'a> {
                         self.vec_reg[vdst] = ret;
                     }
                 }
-                66 => {
-                    let src = src_fields
-                        .iter()
-                        .map(|src| {
-                            let values = (0..16)
-                                .into_iter()
-                                .map(|lane_id| {
-                                    let lane = self.vec_reg.get_lane(lane_id);
-                                    (*src..=*src + 7)
-                                        .into_iter()
-                                        .map(|x| {
-                                            let val = lane[x - VGPR_COUNT];
-                                            [
-                                                f16::from_bits((val & 0xffff) as u16),
-                                                f16::from_bits(((val >> 16) & 0xffff) as u16),
-                                            ]
-                                        })
-                                        .flatten()
-                                        .collect::<Vec<_>>()
+                64..=69 => {
+                    let f16_matrix = |vsrc: usize| {
+                        let values = (0..16)
+                            .flat_map(|lane_id| {
+                                let lane = self.vec_reg.get_lane(lane_id);
+                                (vsrc..=vsrc + 7).flat_map(move |v| {
+                                    let val = lane[v - VGPR_COUNT];
+                                    [
+                                        f16::from_bits((val & 0xffff) as u16),
+                                        f16::from_bits(((val >> 16) & 0xffff) as u16),
+                                    ]
                                 })
-                                .flatten()
-                                .collect::<Vec<_>>();
-                            Array::from_shape_vec((16, 16), values).unwrap()
-                        })
-                        .collect::<Vec<_>>();
-                    let ret = src[0].dot(&src[1].t()) + &src[2];
-                    for (i, val) in ret.iter().cloned().enumerate() {
-                        let register = (i / 32) + vdst;
-                        let lane = i % 32;
-                        self.vec_reg.get_lane_mut(lane)[register].mut_lo16(val.to_bits());
-                    }
+                            })
+                            .collect::<Vec<_>>();
+                        Array::from_shape_vec((16, 16), values).unwrap()
+                    };
+                    let f32_matrix = |v: usize| {
+                        let values = (0..256)
+                            .into_iter()
+                            .map(|i| {
+                                let val = self.vec_reg.get_lane(i % 32)[(i / 32) + v - VGPR_COUNT];
+                                f32::from_bits(val)
+                            })
+                            .collect::<Vec<_>>();
+                        Array::from_shape_vec((16, 16), values).unwrap()
+                    };
+
+                    match op {
+                        64 => {
+                            let (a, b, c) = (f16_matrix(s[0]), f16_matrix(s[1]), f32_matrix(s[2]));
+                            let (a, b) = (a.mapv(|e| e.to_f32()), b.mapv(|e| e.to_f32()));
+                            let ret = a.dot(&b.t()) + &c;
+                            for (i, val) in ret.iter().cloned().enumerate() {
+                                let register = (i / 32) + vdst;
+                                let lane = i % 32;
+                                self.vec_reg.get_lane_mut(lane)[register] = val.to_bits()
+                            }
+                        }
+                        66 => {
+                            let (a, b, c) = (f16_matrix(s[0]), f16_matrix(s[1]), f16_matrix(s[2]));
+                            let ret = a.dot(&b.t()) + &c;
+                            for (i, val) in ret.iter().cloned().enumerate() {
+                                let register = (i / 32) + vdst;
+                                let lane = i % 32;
+                                self.vec_reg.get_lane_mut(lane)[register].mut_lo16(val.to_bits());
+                            }
+                        }
+                        _ => todo_instr!(instruction),
+                    };
                     self.scalar = true;
                 }
                 _ => todo_instr!(instruction),
