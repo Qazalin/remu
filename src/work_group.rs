@@ -1,8 +1,9 @@
 use crate::memory::VecDataStore;
 use crate::state::{Register, VecMutation, WaveValue, VGPR};
 use crate::thread::Thread;
-use crate::utils::{Colorize, DebugLevel, DEBUG};
+use crate::utils::{Colorize, DEBUG};
 use std::collections::HashMap;
+use std::sync::atomic::Ordering::SeqCst;
 
 pub struct WorkGroup<'a> {
     dispatch_dim: u32,
@@ -61,12 +62,17 @@ impl<'a> WorkGroup<'a> {
 
         for instructions in barriers.iter() {
             for wave in waves.iter().enumerate() {
-                self.exec_wave(wave, instructions)
+                self.exec_wave(wave, instructions, barriers.len() > 1)
             }
         }
     }
 
-    fn exec_wave(&mut self, (wave_id, threads): (usize, &Vec<[u32; 3]>), instructions: &Vec<u32>) {
+    fn exec_wave(
+        &mut self,
+        (wave_id, threads): (usize, &Vec<[u32; 3]>),
+        instructions: &Vec<u32>,
+        save_state: bool,
+    ) {
         let mut scalar_reg = match self.wave_state.get(&wave_id) {
             Some(val) => val.0.to_vec(),
             None => {
@@ -93,8 +99,10 @@ impl<'a> WorkGroup<'a> {
         let mut pc = 0;
         loop {
             if instructions[pc] == crate::utils::END_PRG {
-                self.wave_state
-                    .insert(wave_id, (scalar_reg, vec_reg.clone()));
+                if save_state {
+                    self.wave_state
+                        .insert(wave_id, (scalar_reg, vec_reg.clone()));
+                }
                 break;
             }
             if instructions[pc] == 0xbfb60003 || instructions[pc] >> 20 == 0xbf8 {
@@ -107,13 +115,13 @@ impl<'a> WorkGroup<'a> {
                 vec_reg.default_lane = Some(lane_id);
                 vcc.default_lane = Some(lane_id);
                 exec.default_lane = Some(lane_id);
-                if *DEBUG >= DebugLevel::WAVE {
+                if DEBUG.load(SeqCst) {
                     let lane = format!("{lane_id} {:08X} ", instructions[pc]);
                     let state = match exec.read() {
                         true => "green",
                         false => "gray",
                     };
-                    print!("{}", lane.color(state));
+                    print!("{:?} {:?} {}", self.id, [x, y, z], lane.color(state));
                 }
                 if !seeded_lanes.contains(&lane_id) && self.wave_state.get(&wave_id).is_none() {
                     match (self.launch_bounds[1] != 1, self.launch_bounds[2] != 1) {

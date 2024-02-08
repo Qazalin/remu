@@ -1,33 +1,11 @@
-#![allow(unused)]
 use half::f16;
-use once_cell::sync::Lazy;
-use std::collections::HashMap;
-use std::io::{self, Read};
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::process::{Command, Stdio};
+use std::sync::atomic::AtomicBool;
 use std::{env, fs, str};
 
 pub const END_PRG: u32 = 0xbfb00000;
-const WAIT_CNT_0: u32 = 0xBF89FC07;
-
-#[derive(PartialEq, PartialOrd)]
-pub enum DebugLevel {
-    NONE,
-    INSTRUCTION,
-    WAVE,
-}
-pub static DEBUG: Lazy<DebugLevel> = Lazy::new(|| {
-    let var = env::var("REMU_DEBUG")
-        .unwrap_or_default()
-        .parse::<i32>()
-        .unwrap_or(0);
-    match var {
-        0 => DebugLevel::NONE,
-        1 => DebugLevel::INSTRUCTION,
-        2 => DebugLevel::WAVE,
-        _ => panic!(),
-    }
-});
+pub static DEBUG: AtomicBool = AtomicBool::new(false);
 
 pub fn nth(val: u32, pos: usize) -> u32 {
     return (val >> (31 - pos as u32)) & 1;
@@ -53,12 +31,12 @@ pub fn read_asm(lib: &Vec<u8>) -> (Vec<u32>, String) {
             prg = match std::fs::metadata(&fp) {
                 Ok(_) => parse_rdna3(&fs::read_to_string(fp).unwrap()),
                 Err(_) => {
-                    fs::write(fp, asm);
+                    fs::write(fp, asm).unwrap();
                     prg
                 }
             };
         } else {
-            fs::write(fp, asm);
+            fs::write(fp, asm).unwrap();
         }
         return prg;
     }

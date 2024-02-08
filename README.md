@@ -16,7 +16,7 @@ curl -s https://api.github.com/repos/Qazalin/remu/releases/latest | \
     xargs curl -L -o /usr/local/lib/libremu.so
 ```
 
-2. Run tinygrad with `HIP=1 HIPCPU=1`. Use `REMU_DEBUG=1` to see logs from the emulator.
+2. Run tinygrad with `HIP=1 HIPCPU=1`.
 
 ## Limitations
 

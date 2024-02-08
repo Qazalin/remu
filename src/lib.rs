@@ -1,6 +1,7 @@
-use crate::utils::{DebugLevel, DEBUG};
+use crate::utils::DEBUG;
 use crate::work_group::WorkGroup;
 use std::os::raw::{c_char, c_void};
+use std::sync::atomic::Ordering::SeqCst;
 mod alu_modifiers;
 mod dtype;
 mod memory;
@@ -40,7 +41,7 @@ pub extern "C" fn hipModuleLaunchKernel(
     }
 
     let (kernel, function_name) = utils::read_asm(&lib_bytes);
-    if *DEBUG >= DebugLevel::NONE {
+    if DEBUG.load(SeqCst) {
         println!(
             "[remu] launching kernel {function_name} with global_size {gx} {gy} {gz} local_size {lx} {ly} {lz} args {:?}", args
         );

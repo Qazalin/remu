@@ -3,10 +3,11 @@ use crate::dtype::IEEEClass;
 use crate::memory::VecDataStore;
 use crate::state::{Register, Value, VecMutation, WaveValue, VGPR};
 use crate::todo_instr;
-use crate::utils::{as_signed, f16_hi, f16_lo, nth, Colorize, DebugLevel, DEBUG};
+use crate::utils::{as_signed, f16_hi, f16_lo, nth, Colorize, DEBUG};
 use half::f16;
 use ndarray::Array;
 use num_traits::Float;
+use std::sync::atomic::Ordering::SeqCst;
 
 pub const SGPR_COUNT: usize = 105;
 pub const VGPR_COUNT: usize = 256;
@@ -46,7 +47,7 @@ impl<'a> Thread<'a> {
                 val => val,
             };
 
-            if *DEBUG >= DebugLevel::INSTRUCTION {
+            if DEBUG.load(SeqCst) {
                 println!(
                     "{} sbase={sbase} sdata={sdata} op={op} offset={offset} soffset={soffset}",
                     "SMEM".color("blue"),
@@ -69,7 +70,7 @@ impl<'a> Thread<'a> {
             let op = (instruction >> 8) & 0xFF;
             let sdst = (instruction >> 16) & 0x7F;
 
-            if *DEBUG >= DebugLevel::INSTRUCTION {
+            if DEBUG.load(SeqCst) {
                 println!("{} src={src} sdst={sdst} op={op}", "SOP1".color("blue"));
             }
 
@@ -127,7 +128,7 @@ impl<'a> Thread<'a> {
             let s1 = ((instruction >> 8) & 0xff) as usize;
             let op = (instruction >> 16) & 0x7f;
 
-            if *DEBUG >= DebugLevel::INSTRUCTION {
+            if DEBUG.load(SeqCst) {
                 println!("{} s0={s0} ssrc1={s1} op={op}", "SOPC".color("blue"));
             }
 
@@ -165,7 +166,7 @@ impl<'a> Thread<'a> {
         else if instruction >> 23 == 0b10_1111111 {
             let simm16 = (instruction & 0xffff) as i16;
             let op = (instruction >> 16) & 0x7f;
-            if *DEBUG >= DebugLevel::INSTRUCTION {
+            if DEBUG.load(SeqCst) {
                 println!("{} simm16={simm16} op={op}", "SOPP".color("blue"),);
             }
 
@@ -196,7 +197,7 @@ impl<'a> Thread<'a> {
             let op = (instruction >> 23) & 0x1f;
             let s0: u32 = self.val(sdst);
 
-            if *DEBUG >= DebugLevel::INSTRUCTION {
+            if DEBUG.load(SeqCst) {
                 println!(
                     "{} simm={simm} sdst={sdst} s0={s0} op={op}",
                     "SOPK".color("blue"),
@@ -250,7 +251,7 @@ impl<'a> Thread<'a> {
             let sdst = (instruction >> 16) & 0x7F;
             let op = (instruction >> 23) & 0xFF;
 
-            if *DEBUG >= DebugLevel::INSTRUCTION {
+            if DEBUG.load(SeqCst) {
                 println!(
                     "{} s0={s0} s1={s1} sdst={sdst} op={op}",
                     "SOP2".color("blue"),
@@ -423,7 +424,7 @@ impl<'a> Thread<'a> {
             let neg = ((instr >> 61) & 0x7) as usize;
             let opsel = [b(11), b(12), b(13)];
             let opsel_hi = [b(59), b(60), b(14)];
-            if *DEBUG >= DebugLevel::INSTRUCTION {
+            if DEBUG.load(SeqCst) {
                 println!("{} op={op} vdst={vdst} src2={:?} opsel={:?} opsel_hi={:?} neg={:03b} neg_hi={:03b}", "VOPP".color("blue"), src_parts, opsel, opsel_hi, neg, neg_hi);
             }
 
@@ -565,7 +566,7 @@ impl<'a> Thread<'a> {
             let op = (instruction >> 9) & 0xff;
             let vdst = ((instruction >> 17) & 0xff) as usize;
 
-            if *DEBUG >= DebugLevel::INSTRUCTION {
+            if DEBUG.load(SeqCst) {
                 println!("{} src={s0} op={op} vdst={vdst}", "VOP1".color("blue"),);
             }
 
@@ -708,7 +709,7 @@ impl<'a> Thread<'a> {
             // LSB is the opposite of VDSTX[0]
             let vdsty = (((instr >> 49) & 0x7f) << 1 | ((vdstx as u64 & 1) ^ 1)) as usize;
 
-            if *DEBUG >= DebugLevel::INSTRUCTION {
+            if DEBUG.load(SeqCst) {
                 println!(
                     "{} X=[op={opx}, dest={vdstx} src({sx})={srcx0}, vsrc({vx})={vsrcx1}] Y=[op={opy}, dest={vdsty}, src({sy})={srcy0}, vsrc({vy})={vsrcy1}]",
                     "VOPD".color("blue"),
@@ -758,7 +759,7 @@ impl<'a> Thread<'a> {
             let s1 = ((instruction >> 9) & 0xff) as usize;
             let op = (instruction >> 17) & 0xff;
 
-            if *DEBUG >= DebugLevel::INSTRUCTION {
+            if DEBUG.load(SeqCst) {
                 println!("{} src={:?} op={}", "VOPC".color("blue"), (s0, s1), op);
             }
 
@@ -824,7 +825,7 @@ impl<'a> Thread<'a> {
             let vdst = ((instruction >> 17) & 0xFF) as usize;
             let op = (instruction >> 25) & 0x3F;
 
-            if *DEBUG >= DebugLevel::INSTRUCTION {
+            if DEBUG.load(SeqCst) {
                 println!(
                     "{} s0={s0} s1={s1} vdst={vdst} op={op}",
                     "VOP2".color("blue"),
@@ -954,7 +955,7 @@ impl<'a> Thread<'a> {
                     assert_eq!(omod, 0);
                     assert_eq!(clmp, 0);
 
-                    if *DEBUG >= DebugLevel::INSTRUCTION {
+                    if DEBUG.load(SeqCst) {
                         println!(
                             "{} vdst={vdst} sdst={sdst} op={op} src={:?}",
                             "VOPSD".color("blue"),
@@ -1024,7 +1025,7 @@ impl<'a> Thread<'a> {
                     assert_eq!(cm, 0);
                     assert_eq!(opsel, 0);
 
-                    if *DEBUG >= DebugLevel::INSTRUCTION {
+                    if DEBUG.load(SeqCst) {
                         println!(
                             "{} vdst={vdst} abs={abs} opsel={opsel} op={op} src={:?} neg=0b{:03b}",
                             "VOP3".color("blue"),
@@ -1346,7 +1347,7 @@ impl<'a> Thread<'a> {
             let data0 = ((instr >> 40) & 0xff) as usize;
             let data1 = ((instr >> 48) & 0xff) as usize;
             let vdst = ((instr >> 56) & 0xff) as usize;
-            if *DEBUG >= DebugLevel::INSTRUCTION {
+            if DEBUG.load(SeqCst) {
                 println!(
                     "{} op={op} addr={addr} data0={data0} data1={data1} vdst={vdst}",
                     "LDS".color("blue"),
@@ -1418,7 +1419,7 @@ impl<'a> Thread<'a> {
             match seg {
                 1 => {
                     let sve = ((instr >> 50) & 0x1) != 0;
-                    if *DEBUG >= DebugLevel::INSTRUCTION {
+                    if DEBUG.load(SeqCst) {
                         println!("{} offset={offset} op={op} addr={addr} data={data} saddr={saddr} vdst={vdst} sve={sve}", "SCRATCH".color("blue"));
                     }
                     let addr = match (sve, saddr_off) {
@@ -1438,7 +1439,7 @@ impl<'a> Thread<'a> {
                     }
                 }
                 2 => {
-                    if *DEBUG >= DebugLevel::INSTRUCTION {
+                    if DEBUG.load(SeqCst) {
                         println!("{} offset={offset} op={op} addr={addr} data={data} saddr={saddr} vdst={vdst}", "GLOBAL".color("blue"));
                     }
 
@@ -1450,6 +1451,7 @@ impl<'a> Thread<'a> {
                             scalar_addr as i64 + vgpr_offset as i64 + offset
                         }
                     } as u64;
+
                     unsafe {
                         match op {
                             // load
