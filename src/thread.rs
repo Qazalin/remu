@@ -103,14 +103,14 @@ impl<'a> Thread<'a> {
                             ret
                         }
                         32 | 34 | 48 => {
-                            let saveexec = self.exec.read() as u32;
+                            let saveexec = self.exec.value;
                             self.exec.value = match op {
                                 32 => s0 & saveexec,
                                 34 => s0 | saveexec,
                                 48 => s0 & !saveexec,
                                 _ => panic!(),
                             };
-                            *self.scc = self.exec.read() as u32;
+                            *self.scc = (self.exec.value != 0) as u32;
                             saveexec
                         }
                         _ => todo_instr!(instruction),
@@ -629,8 +629,9 @@ impl<'a> Thread<'a> {
                             }
                         }
                         2 => {
-                            assert!(self.exec.read());
-                            self.scalar_reg[vdst] = s0;
+                            let idx = self.exec.value.trailing_zeros() as usize;
+                            self.scalar_reg[vdst] = self.vec_reg.get_lane(idx)
+                                [(instruction & 0x1ff) as usize - VGPR_COUNT];
                         }
                         _ => {
                             let ret = match op {
@@ -812,7 +813,7 @@ impl<'a> Thread<'a> {
             };
 
             match op >= 128 {
-                true => self.vec_mutation.vcc = Some(ret),
+                true => self.vec_mutation.exec = Some(ret),
                 false => self.vec_mutation.vcc = Some(ret),
             };
         }
@@ -967,7 +968,9 @@ impl<'a> Thread<'a> {
                             let (mul_result, overflow_mul) = (s0 as u64).overflowing_mul(s1 as u64);
                             let (ret, overflow_add) = mul_result.overflowing_add(s2);
                             let overflowed = overflow_mul || overflow_add;
-                            self.vec_reg.write64(vdst, ret);
+                            if self.exec.read() {
+                                self.vec_reg.write64(vdst, ret);
+                            }
                             overflowed
                         }
                         _ => {
@@ -993,7 +996,9 @@ impl<'a> Thread<'a> {
                                 }
                                 _ => todo_instr!(instruction),
                             };
-                            self.vec_reg[vdst] = ret;
+                            if self.exec.read() {
+                                self.vec_reg[vdst] = ret;
+                            }
                             vcc
                         }
                     };
@@ -1230,11 +1235,14 @@ impl<'a> Thread<'a> {
                                         }
                                         796 => s0 * 2f32.powi(s1.to_bits() as i32),
                                         // cnd_mask isn't a float only ALU but supports neg
-                                        // TODO: This should be a WaveValue
-                                        257 => match s2.to_bits() != 0 {
-                                            true => s1,
-                                            false => s0,
-                                        },
+                                        257 => {
+                                            let mut cond = WaveValue::new(s2.to_bits());
+                                            cond.default_lane = self.vcc.default_lane;
+                                            match cond.read() {
+                                                true => s1,
+                                                false => s0,
+                                            }
+                                        }
                                         _ => panic!(),
                                     }
                                     .to_bits()
@@ -1579,8 +1587,8 @@ impl<'a> Thread<'a> {
     /* ALU utils */
     fn _common_srcs(&mut self, code: u32) -> u32 {
         match code {
-            106 => self.vcc.read() as u32,
-            126 => self.exec.read() as u32,
+            106 => self.vcc.value,
+            126 => self.exec.value,
             128 => 0,
             124 => NULL_SRC,
             255 => self.simm(),
@@ -1753,6 +1761,14 @@ mod test_sop1 {
     }
 
     #[test]
+    fn test_mov_exec() {
+        let mut thread = _helper_test_thread();
+        thread.exec.value = 0b11111111110111111110111111111111;
+        r(&vec![0xBE80007E, END_PRG], &mut thread);
+        assert_eq!(thread.scalar_reg[0], 0b11111111110111111110111111111111);
+    }
+
+    #[test]
     fn test_s_mov_b32() {
         let mut thread = _helper_test_thread();
         thread.scalar_reg[15] = 42;
@@ -1854,6 +1870,15 @@ mod test_sop2 {
     use super::*;
 
     #[test]
+    fn test_xor_exec() {
+        let mut thread = _helper_test_thread();
+        thread.exec.value = 0b10010010010010010010010010010010;
+        thread.scalar_reg[2] = 0b11111111111111111111111111111111;
+        r(&vec![0x8D02027E, END_PRG], &mut thread);
+        assert_eq!(thread.scalar_reg[2], 1840700269);
+    }
+
+    #[test]
     fn test_s_add_u32() {
         [
             [10, 20, 30, 0],
@@ -1948,6 +1973,15 @@ mod test_sop2 {
         r(&vec![0x86039F02, END_PRG], &mut thread);
         assert_eq!(thread.scalar_reg[3], 0);
         assert_eq!(*thread.scc, 0);
+    }
+
+    #[test]
+    fn test_source_vcc() {
+        let mut thread = _helper_test_thread();
+        thread.scalar_reg[10] = 0x55;
+        thread.vcc.value = 29;
+        r(&vec![0x8B140A6A, END_PRG], &mut thread);
+        assert_eq!(thread.scalar_reg[20], 21);
     }
 
     #[test]
@@ -2265,6 +2299,28 @@ mod test_vop1 {
     }
 
     #[test]
+    fn test_v_readfirstlane_b32_fancy() {
+        let mut thread = _helper_test_thread();
+        thread.vec_reg.get_lane_mut(0)[13] = 44;
+        thread.vec_reg.get_lane_mut(1)[13] = 22;
+        thread.exec.value = 0b00000000000000000000000000000010;
+        thread.exec.default_lane = Some(2);
+        r(&vec![0x7E1A050D, END_PRG], &mut thread);
+        assert_eq!(thread.scalar_reg[13], 22);
+
+        thread.exec.value = 0b00000000000000000000000000000000;
+        thread.exec.default_lane = Some(1);
+        r(&vec![0x7E1A050D, END_PRG], &mut thread);
+        assert_eq!(thread.scalar_reg[13], 44);
+
+        thread.exec.value = 0b10000000000000000000000000000000;
+        thread.vec_reg.get_lane_mut(31)[13] = 88;
+        thread.exec.default_lane = Some(1);
+        r(&vec![0x7E1A050D, END_PRG], &mut thread);
+        assert_eq!(thread.scalar_reg[13], 88);
+    }
+
+    #[test]
     fn test_v_cls_i32() {
         fn t(val: u32) -> u32 {
             let mut thread = _helper_test_thread();
@@ -2320,10 +2376,22 @@ mod test_vopc {
     #[test]
     fn test_v_cmpx_nlt_f32() {
         let mut thread = _helper_test_thread();
-        // thread.exec.value = 0; TODO exec should be reset once the exec skipping rewrite is done
+        thread.exec.value = 0b010011;
         thread.vec_reg[0] = f32::to_bits(0.9);
         thread.vec_reg[3] = f32::to_bits(0.4);
         r(&vec![0x7D3C0700, END_PRG], &mut thread);
+        assert_eq!(thread.exec.read(), true);
+    }
+
+    #[test]
+    fn test_v_cmpx_gt_i32_e32() {
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[3] = 100;
+        r(&vec![0x7D8806FF, 0x00000041, END_PRG], &mut thread);
+        assert_eq!(thread.exec.read(), false);
+
+        thread.vec_reg[3] = -20i32 as u32;
+        r(&vec![0x7D8806FF, 0x00000041, END_PRG], &mut thread);
         assert_eq!(thread.exec.read(), true);
     }
 
@@ -2532,6 +2600,19 @@ mod test_vopsd {
                 assert_eq!(thread.vcc.read(), *scc != 0);
             })
     }
+
+    #[test]
+    fn test_return_value_exec_zero() {
+        let mut thread = _helper_test_thread();
+        thread.exec.value = 0b11111111111111111111111111111101;
+        thread.vcc.default_lane = Some(1);
+        thread.exec.default_lane = Some(1);
+        thread.vec_reg[2] = u32::MAX;
+        thread.vec_reg[3] = 3;
+        r(&vec![0xD7000D02, 0x00020503, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[2], u32::MAX);
+        assert_eq!(thread.scalar_reg[13], 0b10);
+    }
 }
 
 #[cfg(test)]
@@ -2581,11 +2662,11 @@ mod test_vop3 {
     #[test]
     fn test_cnd_mask_cond_src_sgpr() {
         let mut thread = _helper_test_thread();
-        thread.scalar_reg[3] = 30;
+        thread.scalar_reg[3] = 0b001;
         r(&vec![0xD5010000, 0x000D0280, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[0], 1);
 
-        thread.scalar_reg[3] = 0;
+        thread.scalar_reg[3] = 0b00;
         r(&vec![0xD5010000, 0x000D0280, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[0], 0);
     }
@@ -2597,6 +2678,20 @@ mod test_vop3 {
         thread.vec_reg[0] = 100;
         r(&vec![0xD5010002, 0x41AA0102, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[2], 20);
+    }
+
+    #[test]
+    fn test_cnd_mask_float_const() {
+        let mut thread = _helper_test_thread();
+        thread.vcc.value = 0b00000010;
+        thread.vcc.default_lane = Some(0);
+        r(&vec![0xD5010003, 0x01A9E480, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[3], 0);
+
+        thread.vcc.value = 0b00000010;
+        thread.vcc.default_lane = Some(1);
+        r(&vec![0xD5010003, 0x01A9E480, END_PRG], &mut thread);
+        assert_eq!(f32::from_bits(thread.vec_reg[3]), 1.0);
     }
 
     #[test]
@@ -3217,7 +3312,9 @@ fn r(prg: &Vec<u32>, thread: &mut Thread) {
     let mut pc = 0;
     let instructions = prg.to_vec();
     thread.pc_offset = 0;
-    thread.exec.value = u32::MAX;
+    if thread.exec.value == 0 {
+        thread.exec.value = u32::MAX;
+    }
 
     loop {
         if instructions[pc] == crate::utils::END_PRG {
