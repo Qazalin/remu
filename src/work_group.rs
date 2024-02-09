@@ -155,6 +155,13 @@ impl<'a> WorkGroup<'a> {
                     pc = ((pc as isize) + 1 + (thread.pc_offset as isize)) as usize;
                 }
             }
+
+            if vec_mutations[0].vcc.is_some() {
+                vcc.value = 0;
+            }
+            if vec_mutations[0].exec.is_some() {
+                exec.value = 0;
+            }
             vec_mutations.iter().enumerate().for_each(|(lane_id, m)| {
                 if let Some(val) = m.vcc {
                     vcc.mut_lane(lane_id, val);
