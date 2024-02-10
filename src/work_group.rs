@@ -12,7 +12,7 @@ pub struct WorkGroup<'a> {
     kernel: &'a Vec<u32>,
     kernel_args: &'a Vec<u64>,
     launch_bounds: [u32; 3],
-    wave_state: HashMap<usize, (Vec<u32>, VGPR, usize)>,
+    wave_state: HashMap<usize, (Vec<u32>, u32, VGPR, WaveValue, WaveValue, usize)>,
 }
 
 const S_BARRIER: u32 = 0xBFBD0000;
@@ -61,8 +61,8 @@ impl<'a> WorkGroup<'a> {
 
     fn exec_wave(&mut self, (wave_id, threads): (usize, &Vec<[u32; 3]>)) {
         let wave_state = self.wave_state.get(&wave_id);
-        let (mut scalar_reg, mut pc) = match wave_state {
-            Some(val) => (val.0.to_vec(), val.2),
+        let (mut scalar_reg, mut scc, mut pc) = match wave_state {
+            Some(val) => (val.0.to_vec(), val.1, val.5),
             None => {
                 let mut scalar_reg = vec![0; 256];
                 scalar_reg.write64(0, self.kernel_args.as_ptr() as u64);
@@ -72,16 +72,13 @@ impl<'a> WorkGroup<'a> {
                     2 => (scalar_reg[14], scalar_reg[15]) = (gx, gy),
                     _ => scalar_reg[15] = gx,
                 }
-                (scalar_reg, 0)
+                (scalar_reg, 0, 0)
             }
         };
-        let mut scc = 0;
-        let mut vec_reg = match wave_state {
-            Some(val) => val.1.clone(),
-            _ => VGPR::new(),
+        let (mut vec_reg, mut vcc, mut exec) = match wave_state {
+            Some(val) => (val.2.clone(), val.3.clone(), val.4.clone()),
+            _ => (VGPR::new(), WaveValue::new(0), WaveValue::new(u32::MAX)),
         };
-        let mut vcc = WaveValue::new(0);
-        let mut exec = WaveValue::new(u32::MAX);
 
         let mut seeded_lanes = vec![];
         loop {
@@ -89,7 +86,8 @@ impl<'a> WorkGroup<'a> {
                 break;
             }
             if BARRIERS.contains(&[self.kernel[pc], self.kernel[pc + 1]]) && wave_state.is_none() {
-                self.wave_state.insert(wave_id, (scalar_reg, vec_reg, pc));
+                self.wave_state
+                    .insert(wave_id, (scalar_reg, scc, vec_reg, vcc, exec, pc));
                 break;
             }
             if [0xbfb60003, S_BARRIER].contains(&self.kernel[pc]) || self.kernel[pc] >> 20 == 0xbf8

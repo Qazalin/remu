@@ -1,3 +1,4 @@
+#![allow(unused)]
 use crate::utils::DEBUG;
 use crate::work_group::WorkGroup;
 use std::os::raw::{c_char, c_void};

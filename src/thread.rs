@@ -522,12 +522,12 @@ impl<'a> Thread<'a> {
                             .collect::<Vec<_>>();
                         Array::from_shape_vec((16, 16), values).unwrap()
                     };
-                    let f32_matrix = |v: usize| {
+                    let c_matrix = |v: usize| {
                         let values = (0..256)
                             .into_iter()
                             .map(|i| {
                                 let val = self.vec_reg.get_lane(i % 32)[(i / 32) + v - VGPR_COUNT];
-                                f32::from_bits(val)
+                                val
                             })
                             .collect::<Vec<_>>();
                         Array::from_shape_vec((16, 16), values).unwrap()
@@ -535,8 +535,10 @@ impl<'a> Thread<'a> {
 
                     match op {
                         64 => {
-                            let (a, b, c) = (f16_matrix(s[0]), f16_matrix(s[1]), f32_matrix(s[2]));
+                            let (a, b, c) = (f16_matrix(s[0]), f16_matrix(s[1]), c_matrix(s[2]));
                             let (a, b) = (a.mapv(|e| e.to_f32()), b.mapv(|e| e.to_f32()));
+                            let c = c.mapv(|e| f32::from_bits(e));
+
                             let ret = a.dot(&b.t()) + &c;
                             for (i, val) in ret.iter().cloned().enumerate() {
                                 let register = (i / 32) + vdst;
@@ -545,7 +547,8 @@ impl<'a> Thread<'a> {
                             }
                         }
                         66 => {
-                            let (a, b, c) = (f16_matrix(s[0]), f16_matrix(s[1]), f16_matrix(s[2]));
+                            let (a, b, c) = (f16_matrix(s[0]), f16_matrix(s[1]), c_matrix(s[2]));
+                            let c = c.mapv(|e| f16::from_bits(e as u16));
                             let ret = a.dot(&b.t()) + &c;
                             for (i, val) in ret.iter().cloned().enumerate() {
                                 let register = (i / 32) + vdst;
@@ -1153,6 +1156,14 @@ impl<'a> Thread<'a> {
                                 self.vec_reg[vdst] = ret as u32;
                             }
                         }
+                        394 => {
+                            let s0 = f32::from_bits(self.val(src.0))
+                                .negate(0, neg)
+                                .absolute(0, abs);
+                            if self.exec.read() {
+                                self.vec_reg[vdst].mut_lo16(f16::from_f32(s0).to_bits());
+                            }
+                        }
                         395 => {
                             let s0 = f16::from_bits(self.val(src.0))
                                 .negate(0, neg)
@@ -1286,6 +1297,7 @@ impl<'a> Thread<'a> {
                                         283 => s0 & s1,
                                         523 => s0 * s1 + s2, // TODO 24 bit trunc
                                         528 => (s0 >> s1) & ((1 << s2) - 1),
+                                        530 => (s0 & s1) | (!s0 & s2),
                                         534 => {
                                             let val = ((s0 as u64) << 32) | (s1 as u64);
                                             let shift = (s2 & 0x1F) as u64;

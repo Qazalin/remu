@@ -91,7 +91,7 @@ impl VecMutation {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct WaveValue {
     pub value: u32,
     pub default_lane: Option<usize>,
