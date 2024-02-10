@@ -5,6 +5,15 @@ use crate::utils::{Colorize, DEBUG, END_PRG};
 use std::collections::HashMap;
 use std::sync::atomic::Ordering::SeqCst;
 
+struct WaveState(
+    Vec<u32>,
+    u32,
+    VGPR,
+    WaveValue,
+    WaveValue,
+    usize,
+    HashMap<usize, VecDataStore>,
+);
 pub struct WorkGroup<'a> {
     dispatch_dim: u32,
     id: [u32; 3],
@@ -12,7 +21,7 @@ pub struct WorkGroup<'a> {
     kernel: &'a Vec<u32>,
     kernel_args: &'a Vec<u64>,
     launch_bounds: [u32; 3],
-    wave_state: HashMap<usize, (Vec<u32>, u32, VGPR, WaveValue, WaveValue, usize)>,
+    wave_state: HashMap<usize, WaveState>,
 }
 
 const S_BARRIER: u32 = 0xBFBD0000;
@@ -61,6 +70,16 @@ impl<'a> WorkGroup<'a> {
 
     fn exec_wave(&mut self, (wave_id, threads): (usize, &Vec<[u32; 3]>)) {
         let wave_state = self.wave_state.get(&wave_id);
+        let mut sds = match wave_state {
+            Some(val) => val.6.clone(),
+            None => {
+                let mut sds = HashMap::new();
+                for i in 0..=31 {
+                    sds.insert(i, VecDataStore::new());
+                }
+                sds
+            }
+        };
         let (mut scalar_reg, mut scc, mut pc) = match wave_state {
             Some(val) => (val.0.to_vec(), val.1, val.5),
             None => {
@@ -86,8 +105,10 @@ impl<'a> WorkGroup<'a> {
                 break;
             }
             if BARRIERS.contains(&[self.kernel[pc], self.kernel[pc + 1]]) && wave_state.is_none() {
-                self.wave_state
-                    .insert(wave_id, (scalar_reg, scc, vec_reg, vcc, exec, pc));
+                self.wave_state.insert(
+                    wave_id,
+                    WaveState(scalar_reg, scc, vec_reg, vcc, exec, pc, sds),
+                );
                 break;
             }
             if [0xbfb60003, S_BARRIER].contains(&self.kernel[pc]) || self.kernel[pc] >> 20 == 0xbf8
@@ -116,7 +137,6 @@ impl<'a> WorkGroup<'a> {
                     }
                     seeded_lanes.push(lane_id);
                 }
-                let mut sds = VecDataStore::new();
                 let mut thread = Thread {
                     scalar_reg: &mut scalar_reg,
                     scc: &mut scc,
@@ -124,7 +144,7 @@ impl<'a> WorkGroup<'a> {
                     vcc: &mut vcc,
                     exec: &mut exec,
                     lds: &mut self.lds,
-                    sds: &mut sds,
+                    sds: &mut sds.get_mut(&lane_id).unwrap(),
                     pc_offset: 0,
                     stream: self.kernel[pc..self.kernel.len()].to_vec(),
                     scalar: false,

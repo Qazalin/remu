@@ -1,3 +1,4 @@
+#[derive(Clone, Debug)]
 pub struct VecDataStore {
     pub data: Vec<u8>,
 }
