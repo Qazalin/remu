@@ -24,8 +24,13 @@ pub struct WorkGroup<'a> {
     wave_state: HashMap<usize, WaveState>,
 }
 
-const S_BARRIER: u32 = 0xBFBD0000;
-const BARRIERS: [[u32; 2]; 2] = [[0xBF89FC07, 0xBF89FC07], [0xBF89FC07, S_BARRIER]];
+const SYNCS: [u32; 5] = [0xBF89FC07, 0xBFBD0000, 0xBC7C0000, 0xBF890007, 0xbFB60003];
+const BARRIERS: [[u32; 2]; 4] = [
+    [SYNCS[0], SYNCS[0]],
+    [SYNCS[0], SYNCS[1]],
+    [SYNCS[0], SYNCS[2]],
+    [SYNCS[3], SYNCS[1]],
+];
 impl<'a> WorkGroup<'a> {
     pub fn new(
         dispatch_dim: u32,
@@ -111,8 +116,7 @@ impl<'a> WorkGroup<'a> {
                 );
                 break;
             }
-            if [0xbfb60003, S_BARRIER].contains(&self.kernel[pc]) || self.kernel[pc] >> 20 == 0xbf8
-            {
+            if SYNCS.contains(&self.kernel[pc]) || self.kernel[pc] >> 20 == 0xbf8 {
                 pc += 1;
                 continue;
             }
