@@ -42,11 +42,9 @@ pub extern "C" fn hipModuleLaunchKernel(
     }
 
     let (kernel, function_name) = utils::read_asm(&lib_bytes);
-    if DEBUG.load(SeqCst) {
-        println!(
+    println!(
             "[remu] launching kernel {function_name} with global_size {gx} {gy} {gz} local_size {lx} {ly} {lz} args {:?}", args
         );
-    }
 
     let dispatch_dim = match (gy != 1, gz != 1) {
         (true, true) => 3,

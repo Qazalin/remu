@@ -3,7 +3,7 @@ use crate::dtype::IEEEClass;
 use crate::memory::VecDataStore;
 use crate::state::{Register, Value, VecMutation, WaveValue, VGPR};
 use crate::todo_instr;
-use crate::utils::{as_signed, f16_hi, f16_lo, nth, Colorize, DEBUG};
+use crate::utils::{as_signed, f16_hi, f16_lo, nth, Colorize, DEBUG, END_PRG};
 use half::f16;
 use ndarray::Array;
 use num_traits::Float;
@@ -1295,6 +1295,9 @@ impl<'a> Thread<'a> {
                                             }) as u32
                                         }
                                         283 => s0 & s1,
+                                        284 => s0 | s1,
+                                        285 => s0 ^ s1,
+                                        286 => !(s0 ^ s1),
                                         523 => s0 * s1 + s2, // TODO 24 bit trunc
                                         528 => (s0 >> s1) & ((1 << s2) - 1),
                                         530 => (s0 & s1) | (!s0 & s2),
@@ -1385,6 +1388,7 @@ impl<'a> Thread<'a> {
                         self.vec_reg[vdst + i] = self.lds.read(single_addr() + 4 * i);
                     });
                 }
+                60 => self.vec_reg[vdst] = self.lds.read(single_addr()) as u16 as u32,
                 55 => {
                     let (addr0, addr1) = double_addr(4);
                     self.vec_reg[vdst] = self.lds.read(addr0);
@@ -1401,6 +1405,18 @@ impl<'a> Thread<'a> {
                         self.lds
                             .write(single_addr() + 4 * i, self.vec_reg[data0 + i]);
                     })
+                }
+                31 => {
+                    let addr = single_addr();
+                    if addr + 2 >= self.lds.data.len() {
+                        self.lds.data.resize(self.lds.data.len() + addr + 3, 0);
+                    }
+                    self.lds.data[addr..addr + 2]
+                        .iter_mut()
+                        .enumerate()
+                        .for_each(|(i, x)| {
+                            *x = (self.vec_reg[data0] as u16).to_le_bytes()[i];
+                        });
                 }
                 14 => {
                     let (addr0, addr1) = double_addr(4);
@@ -3393,5 +3409,3 @@ fn _helper_test_thread() -> Thread<'static> {
     thread.exec.default_lane = Some(0);
     return thread;
 }
-#[allow(dead_code)]
-const END_PRG: u32 = 0xbfb00000;
