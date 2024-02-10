@@ -1,7 +1,7 @@
 use crate::memory::VecDataStore;
 use crate::state::{Register, VecMutation, WaveValue, VGPR};
 use crate::thread::Thread;
-use crate::utils::{Colorize, DEBUG};
+use crate::utils::{Colorize, DEBUG, END_PRG};
 use std::collections::HashMap;
 use std::sync::atomic::Ordering::SeqCst;
 
@@ -12,9 +12,11 @@ pub struct WorkGroup<'a> {
     kernel: &'a Vec<u32>,
     kernel_args: &'a Vec<u64>,
     launch_bounds: [u32; 3],
-    wave_state: HashMap<usize, (Vec<u32>, VGPR)>,
+    wave_state: HashMap<usize, (Vec<u32>, VGPR, usize)>,
 }
 
+const S_BARRIER: u32 = 0xBFBD0000;
+const BARRIERS: [[u32; 2]; 2] = [[0xBF89FC07, 0xBF89FC07], [0xBF89FC07, S_BARRIER]];
 impl<'a> WorkGroup<'a> {
     pub fn new(
         dispatch_dim: u32,
@@ -45,36 +47,22 @@ impl<'a> WorkGroup<'a> {
         }
         let waves = blocks.chunks(32).map(|w| w.to_vec()).collect::<Vec<_>>();
 
-        let mut barriers = vec![];
-        let mut last_idx = 0;
-        const WAIT_CNT_0: u32 = 0xBF89FC07;
+        let mut syncs = 0;
         self.kernel.iter().enumerate().for_each(|(i, x)| {
-            if (*x == WAIT_CNT_0 && self.kernel[i - 1] == WAIT_CNT_0)
-                || (*x == WAIT_CNT_0 && self.kernel[i - 1] == 0xBFBD0000 && *x == WAIT_CNT_0)
-            {
-                let mut part = self.kernel[last_idx..=i - 2].to_vec();
-                last_idx = i + 1;
-                part.extend(vec![0xbfb00000]);
-                barriers.push(part);
+            if i != 0 && BARRIERS.contains(&[*x, self.kernel[i - 1]]) {
+                syncs += 1;
             }
         });
-        barriers.push(self.kernel[last_idx..self.kernel.len()].to_vec());
-
-        for instructions in barriers.iter() {
-            for wave in waves.iter().enumerate() {
-                self.exec_wave(wave, instructions, barriers.len() > 1)
-            }
+        assert!(syncs <= 1);
+        for _ in 0..=syncs {
+            waves.iter().enumerate().for_each(|w| self.exec_wave(w))
         }
     }
 
-    fn exec_wave(
-        &mut self,
-        (wave_id, threads): (usize, &Vec<[u32; 3]>),
-        instructions: &Vec<u32>,
-        save_state: bool,
-    ) {
-        let mut scalar_reg = match self.wave_state.get(&wave_id) {
-            Some(val) => val.0.to_vec(),
+    fn exec_wave(&mut self, (wave_id, threads): (usize, &Vec<[u32; 3]>)) {
+        let wave_state = self.wave_state.get(&wave_id);
+        let (mut scalar_reg, mut pc) = match wave_state {
+            Some(val) => (val.0.to_vec(), val.2),
             None => {
                 let mut scalar_reg = vec![0; 256];
                 scalar_reg.write64(0, self.kernel_args.as_ptr() as u64);
@@ -84,11 +72,11 @@ impl<'a> WorkGroup<'a> {
                     2 => (scalar_reg[14], scalar_reg[15]) = (gx, gy),
                     _ => scalar_reg[15] = gx,
                 }
-                scalar_reg
+                (scalar_reg, 0)
             }
         };
         let mut scc = 0;
-        let mut vec_reg = match self.wave_state.get(&wave_id) {
+        let mut vec_reg = match wave_state {
             Some(val) => val.1.clone(),
             _ => VGPR::new(),
         };
@@ -96,16 +84,16 @@ impl<'a> WorkGroup<'a> {
         let mut exec = WaveValue::new(u32::MAX);
 
         let mut seeded_lanes = vec![];
-        let mut pc = 0;
         loop {
-            if instructions[pc] == crate::utils::END_PRG {
-                if save_state {
-                    self.wave_state
-                        .insert(wave_id, (scalar_reg, vec_reg.clone()));
-                }
+            if self.kernel[pc] == END_PRG {
                 break;
             }
-            if instructions[pc] == 0xbfb60003 || instructions[pc] >> 20 == 0xbf8 {
+            if BARRIERS.contains(&[self.kernel[pc], self.kernel[pc + 1]]) && wave_state.is_none() {
+                self.wave_state.insert(wave_id, (scalar_reg, vec_reg, pc));
+                break;
+            }
+            if [0xbfb60003, S_BARRIER].contains(&self.kernel[pc]) || self.kernel[pc] >> 20 == 0xbf8
+            {
                 pc += 1;
                 continue;
             }
@@ -116,7 +104,7 @@ impl<'a> WorkGroup<'a> {
                 vcc.default_lane = Some(lane_id);
                 exec.default_lane = Some(lane_id);
                 if DEBUG.load(SeqCst) {
-                    let lane = format!("{lane_id} {:08X} ", instructions[pc]);
+                    let lane = format!("{lane_id} {:08X} ", self.kernel[pc]);
                     let state = match exec.read() {
                         true => "green",
                         false => "gray",
@@ -140,7 +128,7 @@ impl<'a> WorkGroup<'a> {
                     lds: &mut self.lds,
                     sds: &mut sds,
                     pc_offset: 0,
-                    stream: instructions[pc..instructions.len()].to_vec(),
+                    stream: self.kernel[pc..self.kernel.len()].to_vec(),
                     scalar: false,
                     simm: None,
                     vec_mutation: VecMutation::new(),
