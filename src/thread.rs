@@ -1,9 +1,8 @@
-use crate::alu_modifiers::VOPModifier;
-use crate::dtype::IEEEClass;
+use crate::dtype::{IEEEClass, VOPModifier};
 use crate::memory::VecDataStore;
 use crate::state::{Register, Value, WaveValue, VGPR};
 use crate::todo_instr;
-use crate::utils::{as_signed, f16_hi, f16_lo, nth, Colorize, DEBUG, END_PRG};
+use crate::utils::{f16_hi, f16_lo, nth, sign_ext, Colorize, DEBUG, END_PRG};
 use half::f16;
 use ndarray::Array;
 use num_traits::Float;
@@ -41,7 +40,7 @@ impl<'a> Thread<'a> {
             let sbase = (instr & 0x3f) * 2;
             let sdata = ((instr >> 6) & 0x7f) as usize;
             let op = (instr >> 18) & 0xff;
-            let offset = as_signed((instr >> 32) & 0x1fffff, 21);
+            let offset = sign_ext((instr >> 32) & 0x1fffff, 21);
             let soffset = match self.val(((instr >> 57) & 0x7f) as usize) {
                 NULL_SRC => 0,
                 val => val,
@@ -889,8 +888,8 @@ impl<'a> Thread<'a> {
                             .to_bits()
                         }
                         9 => {
-                            let s0 = as_signed((s0 & 0xffffff) as u64, 24) as i32;
-                            let s1 = as_signed((s1 & 0xffffff) as u64, 24) as i32;
+                            let s0 = sign_ext((s0 & 0xffffff) as u64, 24) as i32;
+                            let s1 = sign_ext((s1 & 0xffffff) as u64, 24) as i32;
                             (s0 * s1) as u32
                         }
                         18 | 26 => {
@@ -1273,10 +1272,10 @@ impl<'a> Thread<'a> {
                                             let (s0, s1, s2) = (s0 as i32, s1 as i32, s2 as i32);
                                             (match op {
                                                 522 => {
-                                                    let s0 = as_signed((s0 & 0xffffff) as u64, 24)
-                                                        as i32;
-                                                    let s1 = as_signed((s1 & 0xffffff) as u64, 24)
-                                                        as i32;
+                                                    let s0 =
+                                                        sign_ext((s0 & 0xffffff) as u64, 24) as i32;
+                                                    let s1 =
+                                                        sign_ext((s1 & 0xffffff) as u64, 24) as i32;
                                                     s0 * s1 + s2
                                                 }
                                                 541 => i32::max(i32::max(s0, s1), s2),
@@ -1433,7 +1432,7 @@ impl<'a> Thread<'a> {
             if !self.exec.read() {
                 return;
             }
-            let offset = as_signed(instr & 0x1fff, 13);
+            let offset = sign_ext(instr & 0x1fff, 13);
             let seg = (instr >> 16) & 0x3;
             let op = ((instr >> 18) & 0x7f) as usize;
             let addr = ((instr >> 32) & 0xff) as usize;

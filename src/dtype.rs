@@ -1,18 +1,42 @@
 use half::f16;
+use num_traits::float::FloatCore;
 
 pub trait IEEEClass<T> {
     fn exponent(&self) -> T;
 }
-
 impl IEEEClass<u32> for f32 {
     fn exponent(&self) -> u32 {
         (self.to_bits() & 0b01111111100000000000000000000000) >> 23
     }
 }
-
 impl IEEEClass<u16> for f16 {
     fn exponent(&self) -> u16 {
         (self.to_bits() & 0b0111110000000000) >> 10
+    }
+}
+
+pub trait VOPModifier<T> {
+    fn negate(&self, pos: usize, modifier: usize) -> T;
+    fn absolute(&self, pos: usize, modifier: usize) -> T;
+}
+impl<T> VOPModifier<T> for T
+where
+    T: FloatCore,
+{
+    fn negate(&self, pos: usize, modifier: usize) -> T {
+        match (modifier >> pos) & 1 {
+            1 => match self.is_zero() {
+                true => *self,
+                false => -*self,
+            },
+            _ => *self,
+        }
+    }
+    fn absolute(&self, pos: usize, modifier: usize) -> T {
+        match (modifier >> pos) & 1 {
+            1 => self.abs(),
+            _ => *self,
+        }
     }
 }
 
@@ -41,5 +65,20 @@ mod tests {
         assert_eq!(f16::from_f32(3.14f32).exponent(), 16);
         assert_eq!(f16::NEG_INFINITY.exponent(), 31);
         assert_eq!(f16::INFINITY.exponent(), 31);
+    }
+}
+
+#[cfg(test)]
+mod test_modifiers {
+    use super::*;
+
+    #[test]
+    fn test_neg() {
+        assert_eq!(0.3_f32.negate(0, 0b001), -0.3_f32);
+        assert_eq!(0.3_f32.negate(1, 0b010), -0.3_f32);
+        assert_eq!(0.3_f32.negate(2, 0b100), -0.3_f32);
+        assert_eq!(0.3_f32.negate(0, 0b110), 0.3_f32);
+        assert_eq!(0.3_f32.negate(1, 0b010), -0.3_f32);
+        assert_eq!(0.0_f32.negate(0, 0b001).to_bits(), 0);
     }
 }

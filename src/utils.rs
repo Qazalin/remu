@@ -81,7 +81,7 @@ fn parse_rdna3(content: &str) -> (Vec<u32>, String) {
     return (instructions, name.to_string());
 }
 
-pub fn as_signed(num: u64, bits: usize) -> i64 {
+pub fn sign_ext(num: u64, bits: usize) -> i64 {
     let mut value = num;
     let is_negative = (value >> (bits - 1)) & 1 != 0;
     if is_negative {
@@ -121,14 +121,14 @@ Disassembly of section .text:
 
     #[test]
     fn test_custom_signed_bits() {
-        assert_eq!(as_signed(0b000000000000000101000, 21), 40);
-        assert_eq!(as_signed(0b111111111111111011000, 21), -40);
-        assert_eq!(as_signed(0b000000000000000000000, 21), 0);
-        assert_eq!(as_signed(0b111111111111111111111, 21), -1);
-        assert_eq!(as_signed(0b111000000000000000000, 21), -262144);
-        assert_eq!(as_signed(0b000111111111111111111, 21), 262143);
+        assert_eq!(sign_ext(0b000000000000000101000, 21), 40);
+        assert_eq!(sign_ext(0b111111111111111011000, 21), -40);
+        assert_eq!(sign_ext(0b000000000000000000000, 21), 0);
+        assert_eq!(sign_ext(0b111111111111111111111, 21), -1);
+        assert_eq!(sign_ext(0b111000000000000000000, 21), -262144);
+        assert_eq!(sign_ext(0b000111111111111111111, 21), 262143);
 
-        assert_eq!(as_signed(7608, 13), -584);
+        assert_eq!(sign_ext(7608, 13), -584);
     }
 }
 

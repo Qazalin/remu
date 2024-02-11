@@ -5,7 +5,6 @@ pub trait Register {
     fn read64(&self, idx: usize) -> u64;
     fn write64(&mut self, idx: usize, addr: u64);
 }
-
 impl<T> Register for T
 where
     T: Index<usize, Output = u32> + IndexMut<usize>,
@@ -32,7 +31,6 @@ impl Index<usize> for VGPR {
         &self.values.get(&self.default_lane.unwrap()).unwrap()[index]
     }
 }
-
 impl IndexMut<usize> for VGPR {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self
@@ -41,7 +39,6 @@ impl IndexMut<usize> for VGPR {
             .or_insert([0; 256])[index]
     }
 }
-
 impl VGPR {
     pub fn new() -> Self {
         let mut values = HashMap::new();
@@ -91,13 +88,6 @@ impl WaveValue {
     }
     pub fn read(&self) -> bool {
         (self.value >> self.default_lane.unwrap()) & 1 == 1
-    }
-    pub fn mut_lane(&mut self, lane_id: usize, value: bool) {
-        if value {
-            self.value |= 1 << lane_id;
-        } else {
-            self.value &= !(1 << lane_id);
-        }
     }
     pub fn set_lane(&mut self, value: bool) {
         if self.mutations.is_none() {

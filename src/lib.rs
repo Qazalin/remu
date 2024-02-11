@@ -3,7 +3,6 @@ use crate::utils::DEBUG;
 use crate::work_group::WorkGroup;
 use std::os::raw::{c_char, c_void};
 use std::sync::atomic::Ordering::SeqCst;
-mod alu_modifiers;
 mod dtype;
 mod memory;
 mod state;
