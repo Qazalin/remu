@@ -1,13 +1,16 @@
 use half::f16;
+use lazy_static::lazy_static;
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::sync::atomic::AtomicBool;
+use std::sync::Mutex;
 use std::{env, fs, str};
 
 pub const END_PRG: u32 = 0xbfb00000;
 pub static DEBUG: AtomicBool = AtomicBool::new(false);
 lazy_static::lazy_static! {
     pub static ref CI: bool = env::var("CI").map(|v| v == "1").unwrap_or(false);
+    pub static ref PROFILE: bool = env::var("PROFILE").map(|v| v == "1").unwrap_or(false);
 }
 
 pub fn nth(val: u32, pos: usize) -> u32 {
@@ -160,4 +163,22 @@ macro_rules! todo_instr {
             .unwrap();
         std::panic!("TODO instruction {instr}");
     }};
+}
+
+#[derive(Debug)]
+pub struct GlobalCounter {
+    pub vgpr_used: usize,
+    pub gds_ops: usize,
+    pub lds_ops: usize,
+    pub wmma: usize,
+    pub wave_syncs: usize,
+}
+lazy_static! {
+    pub static ref GLOBAL_COUNTER: Mutex<GlobalCounter> = Mutex::new(GlobalCounter {
+        vgpr_used: 0,
+        gds_ops: 0,
+        lds_ops: 0,
+        wmma: 0,
+        wave_syncs: 0
+    });
 }

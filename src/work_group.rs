@@ -1,7 +1,7 @@
 use crate::memory::VecDataStore;
 use crate::state::{Register, WaveValue, VGPR};
 use crate::thread::Thread;
-use crate::utils::{Colorize, CI, DEBUG, END_PRG};
+use crate::utils::{Colorize, CI, DEBUG, END_PRG, GLOBAL_COUNTER};
 use std::collections::HashMap;
 use std::sync::atomic::Ordering::SeqCst;
 
@@ -65,6 +65,7 @@ impl<'a> WorkGroup<'a> {
         self.kernel.iter().enumerate().for_each(|(i, x)| {
             if i != 0 && BARRIERS.contains(&[*x, self.kernel[i - 1]]) {
                 syncs += 1;
+                GLOBAL_COUNTER.lock().unwrap().wave_syncs += 1;
             }
         });
         assert!(syncs <= 1);

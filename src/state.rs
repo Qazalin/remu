@@ -1,3 +1,4 @@
+use crate::utils::{GlobalCounter, GLOBAL_COUNTER};
 use std::collections::HashMap;
 use std::ops::{Index, IndexMut};
 
@@ -33,6 +34,7 @@ impl Index<usize> for VGPR {
 }
 impl IndexMut<usize> for VGPR {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        GLOBAL_COUNTER.lock().unwrap().vgpr_used += 1;
         &mut self
             .values
             .entry(self.default_lane.unwrap())
