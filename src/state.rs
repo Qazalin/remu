@@ -76,31 +76,17 @@ impl Value for u32 {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct VecMutation {
-    pub sgpr: Option<(usize, bool)>,
-    pub vcc: Option<bool>,
-    pub exec: Option<bool>,
-}
-impl VecMutation {
-    pub fn new() -> Self {
-        VecMutation {
-            sgpr: None,
-            vcc: None,
-            exec: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
 pub struct WaveValue {
     pub value: u32,
     pub default_lane: Option<usize>,
+    pub mutations: Option<[bool; 32]>,
 }
 impl WaveValue {
     pub fn new(value: u32) -> Self {
         Self {
             value,
             default_lane: None,
+            mutations: None,
         }
     }
     pub fn read(&self) -> bool {
@@ -111,6 +97,20 @@ impl WaveValue {
             self.value |= 1 << lane_id;
         } else {
             self.value &= !(1 << lane_id);
+        }
+    }
+    pub fn set_lane(&mut self, value: bool) {
+        if self.mutations.is_none() {
+            self.mutations = Some([false; 32])
+        }
+        self.mutations.as_mut().unwrap()[self.default_lane.unwrap()] = value;
+    }
+    pub fn apply_muts(&mut self) {
+        self.value = 0;
+        for lane in 0..32 {
+            if self.mutations.unwrap()[lane] {
+                self.value |= 1 << lane;
+            }
         }
     }
 }
@@ -126,6 +126,28 @@ mod test_state {
         assert!(!val.read());
         val.default_lane = Some(31);
         assert!(val.read());
+    }
+
+    #[test]
+    fn test_wave_value_mutations() {
+        let mut val = WaveValue::new(0b10001);
+        val.default_lane = Some(0);
+        val.set_lane(false);
+        assert!(val.mutations.unwrap().iter().all(|x| !x));
+        val.default_lane = Some(1);
+        val.set_lane(true);
+        assert_eq!(val.value, 0b10001);
+        assert_eq!(
+            val.mutations,
+            Some([
+                false, true, false, false, false, false, false, false, false, false, false, false,
+                false, false, false, false, false, false, false, false, false, false, false, false,
+                false, false, false, false, false, false, false, false,
+            ])
+        );
+
+        val.apply_muts();
+        assert_eq!(val.value, 0b10);
     }
 
     #[test]

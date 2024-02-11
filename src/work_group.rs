@@ -1,7 +1,7 @@
 use crate::memory::VecDataStore;
-use crate::state::{Register, VecMutation, WaveValue, VGPR};
+use crate::state::{Register, WaveValue, VGPR};
 use crate::thread::Thread;
-use crate::utils::{Colorize, DEBUG, END_PRG};
+use crate::utils::{Colorize, CI, DEBUG, END_PRG};
 use std::collections::HashMap;
 use std::sync::atomic::Ordering::SeqCst;
 
@@ -107,6 +107,12 @@ impl<'a> WorkGroup<'a> {
         let mut seeded_lanes = vec![];
         loop {
             if self.kernel[pc] == END_PRG {
+                if *CI {
+                    self.wave_state.insert(
+                        wave_id,
+                        WaveState(scalar_reg, scc, vec_reg, vcc, exec, pc, sds),
+                    );
+                }
                 break;
             }
             if BARRIERS.contains(&[self.kernel[pc], self.kernel[pc + 1]]) && wave_state.is_none() {
@@ -121,7 +127,7 @@ impl<'a> WorkGroup<'a> {
                 continue;
             }
 
-            let mut vec_mutations = vec![];
+            let mut sgpr_co = None;
             for (lane_id, [x, y, z]) in threads.iter().enumerate() {
                 vec_reg.default_lane = Some(lane_id);
                 vcc.default_lane = Some(lane_id);
@@ -153,10 +159,9 @@ impl<'a> WorkGroup<'a> {
                     stream: self.kernel[pc..self.kernel.len()].to_vec(),
                     scalar: false,
                     simm: None,
-                    vec_mutation: VecMutation::new(),
+                    sgpr_co: &mut sgpr_co,
                 };
                 thread.interpret();
-                vec_mutations.push(thread.vec_mutation);
                 if thread.scalar {
                     pc = ((pc as isize) + 1 + (thread.pc_offset as isize)) as usize;
                     break;
@@ -166,34 +171,21 @@ impl<'a> WorkGroup<'a> {
                 }
             }
 
-            if vec_mutations[0].vcc.is_some() {
-                vcc.value = 0;
+            if vcc.mutations.is_some() {
+                vcc.apply_muts();
+                vcc.mutations = None;
             }
-            if vec_mutations[0].exec.is_some() {
-                exec.value = 0;
+            if exec.mutations.is_some() {
+                exec.apply_muts();
+                exec.mutations = None;
             }
-            vec_mutations.iter().enumerate().for_each(|(lane_id, m)| {
-                if let Some(val) = m.vcc {
-                    vcc.mut_lane(lane_id, val);
-                }
-                if let Some(val) = m.exec {
-                    exec.mut_lane(lane_id, val);
-                }
-            });
-            if vec_mutations[0].sgpr.is_some() {
-                let (idx, val) = get_sgpr_carry_out(vec_mutations);
-                scalar_reg[idx] = val.value;
+            if let Some((idx, mut wv)) = sgpr_co {
+                wv.apply_muts();
+                scalar_reg[idx] = wv.value;
+                sgpr_co = None;
             }
         }
     }
-}
-
-pub fn get_sgpr_carry_out(lane_mutations: Vec<VecMutation>) -> (usize, WaveValue) {
-    let mut carry_out = WaveValue::new(0);
-    lane_mutations.iter().enumerate().for_each(|(lane_id, m)| {
-        carry_out.mut_lane(lane_id, m.sgpr.unwrap().1);
-    });
-    (lane_mutations[0].sgpr.unwrap().0, carry_out)
 }
 
 #[cfg(test)]
@@ -201,17 +193,53 @@ mod test_workgroup {
     use super::*;
 
     #[test]
-    fn test_get_sgpr_carry_out() {
-        let results = [false, true, false, false, true]
-            .iter()
-            .map(|x| VecMutation {
-                sgpr: Some((13, *x)),
-                vcc: None,
-                exec: None,
-            })
-            .collect::<Vec<_>>();
-        let sgpr = get_sgpr_carry_out(results);
-        assert_eq!(sgpr.0, 13);
-        assert_eq!(sgpr.1.value, 0b10010);
+    fn test_wave_value_state_vcc() {
+        let kernel = vec![
+            0xBEEA00FF,
+            0b11111111111111111111111111111111, // initial vcc state
+            0x7E140282,
+            0x7C94010A, // cmp blockDim.x == 2
+            END_PRG,
+        ];
+        let args = vec![];
+        let mut wg = WorkGroup::new(1, [0, 0, 0], [3, 1, 1], &kernel, &args);
+        wg.exec_waves();
+        let w0 = wg.wave_state.get(&0).unwrap();
+        assert_eq!(w0.3.value, 0b100);
+    }
+
+    #[test]
+    fn test_wave_value_state_exec() {
+        let kernel = vec![
+            0xBEFE00FF,
+            0b11111111111111111111111111111111,
+            0x7E140282,
+            0x7D9C010A, // cmpx blockDim.x <= 2
+            END_PRG,
+        ];
+        let args = vec![];
+        let mut wg = WorkGroup::new(1, [0, 0, 0], [4, 1, 1], &kernel, &args);
+        wg.exec_waves();
+        let w0 = wg.wave_state.get(&0).unwrap();
+        assert_eq!(w0.4.value, 0b0111);
+    }
+
+    #[test]
+    fn test_wave_value_sgpr_co() {
+        DEBUG.store(true, SeqCst);
+        let kernel = vec![
+            0xBE8D00FF,
+            0x7FFFFFFF,
+            0x7E1402FF,
+            u32::MAX,
+            0xD7000D0A,
+            0x0002010A,
+            END_PRG,
+        ];
+        let args = vec![];
+        let mut wg = WorkGroup::new(1, [0, 0, 0], [5, 1, 1], &kernel, &args);
+        wg.exec_waves();
+        let w0 = wg.wave_state.get(&0).unwrap();
+        assert_eq!(w0.0[13], 0b11110);
     }
 }

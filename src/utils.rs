@@ -6,6 +6,9 @@ use std::{env, fs, str};
 
 pub const END_PRG: u32 = 0xbfb00000;
 pub static DEBUG: AtomicBool = AtomicBool::new(false);
+lazy_static::lazy_static! {
+    pub static ref CI: bool = env::var("CI").map(|v| v == "1").unwrap_or(false);
+}
 
 pub fn nth(val: u32, pos: usize) -> u32 {
     return (val >> (31 - pos as u32)) & 1;

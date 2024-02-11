@@ -1,7 +1,7 @@
 use crate::alu_modifiers::VOPModifier;
 use crate::dtype::IEEEClass;
 use crate::memory::VecDataStore;
-use crate::state::{Register, Value, VecMutation, WaveValue, VGPR};
+use crate::state::{Register, Value, WaveValue, VGPR};
 use crate::todo_instr;
 use crate::utils::{as_signed, f16_hi, f16_lo, nth, Colorize, DEBUG, END_PRG};
 use half::f16;
@@ -27,7 +27,7 @@ pub struct Thread<'a> {
     pub pc_offset: usize,
     pub stream: Vec<u32>,
     pub simm: Option<u32>,
-    pub vec_mutation: VecMutation,
+    pub sgpr_co: &'a mut Option<(usize, WaveValue)>,
     pub scalar: bool,
 }
 
@@ -817,8 +817,8 @@ impl<'a> Thread<'a> {
             };
 
             match op >= 128 {
-                true => self.vec_mutation.exec = Some(ret),
-                false => self.vec_mutation.vcc = Some(ret),
+                true => self.exec.set_lane(ret),
+                false => self.vcc.set_lane(ret),
             };
         }
         // vop2
@@ -903,7 +903,7 @@ impl<'a> Thread<'a> {
                         }
                         32 => {
                             let temp = s0 as u64 + s1 as u64 + self.vcc.read() as u64;
-                            self.vec_mutation.vcc = Some(temp >= 0x100000000);
+                            self.vcc.set_lane(temp >= 0x100000000);
                             temp as u32
                         }
                         33 | 34 => {
@@ -912,8 +912,8 @@ impl<'a> Thread<'a> {
                                 34 => s1 - s0 - self.vcc.read() as u32,
                                 _ => panic!(),
                             };
-                            self.vec_mutation.vcc =
-                                Some((s1 as u64 + self.vcc.read() as u64) > s0 as u64);
+                            self.vcc
+                                .set_lane((s1 as u64 + self.vcc.read() as u64) > s0 as u64);
                             temp
                         }
                         11 => s0 * s1,
@@ -1008,9 +1008,9 @@ impl<'a> Thread<'a> {
                     };
 
                     match sdst {
-                        106 => self.vec_mutation.vcc = Some(vcc),
+                        106 => self.vcc.set_lane(vcc),
                         124 => {}
-                        _ => self.vec_mutation.sgpr = Some((sdst, vcc)),
+                        _ => self.set_sgpr_co(sdst, vcc),
                     }
                 }
                 _ => {
@@ -1094,9 +1094,9 @@ impl<'a> Thread<'a> {
                             };
 
                             match vdst {
-                                0..=SGPR_COUNT => self.vec_mutation.sgpr = Some((vdst, ret)),
-                                106 => self.vec_mutation.vcc = Some(ret),
-                                126 => self.vec_mutation.exec = Some(ret),
+                                0..=SGPR_COUNT => self.set_sgpr_co(vdst, ret),
+                                106 => self.vcc.set_lane(ret),
+                                126 => self.exec.set_lane(ret),
                                 _ => todo_instr!(instruction),
                             }
                         }
@@ -1633,6 +1633,18 @@ impl<'a> Thread<'a> {
             _ => todo!("write to sdst {}", sdst_bf),
         }
     }
+    fn set_sgpr_co(&mut self, idx: usize, val: bool) {
+        let mut wv = match self.sgpr_co {
+            Some((_, mut wv)) => wv,
+            None => {
+                let mut wv = WaveValue::new(0);
+                wv
+            }
+        };
+        wv.default_lane = self.vcc.default_lane;
+        wv.set_lane(val);
+        *self.sgpr_co = Some((idx, wv));
+    }
 
     fn simm(&mut self) -> u32 {
         if let Some(val) = self.simm {
@@ -1774,6 +1786,20 @@ mod test_alu_utils {
         assert_eq!(thread.cls_i32(0xffff3333), 16);
         assert_eq!(thread.cls_i32(0x7fffffff), 1);
         assert_eq!(thread.cls_i32(0x80000000), 1);
+    }
+
+    #[test]
+    fn test_sgpr_co_init() {
+        let mut thread = _helper_test_thread();
+        thread.vcc.default_lane = Some(0);
+        thread.set_sgpr_co(10, true);
+        thread.vcc.default_lane = Some(1);
+        assert_eq!(thread.sgpr_co.unwrap().0, 10);
+        assert_eq!(thread.sgpr_co.unwrap().1.mutations.unwrap()[0], true);
+        thread.set_sgpr_co(10, true);
+        assert_eq!(thread.sgpr_co.unwrap().0, 10);
+        assert_eq!(thread.sgpr_co.unwrap().1.mutations.unwrap()[1], true);
+        assert_eq!(thread.sgpr_co.unwrap().1.mutations.unwrap()[0], true);
     }
 }
 
@@ -3355,29 +3381,21 @@ fn r(prg: &Vec<u32>, thread: &mut Thread) {
             continue;
         }
         thread.pc_offset = 0;
-        thread.vec_mutation = VecMutation::new();
         thread.stream = instructions[pc..instructions.len()].to_vec();
         thread.interpret();
-        if let Some(val) = thread.vec_mutation.vcc {
-            thread.vcc.mut_lane(0, val);
-        }
-        if let Some(val) = thread.vec_mutation.exec {
-            thread.exec.mut_lane(0, val);
-        }
-        if let Some(val) = thread.vec_mutation.sgpr {
-            let mut sgpr_muts = (0..thread.vcc.default_lane.unwrap())
-                .into_iter()
-                .map(|_| VecMutation {
-                    sgpr: Some((val.0, false)),
-                    vcc: None,
-                    exec: None,
-                })
-                .collect::<Vec<_>>();
-            sgpr_muts.push(thread.vec_mutation);
-            let (idx, val) = crate::work_group::get_sgpr_carry_out(sgpr_muts);
-            thread.scalar_reg[idx] = val.value;
-        }
         thread.simm = None;
+        if thread.vcc.mutations.is_some() {
+            thread.vcc.apply_muts();
+            thread.vcc.mutations = None;
+        }
+        if thread.exec.mutations.is_some() {
+            thread.exec.apply_muts();
+            thread.exec.mutations = None;
+        }
+        if let Some((idx, mut wv)) = thread.sgpr_co {
+            wv.apply_muts();
+            thread.scalar_reg[*idx] = wv.value;
+        }
         pc = ((pc as isize) + 1 + (thread.pc_offset as isize)) as usize;
     }
 }
@@ -3389,6 +3407,7 @@ fn _helper_test_thread() -> Thread<'static> {
     let static_exec: &'static mut WaveValue = Box::leak(Box::new(WaveValue::new(u32::MAX)));
     let static_vcc: &'static mut WaveValue = Box::leak(Box::new(WaveValue::new(0)));
     let static_sds: &'static mut VecDataStore = Box::leak(Box::new(VecDataStore::new()));
+    let static_co: &'static mut Option<(usize, WaveValue)> = Box::leak(Box::new(None));
 
     let thread = Thread {
         scalar_reg: static_sgpr,
@@ -3401,7 +3420,7 @@ fn _helper_test_thread() -> Thread<'static> {
         simm: None,
         pc_offset: 0,
         stream: vec![],
-        vec_mutation: VecMutation::new(),
+        sgpr_co: static_co,
         scalar: false,
     };
     thread.vec_reg.default_lane = Some(0);
