@@ -264,12 +264,16 @@ impl<'a> Thread<'a> {
                     self.scalar_reg.write64(sdst as usize, ret);
                     *self.scc = (ret != 0) as u32;
                 }
-                9 | 13 | 40 | 41 => {
+                9 | 13 | 11 | 40 | 41 => {
                     let (s0, s1): (u64, u32) = (self.val(s0), self.val(s1));
                     let ret = match op {
                         9 => {
                             let ret = s0 << (s1 & 0x3f);
                             (ret, Some(ret != 0))
+                        }
+                        11 => {
+                            let ret = s0 >> (s1 & 0x3f);
+                            (ret as u64, Some(ret != 0))
                         }
                         13 => {
                             let ret = (s0 as i64) >> (s1 & 0x3f);
@@ -1221,14 +1225,15 @@ impl<'a> Thread<'a> {
                             }
 
                             let ret = match op {
-                                257 | 259 | 299 | 260 | 264 | 272 | 531 | 537 | 540 | 551 | 567
-                                | 796 => {
+                                257 | 259 | 299 | 260 | 261 | 264 | 272 | 531 | 537 | 540 | 551
+                                | 567 | 796 => {
                                     let s0 = f32::from_bits(s0).negate(0, neg).absolute(0, abs);
                                     let s1 = f32::from_bits(s1).negate(1, neg).absolute(1, abs);
                                     let s2 = f32::from_bits(s2).negate(2, neg).absolute(2, abs);
                                     match op {
                                         259 => s0 + s1,
                                         260 => s0 - s1,
+                                        261 => s1 - s0,
                                         264 => s0 * s1,
                                         272 => f32::max(s0, s1),
                                         299 => {
