@@ -1507,6 +1507,9 @@ impl<'a> Thread<'a> {
                                 *((addr + 4 * i as u64) as u64 as *mut u32) =
                                     self.vec_reg[data + i];
                             }),
+                            37 => {
+                                *(addr as *mut u16) = ((self.vec_reg[data] >> 16) & 0xffff) as u16
+                            }
                             _ => todo_instr!(instruction),
                         };
                     }
