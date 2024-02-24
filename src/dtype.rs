@@ -40,9 +40,24 @@ where
     }
 }
 
+pub fn extract_mantissa(x: f64) -> f64 {
+    if x.is_infinite() || x.is_nan() {
+        return x
+    }
+        let bits = x.to_bits();
+        let mantissa_mask: u64 = 0x000FFFFFFFFFFFFF;
+        let bias: u64 = 1023;
+        let normalized_mantissa_bits = (bits & mantissa_mask) | ((bias - 1) << 52);
+        return f64::from_bits(normalized_mantissa_bits)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn test_extract_mantissa() {
+        assert_eq!(extract_mantissa(2.0f64), 0.5);
+    }
 
     #[test]
     fn test_normal_exponent() {

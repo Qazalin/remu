@@ -1,4 +1,4 @@
-use crate::dtype::{IEEEClass, VOPModifier};
+use crate::dtype::{extract_mantissa, IEEEClass, VOPModifier};
 use crate::memory::VecDataStore;
 use crate::state::{Register, Value, WaveValue, VGPR};
 use crate::todo_instr;
@@ -578,16 +578,26 @@ impl<'a> Thread<'a> {
             }
 
             match op {
-                3 | 15 | 21 | 23 | 26 => {
+                3 | 15 | 21 | 23 | 25 | 26 | 61 => {
                     let s0: u64 = self.val(s0);
                     match op {
-                        3 | 15 | 21 | 23 | 26 => {
+                        3 | 15 | 21 | 23 | 25 | 26 | 61 => {
+                            let b = s0;
                             let s0 = f64::from_bits(s0);
                             match op {
-                                23 | 26 => {
+                                23 | 25 | 26 | 61 => {
                                     let ret = match op {
                                         23 => f64::trunc(s0),
+                                        25 => {
+                                            let mut temp = f64::floor(s0 + 0.5);
+                                            if f64::floor(s0) % 2.0 != 0.0 && f64::fract(s0) == 0.5
+                                            {
+                                                temp -= 1.0;
+                                            }
+                                            temp
+                                        }
                                         26 => f64::floor(s0),
+                                        61 => extract_mantissa(s0),
                                         _ => panic!(),
                                     };
                                     if self.exec.read() {
@@ -1128,11 +1138,13 @@ impl<'a> Thread<'a> {
                                         f64::from_bits(s1).negate(1, neg).absolute(1, abs),
                                         f64::from_bits(s2).negate(2, neg).absolute(2, abs),
                                     );
-
                                     match op {
                                         532 => f64::mul_add(s0, s1, s2),
                                         808 => s0 * s1,
-                                        811 => (s0 * 2.0).powi(s1.to_bits() as i32),
+                                        811 => {
+                                            let s1: u32 = self.val(src.1);
+                                            s0 * 2f64.powi(s1 as i32)
+                                        }
                                         807 => s0 + s1,
                                         _ => panic!(),
                                     }
@@ -2416,10 +2428,45 @@ mod test_vop1 {
         .for_each(|[a, ret]| {
             let mut thread = _helper_test_thread();
             thread.vec_reg[0] = f32::to_bits(*a);
-            println!("a={} ret={}", a.to_bits(), ret.to_bits());
             r(&vec![0x7E024700, END_PRG], &mut thread);
             assert_eq!(f32::from_bits(thread.vec_reg[1]), *ret);
         })
+    }
+
+    #[test]
+    fn test_v_rndne_f64() {
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[0] = 0x652b82fe;
+        thread.vec_reg[1] = 0x40071547;
+        r(&vec![0x7E043300, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[2], 0);
+        assert_eq!(thread.vec_reg[3], 1074266112);
+    }
+
+    #[test]
+    fn test_v_cvt_i32_f64() {
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[2] = 0;
+        thread.vec_reg[3] = 0x40080000;
+        r(&vec![0x7E080702, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[4], 3);
+    }
+
+    #[test]
+    fn test_v_frexp_mant_f64() {
+        [[2.0, 0.5], [1.0, 0.5], [0.54, 0.54], [f64::NAN, f64::NAN]]
+            .iter()
+            .for_each(|[x, expected]| {
+                let mut thread = _helper_test_thread();
+                thread.vec_reg.write64(0, f64::to_bits(*x));
+                r(&vec![0x7E047B00, END_PRG], &mut thread);
+                let ret = f64::from_bits(thread.vec_reg.read64(2));
+                if ret.is_nan() {
+                    assert!(ret.is_nan() && expected.is_nan());
+                } else {
+                    assert_eq!(f64::from_bits(thread.vec_reg.read64(2)), *expected)
+                }
+            })
     }
 }
 
@@ -2834,6 +2881,18 @@ mod test_vop3 {
     }
 
     #[test]
+    fn test_v_add_f64_neg_modifier() {
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[0] = 0x652b82fe;
+        thread.vec_reg[1] = 0x40071547;
+        thread.vec_reg[2] = 0;
+        thread.vec_reg[3] = 0x40080000;
+        r(&vec![0xD7270004, 0x40020500, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[4], 1519362112);
+        assert_eq!(thread.vec_reg[5], 3216856851);
+    }
+
+    #[test]
     fn test_v_cvt_f32_f16_abs_modifier() {
         [[0.4, 0.4], [-0.4, 0.4]].iter().for_each(|[a, ret]| {
             let mut thread = _helper_test_thread();
@@ -3043,6 +3102,55 @@ mod test_vop3 {
             &mut thread,
         );
         assert_eq!(thread.vec_reg[15], 1044906240);
+    }
+
+    #[test]
+    fn test_v_mul_f64() {
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[0] = 0x5a8fa040;
+        thread.vec_reg[1] = 0xbfbd5713;
+        thread.vec_reg[2] = 0x3b39803f;
+        thread.vec_reg[3] = 0x3c7abc9e;
+        r(&vec![0xD7280004, 0x00020500, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[4], 1602589062);
+        assert_eq!(thread.vec_reg[5], 3158868912);
+    }
+
+    #[test]
+    fn test_v_fma_f64() {
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[0] = 0x5a8fa040;
+        thread.vec_reg[1] = 0xbfbd5713;
+        thread.vec_reg[2] = 0xfefa39ef;
+        thread.vec_reg[3] = 0x3fe62e42;
+        thread.vec_reg[4] = 0x5f859186;
+        thread.vec_reg[5] = 0xbc4883b0;
+        r(&vec![0xD6140006, 0x04120500, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[6], 3883232879);
+        assert_eq!(thread.vec_reg[7], 3216266823);
+    }
+
+    #[test]
+    fn test_v_fma_f64_const() {
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[0] = 0xf690ecbf;
+        thread.vec_reg[1] = 0x3fdf2b4f;
+        thread.vec_reg[2] = 0xe7756e6f;
+        thread.vec_reg[3] = 0xbfb45647;
+        r(&vec![0xD6140004, 0x03CA0500, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[4], 962012421);
+        assert_eq!(thread.vec_reg[5], 1072612110);
+    }
+
+    #[test]
+    fn test_v_ldexp_f64() {
+        let mut thread = _helper_test_thread();
+        thread.vec_reg.write64(0, f64::to_bits(5.0));
+        thread.vec_reg[2] = 3;
+        thread.vec_reg[3] = 3;
+        r(&vec![0xD72B0000, 0x00020500, END_PRG], &mut thread);
+        let val = f64::from_bits(thread.vec_reg.read64(0));
+        assert_eq!(val, 40.0);
     }
 }
 

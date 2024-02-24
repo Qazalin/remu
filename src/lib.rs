@@ -51,6 +51,7 @@ pub extern "C" fn hipModuleLaunchKernel(
         (true, false) => 2,
         _ => 1,
     };
+    DEBUG.store(true, SeqCst);
     if !*EXPERIMENTAL_MULTITHREADED {
         for gx in 0..gx {
             for gy in 0..gy {
