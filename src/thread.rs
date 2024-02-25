@@ -88,6 +88,7 @@ impl<'a> Thread<'a> {
                         0 => s0,
                         10 => self.clz_i32_u32(s0),
                         12 => self.cls_i32(s0),
+                        4 => s0.reverse_bits(),
                         14 => s0 as i8 as i32 as u32,
                         16 | 18 => {
                             let sdst: u32 = self.val(sdst as usize);
@@ -152,6 +153,10 @@ impl<'a> Thread<'a> {
                 6..=11 => {
                     let (s0, s1): (u32, u32) = (self.val(s0), self.val(s1));
                     scmp(s0, s1, 6, op)
+                }
+                12 => {
+                    let (s0, s1): (u32, u32) = (self.val(s0), self.val(s1));
+                    s0 & (1 << (s1 & 0x1F)) == 0
                 }
                 16 | 17 => {
                     let (s0, s1): (u64, u64) = (self.val(s0), self.val(s1));
@@ -578,14 +583,14 @@ impl<'a> Thread<'a> {
             }
 
             match op {
-                3 | 15 | 21 | 23 | 25 | 26 | 60 | 61 | 47 => {
+                3 | 15 | 21 | 23 | 25 | 26 | 60 | 61 | 47 | 49 => {
                     let s0: u64 = self.val(s0);
                     match op {
-                        3 | 15 | 21 | 23 | 25 | 26 | 60 | 61 | 47 => {
+                        3 | 15 | 21 | 23 | 25 | 26 | 60 | 61 | 47 | 49 => {
                             let b = s0;
                             let s0 = f64::from_bits(s0);
                             match op {
-                                23 | 25 | 26 | 61 | 47 => {
+                                23 | 25 | 26 | 61 | 47 | 49 => {
                                     let ret = match op {
                                         23 => f64::trunc(s0),
                                         25 => {
@@ -598,6 +603,7 @@ impl<'a> Thread<'a> {
                                         }
                                         26 => f64::floor(s0),
                                         47 => 1.0 / s0,
+                                        49 => 1.0 / f64::sqrt(s0),
                                         61 => extract_mantissa(s0),
                                         _ => panic!(),
                                     };
@@ -1881,6 +1887,14 @@ mod test_sop1 {
     use super::*;
 
     #[test]
+    fn test_s_brev_b32() {
+        let mut thread = _helper_test_thread();
+        thread.scalar_reg[5] = 8;
+        r(&vec![0xBE850405, END_PRG], &mut thread);
+        assert_eq!(thread.scalar_reg[5], 268435456);
+    }
+
+    #[test]
     fn test_s_mov_b64() {
         let mut thread = _helper_test_thread();
         thread.scalar_reg.write64(16, 5236523008);
@@ -2219,6 +2233,29 @@ mod test_sop2 {
 }
 
 #[cfg(test)]
+mod test_sopc {
+    use super::*;
+
+    #[test]
+    fn test_s_bitcmp0_b32() {
+        [
+            [0b00, 0b1, 0],
+            [0b01, 0b1, 1],
+            [0b10, 0b1, 1],
+            [0b10000000, 0b1, 0],
+        ]
+        .iter()
+        .for_each(|[s0, s1, scc]| {
+            let mut thread = _helper_test_thread();
+            thread.scalar_reg[3] = *s0;
+            thread.scalar_reg[4] = *s1;
+            r(&vec![0xBF0C0304, END_PRG], &mut thread);
+            assert_eq!(*thread.scc, *scc);
+        })
+    }
+}
+
+#[cfg(test)]
 mod test_vopd {
     use super::*;
 
@@ -2333,6 +2370,7 @@ mod test_vopd {
 #[cfg(test)]
 mod test_vop1 {
     use super::*;
+    use float_cmp::approx_eq;
 
     #[test]
     fn test_v_mov_b32_srrc_const0() {
@@ -2544,6 +2582,24 @@ mod test_vop1 {
             r(&vec![0x7E047900, END_PRG], &mut thread);
             assert_eq!(thread.vec_reg[2], *ret);
         })
+    }
+
+    #[test]
+    fn test_v_rsq_f64() {
+        [(2.0, 0.707), (f64::NEG_INFINITY, f64::NAN)]
+            .iter()
+            .for_each(|(x, ret)| {
+                let mut thread = _helper_test_thread();
+                thread.vec_reg.write64(0, f64::to_bits(*x));
+                println!("{} {}", thread.vec_reg[0], thread.vec_reg[1]);
+                r(&vec![0x7E046300, END_PRG], &mut thread);
+                assert!(approx_eq!(
+                    f64,
+                    f64::from_bits(thread.vec_reg.read64(2)),
+                    *ret,
+                    (0.01, 2)
+                ));
+            })
     }
 }
 
