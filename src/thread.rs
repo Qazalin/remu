@@ -578,14 +578,14 @@ impl<'a> Thread<'a> {
             }
 
             match op {
-                3 | 15 | 21 | 23 | 25 | 26 | 61 => {
+                3 | 15 | 21 | 23 | 25 | 26 | 60 | 61 | 47 => {
                     let s0: u64 = self.val(s0);
                     match op {
-                        3 | 15 | 21 | 23 | 25 | 26 | 61 => {
+                        3 | 15 | 21 | 23 | 25 | 26 | 60 | 61 | 47 => {
                             let b = s0;
                             let s0 = f64::from_bits(s0);
                             match op {
-                                23 | 25 | 26 | 61 => {
+                                23 | 25 | 26 | 61 | 47 => {
                                     let ret = match op {
                                         23 => f64::trunc(s0),
                                         25 => {
@@ -597,6 +597,7 @@ impl<'a> Thread<'a> {
                                             temp
                                         }
                                         26 => f64::floor(s0),
+                                        47 => 1.0 / s0,
                                         61 => extract_mantissa(s0),
                                         _ => panic!(),
                                     };
@@ -609,6 +610,15 @@ impl<'a> Thread<'a> {
                                         3 => s0 as i32 as u32,
                                         15 => (s0 as f32).to_bits(),
                                         21 => s0 as u32,
+                                        60 => {
+                                            match (s0 == f64::INFINITY)
+                                                || (s0 == f64::NEG_INFINITY)
+                                                || s0.is_nan()
+                                            {
+                                                true => 0,
+                                                false => (s0.exponent() as i32 - 1023 + 1) as u32,
+                                            }
+                                        }
                                         _ => panic!(),
                                     };
                                     if self.exec.read() {
@@ -798,10 +808,18 @@ impl<'a> Thread<'a> {
                         _ => self.cmpf(s0, s1, op - 16 - dest_offset),
                     }
                 }
-                (32..=47) | (160..=174) => {
+                (32..=47) | 127 | (160..=174) => {
                     let s0 = f64::from_bits(self.val(s0));
-                    let s1 = f64::from_bits(self.vec_reg.read64(s1));
-                    self.cmpf(s0, s1, op - 32 - dest_offset)
+                    match op {
+                        127 => {
+                            let s1 = self.val(s1);
+                            self.cmp_class_f64(s0, s1)
+                        }
+                        _ => {
+                            let s1 = f64::from_bits(self.vec_reg.read64(s1));
+                            self.cmpf(s0, s1, op - 32 - dest_offset)
+                        }
+                    }
                 }
                 (49..=54) | (177..=182) => {
                     let (s0, s1): (u16, u16) = (self.val(s0), self.vec_reg[s1] as u16);
@@ -1074,11 +1092,21 @@ impl<'a> Thread<'a> {
                                         _ => self.cmpf(s0, s1, op - 16 - dest_offset),
                                     }
                                 }
-                                (32..=47) | (160..=174) => {
-                                    let (s0, s1) = (self.val(src.0), self.val(src.1));
+                                (32..=47) | 127 | (160..=174) => {
+                                    let s0 = self.val(src.0);
                                     let s0 = f64::from_bits(s0).negate(0, neg).absolute(0, abs);
-                                    let s1 = f64::from_bits(s1).negate(1, neg).absolute(1, abs);
-                                    self.cmpf(s0, s1, op - 32 - dest_offset)
+                                    match op {
+                                        127 => {
+                                            let s1 = self.val(src.1);
+                                            self.cmp_class_f64(s0, s1)
+                                        }
+                                        _ => {
+                                            let s1 = self.val(src.1);
+                                            let s1 =
+                                                f64::from_bits(s1).negate(1, neg).absolute(1, abs);
+                                            self.cmpf(s0, s1, op - 32 - dest_offset)
+                                        }
+                                    }
                                 }
                                 (49..=54) | (177..=182) => {
                                     let (s0, s1): (u16, u16) = (self.val(src.0), self.val(src.1));
@@ -1554,6 +1582,28 @@ impl<'a> Thread<'a> {
             15 => true,
             _ => panic!("{offset}"),
         };
+    }
+    fn cmp_class_f64(&self, s0: f64, s1: u32) -> bool {
+        let offset = match s0 {
+            _ if s0.is_nan() => 1,
+            _ if s0.is_infinite() => match s0.signum() == -1.0 {
+                true => 2,
+                false => 9,
+            },
+            _ if s0.exponent() > 0 => match s0.signum() == -1.0 {
+                true => 3,
+                false => 8,
+            },
+            _ if s0.abs() > 0.0 => match s0.signum() == -1.0 {
+                true => 4,
+                false => 7,
+            },
+            _ => match s0.signum() == -1.0 {
+                true => 5,
+                false => 6,
+            },
+        };
+        ((s1 >> offset) & 1) != 0
     }
     fn cmp_class_f32(&self, s0: f32, s1: u32) -> bool {
         let offset = match s0 {
@@ -2468,6 +2518,33 @@ mod test_vop1 {
                 }
             })
     }
+
+    #[test]
+    fn test_v_rcp_f64() {
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[0] = 0;
+        thread.vec_reg[1] = 1073741824;
+        r(&vec![0x7E045F00, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[2], 0);
+        assert_eq!(thread.vec_reg[3], 1071644672);
+    }
+
+    #[test]
+    fn test_v_frexp_exp_i32_f64() {
+        [
+            (3573412790272.0, 42),
+            (69.0, 7),
+            (2.0, 2),
+            (f64::NEG_INFINITY, 0),
+        ]
+        .iter()
+        .for_each(|(x, ret)| {
+            let mut thread = _helper_test_thread();
+            thread.vec_reg.write64(0, f64::to_bits(*x));
+            r(&vec![0x7E047900, END_PRG], &mut thread);
+            assert_eq!(thread.vec_reg[2], *ret);
+        })
+    }
 }
 
 #[cfg(test)]
@@ -2535,6 +2612,29 @@ mod test_vopc {
 
         assert!(thread.cmp_class_f32(-0.0, 0b00000000000000000000000000100000));
         assert!(thread.cmp_class_f32(0.0, 0b00000000000000000000000001000000));
+    }
+
+    #[test]
+    fn test_cmp_class_f64() {
+        let thread = _helper_test_thread();
+
+        assert!(!thread.cmp_class_f64(f64::NAN, 0b00001));
+        assert!(thread.cmp_class_f64(f64::NAN, 0b00010));
+
+        assert!(thread.cmp_class_f64(f64::INFINITY, 0b00000000000000000000001000000000));
+        assert!(!thread.cmp_class_f64(f64::INFINITY, 0b00000000000000000000000000000010));
+
+        assert!(thread.cmp_class_f64(f64::NEG_INFINITY, 0b00000000000000000000000000000100));
+        assert!(!thread.cmp_class_f64(f64::NEG_INFINITY, 0b00000000000000000000010000000000));
+
+        assert!(!thread.cmp_class_f64(0.752, 0b00000000000000000000000000000000));
+        assert!(thread.cmp_class_f64(0.752, 0b00000000000000000000000100000000));
+
+        assert!(!thread.cmp_class_f64(-1.0e-42, 0b00000000000000000000000000010000));
+        assert!(thread.cmp_class_f64(-1.0e-42, 0b11111111111111111111111111101111));
+
+        assert!(thread.cmp_class_f64(-0.0, 0b00000000000000000000000000100000));
+        assert!(thread.cmp_class_f64(0.0, 0b00000000000000000000000001000000));
     }
 }
 #[cfg(test)]
