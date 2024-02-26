@@ -55,6 +55,9 @@ pub fn extract_mantissa(x: f64) -> f64 {
     let normalized_mantissa_bits = (bits & mantissa_mask) | ((bias - 1) << 52);
     return f64::from_bits(normalized_mantissa_bits);
 }
+pub fn ldexp(x: f64, exp: i32) -> f64 {
+    x * 2f64.powi(exp)
+}
 
 #[cfg(test)]
 mod tests {

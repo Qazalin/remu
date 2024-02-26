@@ -1,4 +1,4 @@
-use crate::dtype::{extract_mantissa, IEEEClass, VOPModifier};
+use crate::dtype::{extract_mantissa, ldexp, IEEEClass, VOPModifier};
 use crate::memory::VecDataStore;
 use crate::state::{Register, Value, WaveValue, VGPR};
 use crate::todo_instr;
@@ -1017,7 +1017,15 @@ impl<'a> Thread<'a> {
                             }
                             overflowed
                         }
-                        765 => todo!(),
+                        765 => {
+                            let (mut ret, mut vcc) = (0.0, false);
+                            assert!(f64::from_bits(self.val(s2)).exponent() <= 1076);
+                            ret = ldexp(f64::from_bits(self.val(s0)), 128);
+                            if self.exec.read() {
+                                self.vec_reg.write64(vdst, ret.to_bits());
+                            }
+                            vcc
+                        }
                         _ => {
                             let (s0, s1, s2): (u32, u32, u32) =
                                 (self.val(s0), self.val(s1), self.val(s2));
@@ -1170,11 +1178,11 @@ impl<'a> Thread<'a> {
                                 self.vec_reg.write64(vdst, ret)
                             }
                         }
-                        808 | 807 | 811 | 532 => {
+                        808 | 807 | 811 | 532 | 552 | 568 => {
                             let (s0, s1, s2): (u64, u64, u64) =
                                 (self.val(src.0), self.val(src.1), self.val(src.2));
                             let ret = match op {
-                                532 | 808 | 807 | 811 => {
+                                532 | 552 | 568 | 808 | 807 | 811 => {
                                     let (s0, s1, s2) = (
                                         f64::from_bits(s0).negate(0, neg).absolute(0, abs),
                                         f64::from_bits(s1).negate(1, neg).absolute(1, abs),
@@ -1182,12 +1190,20 @@ impl<'a> Thread<'a> {
                                     );
                                     match op {
                                         532 => f64::mul_add(s0, s1, s2),
+                                        552 => {
+                                            assert!(s0.is_normal());
+                                            s0
+                                        }
                                         808 => s0 * s1,
                                         811 => {
                                             let s1: u32 = self.val(src.1);
                                             s0 * 2f64.powi(s1 as i32)
                                         }
                                         807 => s0 + s1,
+                                        568 => {
+                                            assert!(!self.vcc.read());
+                                            f64::mul_add(s0, s1, s2)
+                                        }
                                         _ => panic!(),
                                     }
                                     .to_bits()
@@ -2890,6 +2906,20 @@ mod test_vopsd {
         r(&vec![0xD7000D02, 0x00020503, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[2], u32::MAX);
         assert_eq!(thread.scalar_reg[13], 0b10);
+    }
+
+    #[test]
+    fn test_v_div_scale_f64() {
+        let mut thread = _helper_test_thread();
+        let v = -0.41614683654714246;
+        thread.vec_reg.write64(0, f64::to_bits(v));
+        thread.vec_reg.write64(2, f64::to_bits(v));
+        thread.vec_reg.write64(4, f64::to_bits(0.909));
+        r(&vec![0xD6FD7C06, 0x04120500, END_PRG], &mut thread);
+        thread.vec_reg[6] = 1465086470;
+        thread.vec_reg[7] = 3218776614;
+        let ret = f64::from_bits(thread.vec_reg.read64(6));
+        assert_eq!(ret, v);
     }
 }
 
