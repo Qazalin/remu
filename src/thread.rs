@@ -978,17 +978,18 @@ impl<'a> Thread<'a> {
 
             let op = ((instr >> 16) & 0x3ff) as u32;
             match op {
-                764 | 288 | 289 | 766 | 768 | 769 => {
+                764 | 765 | 288 | 289 | 766 | 768 | 769 => {
                     let vdst = (instr & 0xff) as usize;
                     let sdst = ((instr >> 8) & 0x7f) as usize;
-                    let mut s = |i: u32| -> u32 { self.val(((instr >> i) & 0x1ff) as usize) };
-                    let (s0, s1, s2) = (s(32), s(41), s(50));
-                    let get_carry_in = || match (instr >> 50) & 0x1ff {
-                        idx => {
-                            let mut wave_value = WaveValue::new(self.scalar_reg[idx as usize]);
-                            wave_value.default_lane = self.vcc.default_lane;
-                            wave_value.read()
+                    let f = |i: u32| -> usize { ((instr >> i) & 0x1ff) as usize };
+                    let (s0, s1, s2) = (f(32), f(41), f(50));
+                    let carry_in = match s2 <= SGPR_COUNT {
+                        true => {
+                            let mut wv = WaveValue::new(self.scalar_reg[s2]);
+                            wv.default_lane = self.vcc.default_lane;
+                            Some(wv.read())
                         }
+                        false => None,
                     };
                     let omod = (instr >> 59) & 0x3;
                     let _neg = (instr >> 61) & 0x7;
@@ -1006,7 +1007,8 @@ impl<'a> Thread<'a> {
 
                     let vcc = match op {
                         766 => {
-                            let s2: u64 = self.val(((instr >> 50) & 0x1ff) as usize);
+                            let (s0, s1, s2): (u32, u32, u64) =
+                                (self.val(s0), self.val(s1), self.val(s2));
                             let (mul_result, overflow_mul) = (s0 as u64).overflowing_mul(s1 as u64);
                             let (ret, overflow_add) = mul_result.overflowing_add(s2);
                             let overflowed = overflow_mul || overflow_add;
@@ -1015,17 +1017,23 @@ impl<'a> Thread<'a> {
                             }
                             overflowed
                         }
+                        765 => todo!(),
                         _ => {
+                            let (s0, s1, s2): (u32, u32, u32) =
+                                (self.val(s0), self.val(s1), self.val(s2));
                             let (ret, vcc) = match op {
                                 288 => {
-                                    let ret = s0 as u64 + s1 as u64 + get_carry_in() as u64;
+                                    let ret = s0 as u64 + s1 as u64 + carry_in.unwrap() as u64;
                                     (ret as u32, ret >= 0x100000000)
                                 }
                                 289 => {
                                     let ret = (s0 as u64)
                                         .wrapping_sub(s1 as u64)
-                                        .wrapping_sub(get_carry_in() as u64);
-                                    (ret as u32, s1 as u64 + (get_carry_in() as u64) > s0 as u64)
+                                        .wrapping_sub(carry_in.unwrap() as u64);
+                                    (
+                                        ret as u32,
+                                        s1 as u64 + (carry_in.unwrap() as u64) > s0 as u64,
+                                    )
                                 }
                                 764 => (0, false), // NOTE: div scaling isn't required
                                 768 => {
