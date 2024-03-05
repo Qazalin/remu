@@ -225,6 +225,7 @@ impl<'a> Thread<'a> {
                     let s1 = simm as u16 as u32;
                     *self.scc = match op {
                         9 => s0 == s1,
+                        10 => s0 != s1,
                         13 => s0 < s1,
                         _ => todo_instr!(instruction),
                     } as u32
