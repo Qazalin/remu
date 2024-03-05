@@ -123,7 +123,7 @@ impl<'a> WorkGroup<'a> {
                 );
                 break;
             }
-            if SYNCS.contains(&self.kernel[pc]) || self.kernel[pc] >> 20 == 0xbf8 {
+            if SYNCS.contains(&self.kernel[pc]) || self.kernel[pc] >> 20 == 0xbf8 || self.kernel[pc] == 0x7E000000 {
                 pc += 1;
                 continue;
             }
