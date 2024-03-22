@@ -3,7 +3,6 @@ use crate::utils::{DEBUG, GLOBAL_COUNTER, PROFILE};
 use crate::work_group::WorkGroup;
 use std::os::raw::{c_char, c_void};
 use std::sync::atomic::Ordering::SeqCst;
-use std::sync::Arc;
 mod dtype;
 mod memory;
 mod state;
@@ -51,23 +50,13 @@ pub extern "C" fn hipModuleLaunchKernel(
         (true, false) => 2,
         _ => 1,
     };
-    let (kernel, args) = (Arc::new(kernel), Arc::new(args));
-    let mut handles = vec![];
-
     for gx in 0..gx {
         for gy in 0..gy {
             for gz in 0..gz {
-                let (k, a) = (Arc::clone(&kernel), Arc::clone(&args));
-                let handle = std::thread::spawn(move || {
-                    WorkGroup::new(dispatch_dim, [gx, gy, gz], [lx, ly, lz], &k, &a).exec_waves();
-                });
-                handles.push(handle);
+                WorkGroup::new(dispatch_dim, [gx, gy, gz], [lx, ly, lz], &kernel, &args)
+                    .exec_waves();
             }
         }
-    }
-
-    for handle in handles {
-        handle.join().unwrap()
     }
     if *PROFILE {
         println!("{:?}", GLOBAL_COUNTER.lock().unwrap());
