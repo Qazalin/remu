@@ -706,9 +706,9 @@ impl<'a> Thread<'a> {
                                 55 => !s0,
                                 59 => self.cls_i32(s0),
                                 80 => f16::from_f32(s0 as u16 as f32).to_bits() as u32,
-                                81 => f16::from_f32(s0 as i16 as u16 as f32).to_bits() as u32,
-                                82 => f32::from(f16::from_bits(s0 as u16)) as i16 as u32,
-                                83 => f32::from(f16::from_bits(s0 as u16)) as u32,
+                                81 => f16::from_f32(s0 as i16 as f32).to_bits() as u32,
+                                82 => f32::from(f16::from_bits(s0 as u16)) as u32,
+                                83 => f32::from(f16::from_bits(s0 as u16)) as i16 as u32,
                                 _ => todo_instr!(instruction),
                             };
                             if self.exec.read() {
