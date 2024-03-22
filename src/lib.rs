@@ -1,5 +1,5 @@
 #![allow(unused)]
-use crate::utils::{DEBUG, EXPERIMENTAL_MULTITHREADED, GLOBAL_COUNTER, PROFILE};
+use crate::utils::{DEBUG, GLOBAL_COUNTER, PROFILE};
 use crate::work_group::WorkGroup;
 use std::os::raw::{c_char, c_void};
 use std::sync::atomic::Ordering::SeqCst;
@@ -51,35 +51,23 @@ pub extern "C" fn hipModuleLaunchKernel(
         (true, false) => 2,
         _ => 1,
     };
-    if !*EXPERIMENTAL_MULTITHREADED {
-        for gx in 0..gx {
-            for gy in 0..gy {
-                for gz in 0..gz {
-                    WorkGroup::new(dispatch_dim, [gx, gy, gz], [lx, ly, lz], &kernel, &args)
-                        .exec_waves();
-                }
+    let (kernel, args) = (Arc::new(kernel), Arc::new(args));
+    let mut handles = vec![];
+
+    for gx in 0..gx {
+        for gy in 0..gy {
+            for gz in 0..gz {
+                let (k, a) = (Arc::clone(&kernel), Arc::clone(&args));
+                let handle = std::thread::spawn(move || {
+                    WorkGroup::new(dispatch_dim, [gx, gy, gz], [lx, ly, lz], &k, &a).exec_waves();
+                });
+                handles.push(handle);
             }
         }
-    } else {
-        let (kernel, args) = (Arc::new(kernel), Arc::new(args));
-        let mut handles = vec![];
+    }
 
-        for gx in 0..gx {
-            for gy in 0..gy {
-                for gz in 0..gz {
-                    let (k, a) = (Arc::clone(&kernel), Arc::clone(&args));
-                    let handle = std::thread::spawn(move || {
-                        WorkGroup::new(dispatch_dim, [gx, gy, gz], [lx, ly, lz], &k, &a)
-                            .exec_waves();
-                    });
-                    handles.push(handle);
-                }
-            }
-        }
-
-        for handle in handles {
-            handle.join().unwrap()
-        }
+    for handle in handles {
+        handle.join().unwrap()
     }
     if *PROFILE {
         println!("{:?}", GLOBAL_COUNTER.lock().unwrap());
