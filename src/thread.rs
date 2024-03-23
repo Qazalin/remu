@@ -906,6 +906,8 @@ impl<'a> Thread<'a> {
                                     50 => s0 + s1,
                                     51 => s0 - s1,
                                     53 => s0 * s1,
+                                    57 => f16::max(s0, s1),
+                                    58 => f16::min(s0, s1),
                                     _ => todo_instr!(instruction),
                                 }
                                 .to_bits() as u32,
@@ -1179,11 +1181,11 @@ impl<'a> Thread<'a> {
                                 self.vec_reg.write64(vdst, ret)
                             }
                         }
-                        808 | 807 | 811 | 532 | 552 | 568 => {
+                        532 | 552 | 568 | (807..=811) => {
                             let (s0, s1, s2): (u64, u64, u64) =
                                 (self.val(src.0), self.val(src.1), self.val(src.2));
                             let ret = match op {
-                                532 | 552 | 568 | 808 | 807 | 811 => {
+                                532 | 552 | 568 | (807..=811) => {
                                     let (s0, s1, s2) = (
                                         f64::from_bits(s0).negate(0, neg).absolute(0, abs),
                                         f64::from_bits(s1).negate(1, neg).absolute(1, abs),
@@ -1195,7 +1197,10 @@ impl<'a> Thread<'a> {
                                             assert!(s0.is_normal());
                                             s0
                                         }
+                                        807 => s0 + s1,
                                         808 => s0 * s1,
+                                        809 => f64::min(s0, s1),
+                                        810 => f64::max(s0, s1),
                                         811 => {
                                             let s1: u32 = self.val(src.1);
                                             s0 * 2f64.powi(s1 as i32)
@@ -1215,7 +1220,7 @@ impl<'a> Thread<'a> {
                                 self.vec_reg.write64(vdst, ret)
                             }
                         }
-                        306 | 596 | 584 => {
+                        306 | 313 | 596 | 584 => {
                             let (s0, s1, s2) = (self.val(src.0), self.val(src.1), self.val(src.2));
                             let s0 = f16::from_bits(s0).negate(0, neg).absolute(0, abs);
                             let s1 = f16::from_bits(s1).negate(1, neg).absolute(1, abs);
@@ -1224,6 +1229,8 @@ impl<'a> Thread<'a> {
                                 306 => s0 + s1,
                                 584 => f16::mul_add(s0, s1, s2),
                                 596 => s2 / s1,
+                                313 => f16::max(s0, s1),
+                                314 => f16::min(s0, s1),
                                 _ => panic!(),
                             }
                             .to_bits();
