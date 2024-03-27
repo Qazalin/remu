@@ -4,8 +4,9 @@ This is a minimal RDNA3 emulator built for and tested against [tinygrad kernels]
 
 
 #### Requirements
-- [ROCM toolkit](https://rocm.docs.amd.com/projects/install-on-linux/en/latest/) - for compiling the kernels
 
+Direct RDNA3 use is supported.
+cstyle languages need `comgr` and `rocm-llvm`.
 
 #### Usage
 
@@ -16,7 +17,7 @@ curl -s https://api.github.com/repos/Qazalin/remu/releases/latest | \
     xargs curl -L -o /usr/local/lib/libremu.so
 ```
 
-2. Run tinygrad with `HIP=1 HIPCPU=1`.
+2. Run tinygrad with `RHIP=1`.
 
 ## Limitations
 
