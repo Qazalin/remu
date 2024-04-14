@@ -5,8 +5,7 @@ This is a minimal RDNA3 emulator built for and tested against [tinygrad kernels]
 
 #### Requirements
 
-Direct RDNA3 use is supported.
-cstyle languages need `comgr` and `rocm-llvm`.
+`rocm-llvm`
 
 #### Usage
 
