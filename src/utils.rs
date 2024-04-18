@@ -11,6 +11,7 @@ pub static DEBUG: AtomicBool = AtomicBool::new(false);
 lazy_static::lazy_static! {
     pub static ref CI: bool = env::var("CI").map(|v| v == "1").unwrap_or(false);
     pub static ref PROFILE: bool = env::var("PROFILE").map(|v| v == "1").unwrap_or(false);
+    pub static ref GLOBAL_DEBUG: bool = env::var("DEBUG").map(|v| v == "1").unwrap_or(false);
 }
 
 pub fn nth(val: u32, pos: usize) -> u32 {

@@ -90,6 +90,7 @@ impl<'a> Thread<'a> {
                         12 => self.cls_i32(s0),
                         4 => s0.reverse_bits(),
                         14 => s0 as i8 as i32 as u32,
+                        15 => s0 as i16 as i32 as u32,
                         16 | 18 => {
                             let sdst: u32 = self.val(sdst as usize);
                             if op == 16 {
