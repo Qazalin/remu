@@ -1222,7 +1222,7 @@ impl<'a> Thread<'a> {
                                 self.vec_reg.write64(vdst, ret)
                             }
                         }
-                        306 | 313 | 596 | 584 => {
+                        306 | 313 | 596 | 584 | 585 | 588 => {
                             let (s0, s1, s2) = (self.val(src.0), self.val(src.1), self.val(src.2));
                             let s0 = f16::from_bits(s0).negate(0, neg).absolute(0, abs);
                             let s1 = f16::from_bits(s1).negate(1, neg).absolute(1, abs);
@@ -1230,6 +1230,8 @@ impl<'a> Thread<'a> {
                             let ret = match op {
                                 306 => s0 + s1,
                                 584 => f16::mul_add(s0, s1, s2),
+                                585 => f16::min(f16::min(s0, s1), s2),
+                                588 => f16::max(f16::max(s0, s1), s2),
                                 596 => s2 / s1,
                                 313 => f16::max(s0, s1),
                                 314 => f16::min(s0, s1),
@@ -1423,6 +1425,11 @@ impl<'a> Thread<'a> {
                                         583 => (s0 + s1) << s2,
                                         598 => (s0 << s1) | s2,
                                         599 => (s0 & s1) | s2,
+                                        798 => {
+                                            let mut ret = s1;
+                                            (0..=31).into_iter().for_each(|i| ret += nth(s0, i));
+                                            ret
+                                        }
                                         812 => s0 * s1,
                                         813 => ((s0 as u64) * (s1 as u64) >> 32) as u32,
                                         _ => todo_instr!(instruction),
