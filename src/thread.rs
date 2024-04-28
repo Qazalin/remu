@@ -755,7 +755,7 @@ impl<'a> Thread<'a> {
                 .iter()
                 .for_each(|(op, s0, s1, dst)| {
                     let ret = match *op {
-                        0 | 1 | 2 | 3 | 4 | 5 | 6 | 10 => {
+                        0 | 1 | 2 | 3 | 4 | 5 | 6 | 10 | 11 => {
                             let s0 = f32::from_bits(*s0 as u32);
                             let s1 = f32::from_bits(*s1 as u32);
                             match *op {
@@ -767,6 +767,7 @@ impl<'a> Thread<'a> {
                                 5 => s0 - s1,
                                 6 => s1 - s0,
                                 10 => f32::max(s0, s1),
+                                11 => f32::min(s0, s1),
                                 _ => panic!(),
                             }
                             .to_bits()
