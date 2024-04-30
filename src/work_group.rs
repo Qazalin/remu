@@ -1,7 +1,7 @@
 use crate::memory::VecDataStore;
 use crate::state::{Register, WaveValue, VGPR};
 use crate::thread::Thread;
-use crate::utils::{Colorize, CI, DEBUG, END_PRG, GLOBAL_COUNTER, PROFILE};
+use crate::utils::{Colorize, CI, END_PRG, GLOBAL_COUNTER, GLOBAL_DEBUG, PROFILE};
 use std::collections::HashMap;
 use std::sync::atomic::Ordering::SeqCst;
 
@@ -138,7 +138,7 @@ impl<'a> WorkGroup<'a> {
                 vec_reg.default_lane = Some(lane_id);
                 vcc.default_lane = Some(lane_id);
                 exec.default_lane = Some(lane_id);
-                if DEBUG.load(SeqCst) {
+                if *GLOBAL_DEBUG {
                     let lane = format!("{lane_id} {:08X} ", self.kernel[pc]);
                     let state = match exec.read() {
                         true => "green",
@@ -232,7 +232,6 @@ mod test_workgroup {
 
     #[test]
     fn test_wave_value_sgpr_co() {
-        DEBUG.store(true, SeqCst);
         let kernel = vec![
             0xBE8D00FF,
             0x7FFFFFFF,

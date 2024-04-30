@@ -1,5 +1,5 @@
 #![allow(unused)]
-use crate::utils::{DEBUG, GLOBAL_COUNTER, GLOBAL_DEBUG, PROFILE};
+use crate::utils::{GLOBAL_COUNTER, PROFILE};
 use crate::work_group::WorkGroup;
 use std::os::raw::{c_char, c_void};
 use std::sync::atomic::Ordering::SeqCst;
@@ -41,11 +41,8 @@ pub extern "C" fn hipModuleLaunchKernel(
     }
 
     let (kernel, function_name) = utils::read_asm(&lib_bytes);
-    if *PROFILE || *GLOBAL_DEBUG {
+    if *PROFILE {
         println!("[remu] launching kernel {function_name} with global_size {gx} {gy} {gz} local_size {lx} {ly} {lz} args {:?}", args);
-    }
-    if *GLOBAL_DEBUG {
-        DEBUG.store(true, SeqCst)
     }
 
     let dispatch_dim = match (gy != 1, gz != 1) {

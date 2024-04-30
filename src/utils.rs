@@ -7,7 +7,6 @@ use std::sync::Mutex;
 use std::{env, fs, str};
 
 pub const END_PRG: u32 = 0xbfb00000;
-pub static DEBUG: AtomicBool = AtomicBool::new(false);
 lazy_static::lazy_static! {
     pub static ref CI: bool = env::var("CI").map(|v| v == "1").unwrap_or(false);
     pub static ref PROFILE: bool = env::var("PROFILE").map(|v| v == "1").unwrap_or(false);
