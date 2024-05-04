@@ -1291,19 +1291,34 @@ impl<'a> Thread<'a> {
                                     }
                                     return;
                                 }
-                                577 | 771 | 772 | 773 | 824 | 825 => {
+                                577 | 771 | 772 | 773 | 779 | 824 | 825 => {
                                     let (s0, s1, s2) = (s0 as u16, s1 as u16, s2 as u16);
                                     let ret = match op {
                                         577 => s0 * s1 + s2,
                                         771 => s0 + s1,
                                         772 => s0 - s1,
                                         773 => s0 * s1,
+                                        779 => u16::max(s0, s1),
                                         824 => s1 << s0,
                                         825 => s1 >> s0,
                                         _ => panic!(),
                                     };
                                     if self.exec.read() {
                                         self.vec_reg[vdst].mut_lo16(ret);
+                                    }
+                                    return;
+                                }
+                                778 | 780 | 781 | 782 => {
+                                    let (s0, s1, s2) = (s0 as i16, s1 as i16, s2 as i16);
+                                    let ret = match op {
+                                        778 => i16::max(s0, s1),
+                                        780 => i16::min(s0, s1),
+                                        781 => s0 + s1,
+                                        782 => s0 - s1,
+                                        _ => panic!(),
+                                    };
+                                    if self.exec.read() {
+                                        self.vec_reg[vdst].mut_lo16(ret as u16);
                                     }
                                     return;
                                 }
