@@ -1509,6 +1509,11 @@ impl<'a> Thread<'a> {
                     self.vec_reg[vdst] = self.lds.read(addr0);
                     self.vec_reg[vdst + 1] = self.lds.read(addr1);
                 }
+                119 => {
+                    let (addr0, addr1) = double_addr(8);
+                    self.vec_reg.write64(vdst, self.lds.read64(addr0));
+                    self.vec_reg.write64(vdst + 2, self.lds.read64(addr1));
+                }
                 // store
                 13 | 77 | 223 => {
                     let dwords = match op {
@@ -1537,6 +1542,11 @@ impl<'a> Thread<'a> {
                     let (addr0, addr1) = double_addr(4);
                     self.lds.write(addr0, self.vec_reg[data0]);
                     self.lds.write(addr1, self.vec_reg[data1]);
+                }
+                78 => {
+                    let (addr0, addr1) = double_addr(8);
+                    self.lds.write64(addr0, self.vec_reg.read64(data0));
+                    self.lds.write64(addr1, self.vec_reg.read64(data1));
                 }
                 _ => todo_instr!(instruction),
             }
