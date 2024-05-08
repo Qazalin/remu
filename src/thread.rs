@@ -1441,9 +1441,12 @@ impl<'a> Thread<'a> {
                                             d0
                                         }
                                         581 => (s0 ^ s1) + s2,
+                                        582 => (s0 << s1) + s2,
                                         583 => (s0 + s1) << s2,
+                                        597 => s0 + s1 + s2,
                                         598 => (s0 << s1) | s2,
                                         599 => (s0 & s1) | s2,
+                                        600 => s0 | s1 | s2,
                                         798 => {
                                             let mut ret = s1;
                                             (0..=31).into_iter().for_each(|i| ret += nth(s0, i));
