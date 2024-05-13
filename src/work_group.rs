@@ -19,7 +19,7 @@ pub struct WorkGroup<'a> {
     id: [u32; 3],
     lds: VecDataStore,
     kernel: &'a Vec<u32>,
-    kernel_args: &'a Vec<u64>,
+    kernel_args: *const u64,
     launch_bounds: [u32; 3],
     wave_state: HashMap<usize, WaveState>,
 }
@@ -37,7 +37,7 @@ impl<'a> WorkGroup<'a> {
         id: [u32; 3],
         launch_bounds: [u32; 3],
         kernel: &'a Vec<u32>,
-        kernel_args: &'a Vec<u64>,
+        kernel_args: *const u64,
     ) -> Self {
         return Self {
             dispatch_dim,
@@ -92,7 +92,7 @@ impl<'a> WorkGroup<'a> {
             Some(val) => (val.0.to_vec(), val.1, val.5),
             None => {
                 let mut scalar_reg = vec![0; 256];
-                scalar_reg.write64(0, self.kernel_args.as_ptr() as u64);
+                scalar_reg.write64(0, self.kernel_args as u64);
                 let [gx, gy, gz] = self.id;
                 match self.dispatch_dim {
                     3 => (scalar_reg[13], scalar_reg[14], scalar_reg[15]) = (gx, gy, gz),
