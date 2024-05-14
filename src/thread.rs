@@ -645,6 +645,7 @@ impl<'a> Thread<'a> {
                 84..=97 => {
                     let s0 = f16::from_bits(self.val(s0));
                     let ret = match op {
+                        84 => f16::recip(s0),
                         85 => f16::sqrt(s0),
                         87 => f16::log2(s0),
                         88 => f16::exp2(s0),
@@ -920,13 +921,14 @@ impl<'a> Thread<'a> {
                             }
                         }
 
-                        3 | 4 | 5 | 8 | 16 | 43 | 44 | 45 => {
+                        3 | 4 | 5 | 8 | 15 | 16 | 43 | 44 | 45 => {
                             let (s0, s1) = (f32::from_bits(s0), f32::from_bits(s1));
                             match op {
                                 3 => s0 + s1,
                                 4 => s0 - s1,
                                 5 => s1 - s0,
                                 8 => s0 * s1,
+                                15 => f32::min(s0, s1),
                                 16 => f32::max(s0, s1),
                                 43 => f32::mul_add(s0, s1, f32::from_bits(self.vec_reg[vdst])),
                                 44 => f32::mul_add(s0, f32::from_bits(self.simm()), s1),
