@@ -16,7 +16,7 @@ curl -s https://api.github.com/repos/Qazalin/remu/releases/latest | \
     xargs curl -L -o /usr/local/lib/libremu.so
 ```
 
-2. Run tinygrad with `RHIP=1`.
+2. Run tinygrad with `MOCKGPU=1 AMD=1`.
 
 ## Limitations
 

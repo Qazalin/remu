@@ -3,12 +3,11 @@ use crate::memory::VecDataStore;
 use crate::state::{Register, Value, WaveValue, VGPR};
 use crate::todo_instr;
 use crate::utils::{
-    f16_hi, f16_lo, nth, sign_ext, Colorize, END_PRG, GLOBAL_COUNTER, GLOBAL_DEBUG, PROFILE,
+    f16_hi, f16_lo, nth, sign_ext, Colorize, GLOBAL_COUNTER, GLOBAL_DEBUG, PROFILE,
 };
 use half::f16;
 use ndarray::Array;
 use num_traits::Float;
-use std::sync::atomic::Ordering::SeqCst;
 
 pub const SGPR_COUNT: usize = 105;
 pub const VGPR_COUNT: usize = 256;
@@ -593,7 +592,6 @@ impl<'a> Thread<'a> {
                     let s0: u64 = self.val(s0);
                     match op {
                         3 | 15 | 21 | 23 | 25 | 26 | 60 | 61 | 47 | 49 => {
-                            let b = s0;
                             let s0 = f64::from_bits(s0);
                             match op {
                                 23 | 25 | 26 | 61 | 47 | 49 => {
@@ -1038,7 +1036,7 @@ impl<'a> Thread<'a> {
                             vcc
                         }
                         _ => {
-                            let (s0, s1, s2): (u32, u32, u32) =
+                            let (s0, s1, _s2): (u32, u32, u32) =
                                 (self.val(s0), self.val(s1), self.val(s2));
                             let (ret, vcc) = match op {
                                 288 => {
@@ -1213,7 +1211,6 @@ impl<'a> Thread<'a> {
                                             let s1: u32 = self.val(src.1);
                                             s0 * 2f64.powi(s1 as i32)
                                         }
-                                        807 => s0 + s1,
                                         568 => {
                                             assert!(!self.vcc.read());
                                             f64::mul_add(s0, s1, s2)
@@ -1311,7 +1308,7 @@ impl<'a> Thread<'a> {
                                     return;
                                 }
                                 778 | 780 | 781 | 782 => {
-                                    let (s0, s1, s2) = (s0 as i16, s1 as i16, s2 as i16);
+                                    let (s0, s1, _s2) = (s0 as i16, s1 as i16, s2 as i16);
                                     let ret = match op {
                                         778 => i16::max(s0, s1),
                                         780 => i16::min(s0, s1),
@@ -1415,8 +1412,6 @@ impl<'a> Thread<'a> {
                                             ((val >> shift) & 0xffffffff) as u32
                                         }
                                         576 => s0 ^ s1 ^ s2,
-                                        582 => (s0 << s1) + s2,
-                                        597 => s0 + s1 + s2,
                                         580 => {
                                             fn byte_permute(data: u64, sel: u32) -> u8 {
                                                 let bytes = data.to_ne_bytes();

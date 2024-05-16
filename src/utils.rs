@@ -2,7 +2,6 @@ use half::f16;
 use lazy_static::lazy_static;
 use std::io::Write;
 use std::process::{Command, Stdio};
-use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
 use std::{env, fs, str};
 

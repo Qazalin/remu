@@ -3,7 +3,6 @@ use crate::state::{Register, WaveValue, VGPR};
 use crate::thread::Thread;
 use crate::utils::{Colorize, CI, END_PRG, GLOBAL_COUNTER, GLOBAL_DEBUG, PROFILE};
 use std::collections::HashMap;
-use std::sync::atomic::Ordering::SeqCst;
 
 struct WaveState(
     Vec<u32>,
@@ -208,7 +207,7 @@ mod test_workgroup {
             END_PRG,
         ];
         let args = vec![];
-        let mut wg = WorkGroup::new(1, [0, 0, 0], [3, 1, 1], &kernel, &args);
+        let mut wg = WorkGroup::new(1, [0, 0, 0], [3, 1, 1], &kernel, args.as_ptr());
         wg.exec_waves();
         let w0 = wg.wave_state.get(&0).unwrap();
         assert_eq!(w0.3.value, 0b100);
@@ -224,7 +223,7 @@ mod test_workgroup {
             END_PRG,
         ];
         let args = vec![];
-        let mut wg = WorkGroup::new(1, [0, 0, 0], [4, 1, 1], &kernel, &args);
+        let mut wg = WorkGroup::new(1, [0, 0, 0], [4, 1, 1], &kernel, args.as_ptr());
         wg.exec_waves();
         let w0 = wg.wave_state.get(&0).unwrap();
         assert_eq!(w0.4.value, 0b0111);
@@ -242,7 +241,7 @@ mod test_workgroup {
             END_PRG,
         ];
         let args = vec![];
-        let mut wg = WorkGroup::new(1, [0, 0, 0], [5, 1, 1], &kernel, &args);
+        let mut wg = WorkGroup::new(1, [0, 0, 0], [5, 1, 1], &kernel, args.as_ptr());
         wg.exec_waves();
         let w0 = wg.wave_state.get(&0).unwrap();
         assert_eq!(w0.0[13], 0b11110);

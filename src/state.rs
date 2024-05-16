@@ -1,4 +1,4 @@
-use crate::utils::{GlobalCounter, GLOBAL_COUNTER, PROFILE};
+use crate::utils::{GLOBAL_COUNTER, PROFILE};
 use std::collections::HashMap;
 use std::ops::{Index, IndexMut};
 
