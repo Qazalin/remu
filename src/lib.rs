@@ -21,22 +21,25 @@ pub extern "C" fn run_asm(
     lz: u32,
     args_ptr: *const u64,
 ) {
-    if lib.is_null() || (lib_sz % 4) != 0 {
-        panic!("Pointer is null or length is not properly aligned to 4 bytes");
-    }
-
-    let raw_asm;
-    unsafe {
-        raw_asm = slice::from_raw_parts(lib as *const u32, (lib_sz / 4) as usize);
-    }
-    let kernel = raw_asm.to_vec();
-
-    if *PROFILE {
-        println!(
-            "[remu] launching kernel with global_size {gx} {gy} {gz} local_size {lx} {ly} {lz}"
-        );
-    }
-
+    let kernel = match *PROFILE {
+        true => {
+            let mut lib_bytes: Vec<u8> = Vec::with_capacity(lib_sz as usize);
+            unsafe {
+                lib_bytes.extend((0..lib_sz).map(|i| *lib.offset(i as isize) as u8));
+            }
+            let (kernel, function_name) = utils::read_asm(&lib_bytes);
+            println!(
+                "[remu] launching kernel {function_name} with global_size {gx} {gy} {gz} local_size {lx} {ly} {lz}"
+            );
+            kernel
+        }
+        false => {
+            if lib.is_null() || (lib_sz % 4) != 0 {
+                panic!("Pointer is null or length is not properly aligned to 4 bytes");
+            }
+            unsafe { slice::from_raw_parts(lib as *const u32, (lib_sz / 4) as usize).to_vec() }
+        }
+    };
     let dispatch_dim = match (gy != 1, gz != 1) {
         (true, true) => 3,
         (true, false) => 2,
