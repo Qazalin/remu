@@ -454,6 +454,8 @@ impl<'a> Thread<'a> {
                                 14 => f16::mul_add(x, y, z),
                                 15 => x + y,
                                 16 => x * y,
+                                17 => f16::min(x, y),
+                                18 => f16::max(x, y),
                                 _ => todo_instr!(instruction),
                             }
                             .to_bits()
