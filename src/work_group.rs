@@ -184,10 +184,9 @@ impl<'a> WorkGroup<'a> {
                 exec.apply_muts();
                 exec.mutations = None;
             }
-            if let Some((idx, mut wv)) = sgpr_co {
+            if let Some((idx, mut wv)) = sgpr_co.take() {
                 wv.apply_muts();
                 scalar_reg[idx] = wv.value;
-                sgpr_co = None;
             }
         }
     }

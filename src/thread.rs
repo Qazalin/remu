@@ -1029,13 +1029,12 @@ impl<'a> Thread<'a> {
                             overflowed
                         }
                         765 => {
-                            let (mut ret, mut vcc) = (0.0, false);
                             assert!(f64::from_bits(self.val(s2)).exponent() <= 1076);
-                            ret = ldexp(f64::from_bits(self.val(s0)), 128);
+                            let ret = ldexp(f64::from_bits(self.val(s0)), 128);
                             if self.exec.read() {
                                 self.vec_reg.write64(vdst, ret.to_bits());
                             }
-                            vcc
+                            false
                         }
                         _ => {
                             let (s0, s1, _s2): (u32, u32, u32) =
@@ -1789,13 +1788,10 @@ impl<'a> Thread<'a> {
         }
     }
     fn set_sgpr_co(&mut self, idx: usize, val: bool) {
-        let mut wv = match self.sgpr_co {
-            Some((_, mut wv)) => wv,
-            None => {
-                let mut wv = WaveValue::new(0);
-                wv
-            }
-        };
+        let mut wv = self
+            .sgpr_co
+            .map(|(_, wv)| wv)
+            .unwrap_or_else(|| WaveValue::new(0));
         wv.default_lane = self.vcc.default_lane;
         wv.set_lane(val);
         *self.sgpr_co = Some((idx, wv));
@@ -1903,6 +1899,8 @@ impl ALUSrc<u64> for Thread<'_> {
     }
 }
 
+#[allow(unused_imports)]
+use crate::utils::END_PRG;
 #[cfg(test)]
 mod test_alu_utils {
     use super::*;
