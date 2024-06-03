@@ -1,5 +1,4 @@
 use crate::utils::{GLOBAL_COUNTER, PROFILE};
-use std::collections::HashMap;
 use std::ops::{Index, IndexMut};
 
 pub trait Register {
@@ -23,13 +22,13 @@ where
 
 #[derive(Clone)]
 pub struct VGPR {
-    values: HashMap<usize, [u32; 256]>,
+    values: [[u32; 256]; 32],
     pub default_lane: Option<usize>,
 }
 impl Index<usize> for VGPR {
     type Output = u32;
     fn index(&self, index: usize) -> &Self::Output {
-        &self.values.get(&self.default_lane.unwrap()).unwrap()[index]
+        &self.values[self.default_lane.unwrap()][index]
     }
 }
 impl IndexMut<usize> for VGPR {
@@ -37,29 +36,21 @@ impl IndexMut<usize> for VGPR {
         if *PROFILE {
             GLOBAL_COUNTER.lock().unwrap().vgpr_used += 1;
         }
-        &mut self
-            .values
-            .entry(self.default_lane.unwrap())
-            .or_insert([0; 256])[index]
+        &mut self.values[self.default_lane.unwrap()][index]
     }
 }
 impl VGPR {
     pub fn new() -> Self {
-        let mut values = HashMap::new();
-        let vals = [0; 256];
-        for key in 0..32 {
-            values.insert(key, vals);
-        }
         VGPR {
-            values,
+            values: [[0; 256]; 32],
             default_lane: None,
         }
     }
     pub fn get_lane(&self, lane: usize) -> [u32; 256] {
-        *self.values.get(&lane).unwrap()
+        *self.values.get(lane).unwrap()
     }
     pub fn get_lane_mut(&mut self, lane: usize) -> &mut [u32; 256] {
-        self.values.get_mut(&lane).unwrap()
+        self.values.get_mut(lane).unwrap()
     }
 }
 
