@@ -2,11 +2,6 @@ This is a minimal RDNA3 emulator built for and tested against [tinygrad kernels]
 
 ## Run locally
 
-
-#### Requirements
-
-`rocm-llvm`
-
 #### Usage
 
 1. Install the latest version
