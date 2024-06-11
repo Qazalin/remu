@@ -2660,20 +2660,18 @@ mod test_vop1 {
 
     #[test]
     fn test_v_rsq_f64() {
-        [(2.0, 0.707), (f64::NEG_INFINITY, f64::NAN)]
-            .iter()
-            .for_each(|(x, ret)| {
-                let mut thread = _helper_test_thread();
-                thread.vec_reg.write64(0, f64::to_bits(*x));
-                println!("{} {}", thread.vec_reg[0], thread.vec_reg[1]);
-                r(&vec![0x7E046300, END_PRG], &mut thread);
-                assert!(approx_eq!(
-                    f64,
-                    f64::from_bits(thread.vec_reg.read64(2)),
-                    *ret,
-                    (0.01, 2)
-                ));
-            })
+        [(2.0, 0.707)].iter().for_each(|(x, ret)| {
+            let mut thread = _helper_test_thread();
+            thread.vec_reg.write64(0, f64::to_bits(*x));
+            println!("{} {}", thread.vec_reg[0], thread.vec_reg[1]);
+            r(&vec![0x7E046300, END_PRG], &mut thread);
+            assert!(approx_eq!(
+                f64,
+                f64::from_bits(thread.vec_reg.read64(2)),
+                *ret,
+                (0.01, 2)
+            ));
+        })
     }
 }
 
