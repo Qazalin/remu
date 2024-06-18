@@ -24,7 +24,7 @@ pub fn f16_hi(val: u32) -> f16 {
 
 pub fn read_asm(lib: &Vec<u8>) -> (Vec<u32>, String) {
     if std::env::consts::OS == "macos" {
-        return _read_literal_asm(lib);
+        return read_literal_asm(lib);
     }
     let mut child = Command::new("/opt/rocm/llvm/bin/llvm-objdump")
         .args(&["-d", "-"])
@@ -40,7 +40,7 @@ pub fn read_asm(lib: &Vec<u8>) -> (Vec<u32>, String) {
     let asm = String::from_utf8_lossy(&output.stdout);
     parse_rdna3(&asm.to_string())
 }
-fn parse_rdna3(content: &str) -> (Vec<u32>, String) {
+pub fn parse_rdna3(content: &str) -> (Vec<u32>, String) {
     let mut kernel = content.lines().skip(5);
     let name = kernel
         .nth(0)
@@ -145,7 +145,7 @@ macro_rules! todo_instr {
     }};
 }
 
-fn _read_literal_asm(lib: &Vec<u8>) -> (Vec<u32>, String) {
+fn read_literal_asm(lib: &Vec<u8>) -> (Vec<u32>, String) {
     let asm = String::from_utf8(lib.to_vec()).unwrap();
     let mut prg = parse_rdna3(&asm);
     let isolate = env::var("REMU_ISOLATE")
