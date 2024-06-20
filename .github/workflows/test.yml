@@ -6,12 +6,50 @@ on:
   workflow_dispatch:
 
 jobs:
+
   build:
     runs-on: ubuntu-latest
-
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
     - name: Run tests
       run: CI=1 cargo test
+
+  tinygrad:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Build master
+      run: cargo build --release && sudo cp ./target/release/libremu.so /usr/local/lib/libremu.so
+    - name: Install packages
+      run: |
+        echo 'Acquire::http::Pipeline-Depth "5";' | sudo tee -a /etc/apt/apt.conf.d/99parallel
+        wget https://repo.radeon.com/rocm/rocm.gpg.key -O - | gpg --dearmor | sudo tee /etc/apt/keyrings/rocm.gpg > /dev/null
+        sudo tee /etc/apt/sources.list.d/rocm.list <<'EOF'
+        deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/6.1.2 jammy main
+        EOF
+        echo -e 'Package: *\nPin: release o=repo.radeon.com\nPin-Priority: 600' | sudo tee /etc/apt/preferences.d/rocm-pin-600
+        sudo apt update || true
+        sudo apt install --no-install-recommends --allow-unauthenticated -y hsa-rocr comgr hsa-rocr-dev
+        curl -s https://api.github.com/repos/Qazalin/remu/releases/latest | \
+        jq -r '.assets[] | select(.name == "libremu.so").browser_download_url' | \
+        sudo xargs curl -L -o /usr/local/lib/libremu.so
+        sudo tee --append /etc/ld.so.conf.d/rocm.conf <<'EOF'
+          /opt/rocm/lib
+          /opt/rocm/lib64
+        EOF
+        sudo ldconfig
+    - name: Get tinygrad
+      run: git clone https://github.com/tinygrad/tinygrad.git ~/tinygrad
+    - name: Set env
+      run: printf 'AMD=1\nMOCKGPU=1\nFORWARD_ONLY=1' >> $GITHUB_ENV
+    - name: Install dependencies
+      run: cd ~/tinygrad && pip install numpy pytest torch hypothesis pytest-xdist --extra-index-url https://download.pytorch.org/whl/cpu
+    - name: Check Device.DEFAULT and print some source
+      run: |
+        cd ~/tinygrad
+        python3 -c "from tinygrad import Device; assert Device.DEFAULT == 'AMD', Device.DEFAULT"
+        DEBUG=5 python3 test/test_ops.py TestOps.test_tiny_add
+    - name: Run tinygrad tests
+      run: cd ~/tinygrad && python -m pytest -n=auto test/test_ops.py test/test_dtype.py test/test_dtype_alu.py test/test_linearizer.py test/test_randomness.py test/imported/test_indexing.py test/external/external_test_hcq.py --durations=20
