@@ -15,3 +15,12 @@ jobs:
 
     - name: Run tests
       run: CI=1 cargo test
+
+    - name: Build release binary
+      run: cargo build --release
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: libremu.so
+        path: target/release/libremu.so
