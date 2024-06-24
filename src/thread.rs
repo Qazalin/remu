@@ -266,9 +266,16 @@ impl<'a> Thread<'a> {
             }
 
             match op {
+                // TODO: refactor u64s to less lines
                 27 => {
                     let (s0, s1): (u64, u64) = (self.val(s0), self.val(s1));
                     let ret = s0 ^ s1;
+                    self.scalar_reg.write64(sdst as usize, ret);
+                    *self.scc = (ret != 0) as u32;
+                }
+                25 => {
+                    let (s0, s1): (u64, u64) = (self.val(s0), self.val(s1));
+                    let ret = s0 | s1;
                     self.scalar_reg.write64(sdst as usize, ret);
                     *self.scc = (ret != 0) as u32;
                 }
@@ -298,7 +305,7 @@ impl<'a> Thread<'a> {
                             ret = (ret << shift) >> shift;
                             (ret as u64, Some(ret != 0))
                         }
-                        _ => panic!(),
+                        _ => todo_instr!(instruction),
                     };
                     self.scalar_reg.write64(sdst as usize, ret.0);
                     if let Some(val) = ret.1 {
@@ -365,7 +372,7 @@ impl<'a> Thread<'a> {
                                 26 => s0 ^ s1,
                                 34 => s0 & !s1,
                                 36 => s0 | !s1,
-                                _ => panic!(),
+                                _ => todo_instr!(instruction),
                             };
                             (ret, Some(ret != 0))
                         }
@@ -1326,8 +1333,8 @@ impl<'a> Thread<'a> {
                             }
 
                             let ret = match op {
-                                257 | 259 | 299 | 260 | 261 | 264 | 272 | 531 | 537 | 540 | 551
-                                | 567 | 796 => {
+                                257 | 259 | 299 | 260 | 261 | 264 | 272 | 392 | 531 | 537 | 540
+                                | 551 | 567 | 796 => {
                                     let s0 = f32::from_bits(s0).negate(0, neg).absolute(0, abs);
                                     let s1 = f32::from_bits(s1).negate(1, neg).absolute(1, abs);
                                     let s2 = f32::from_bits(s2).negate(2, neg).absolute(2, abs);
@@ -1361,6 +1368,7 @@ impl<'a> Thread<'a> {
                                                 false => s0,
                                             }
                                         }
+                                        392 => f32::from_bits(s0 as i32 as u32),
                                         _ => panic!(),
                                     }
                                     .to_bits()
@@ -1377,6 +1385,7 @@ impl<'a> Thread<'a> {
                                         }
                                         522 | 541 | 544 | 814 => {
                                             let (s0, s1, s2) = (s0 as i32, s1 as i32, s2 as i32);
+
                                             (match op {
                                                 522 => {
                                                     let s0 =
@@ -1644,7 +1653,7 @@ impl<'a> Thread<'a> {
 
     fn cmpf<T>(&self, s0: T, s1: T, offset: u32) -> bool
     where
-        T: PartialOrd + PartialEq,
+        T: Float,
     {
         return match offset {
             0 => true,
@@ -1654,6 +1663,8 @@ impl<'a> Thread<'a> {
             4 => s0 > s1,
             5 => s0 != s1,
             6 => s0 >= s1,
+            7 => !(s0.to_f64().unwrap()).is_nan() && !(s1.to_f64().unwrap()).is_nan(),
+            8 => (s0.to_f64().unwrap()).is_nan() || (s1.to_f64().unwrap()).is_nan(),
             9 => !(s0 >= s1),
             10 => !(s0 != s1),
             11 => !(s0 > s1),
