@@ -9,6 +9,7 @@ pub const END_PRG: u32 = 0xbfb00000;
 lazy_static::lazy_static! {
     pub static ref CI: bool = env::var("CI").map(|v| v == "1").unwrap_or(false);
     pub static ref PROFILE: bool = env::var("PROFILE").map(|v| v == "1").unwrap_or(false);
+    pub static ref OSX: bool = env::var("OSX").map(|v| v == "1").unwrap_or(false);
     pub static ref GLOBAL_DEBUG: bool = env::var("DEBUG").map(|v| v == "1").unwrap_or(false);
 }
 

@@ -1,4 +1,4 @@
-use crate::utils::{GLOBAL_COUNTER, PROFILE};
+use crate::utils::{GLOBAL_COUNTER, OSX, PROFILE};
 use crate::work_group::WorkGroup;
 use std::os::raw::c_char;
 use std::slice;
@@ -21,7 +21,7 @@ pub extern "C" fn run_asm(
     lz: u32,
     args_ptr: *const u64,
 ) {
-    let kernel = match *PROFILE {
+    let kernel = match *OSX {
         true => {
             let mut lib_bytes: Vec<u8> = Vec::with_capacity(lib_sz as usize);
             unsafe {
