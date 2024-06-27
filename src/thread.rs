@@ -266,16 +266,14 @@ impl<'a> Thread<'a> {
             }
 
             match op {
-                // TODO: refactor u64s to less lines
-                27 => {
+                23 | 25 | 27 => {
                     let (s0, s1): (u64, u64) = (self.val(s0), self.val(s1));
-                    let ret = s0 ^ s1;
-                    self.scalar_reg.write64(sdst as usize, ret);
-                    *self.scc = (ret != 0) as u32;
-                }
-                25 => {
-                    let (s0, s1): (u64, u64) = (self.val(s0), self.val(s1));
-                    let ret = s0 | s1;
+                    let ret = match op {
+                        23 => s0 & s1,
+                        25 => s0 | s1,
+                        27 => s0 ^ s1,
+                        _ => panic!(),
+                    };
                     self.scalar_reg.write64(sdst as usize, ret);
                     *self.scc = (ret != 0) as u32;
                 }
