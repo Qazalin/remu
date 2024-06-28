@@ -20,7 +20,7 @@ pub extern "C" fn run_asm(
     ly: u32,
     lz: u32,
     args_ptr: *const u64,
-) {
+) -> i32 {
     let kernel = match *OSX {
         true => {
             let mut lib_bytes: Vec<u8> = Vec::with_capacity(lib_sz as usize);
@@ -48,12 +48,16 @@ pub extern "C" fn run_asm(
     for gx in 0..gx {
         for gy in 0..gy {
             for gz in 0..gz {
-                WorkGroup::new(dispatch_dim, [gx, gy, gz], [lx, ly, lz], &kernel, args_ptr)
-                    .exec_waves();
+                let mut wg =
+                    WorkGroup::new(dispatch_dim, [gx, gy, gz], [lx, ly, lz], &kernel, args_ptr);
+                if let Err(err) = wg.exec_waves() {
+                    return err;
+                }
             }
         }
     }
     if *PROFILE {
         println!("{:?}", GLOBAL_COUNTER.lock().unwrap());
     }
+    0
 }

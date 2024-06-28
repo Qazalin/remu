@@ -32,7 +32,7 @@ pub struct Thread<'a> {
 }
 
 impl<'a> Thread<'a> {
-    pub fn interpret(&mut self) {
+    pub fn interpret(&mut self) -> Result<(), i32> {
         let instruction = self.stream[self.pc_offset];
         // smem
         if instruction >> 26 == 0b111101 {
@@ -60,7 +60,7 @@ impl<'a> Thread<'a> {
                 0..=4 => (0..2_usize.pow(op as u32)).for_each(|i| unsafe {
                     self.scalar_reg[sdata + i] = *((addr + (4 * i as u64)) as *const u32);
                 }),
-                _ => todo_instr!(instruction),
+                _ => todo_instr!(instruction)?,
             };
             self.scalar = true;
         }
@@ -79,7 +79,7 @@ impl<'a> Thread<'a> {
                     let s0 = self.val(src);
                     let ret = match op {
                         1 => s0,
-                        _ => panic!(),
+                        _ => todo_instr!(instruction)?,
                     };
                     self.scalar_reg.write64(sdst as usize, ret);
                 }
@@ -111,12 +111,12 @@ impl<'a> Thread<'a> {
                                 32 => s0 & saveexec,
                                 34 => s0 | saveexec,
                                 48 => s0 & !saveexec,
-                                _ => panic!(),
+                                _ => todo_instr!(instruction)?,
                             };
                             *self.scc = (self.exec.value != 0) as u32;
                             saveexec
                         }
-                        _ => todo_instr!(instruction),
+                        _ => todo_instr!(instruction)?,
                     };
 
                     self.write_to_sdst(sdst, ret);
@@ -164,7 +164,7 @@ impl<'a> Thread<'a> {
                     let (s0, s1): (u64, u64) = (self.val(s0), self.val(s1));
                     scmp(s0, s1, 16, op)
                 }
-                _ => todo_instr!(instruction),
+                _ => todo_instr!(instruction)?,
             } as u32;
             self.scalar = true;
         }
@@ -186,13 +186,13 @@ impl<'a> Thread<'a> {
                         36 => self.vcc.value != 0,
                         37 => self.exec.value == 0,
                         38 => self.exec.value != 0,
-                        _ => todo_instr!(instruction),
+                        _ => todo_instr!(instruction)?,
                     };
                     if should_jump {
                         self.pc_offset = (self.pc_offset as i64 + simm16 as i64) as usize;
                     }
                 }
-                _ => todo_instr!(instruction),
+                _ => todo_instr!(instruction)?,
             };
             self.scalar = true;
         }
@@ -220,7 +220,7 @@ impl<'a> Thread<'a> {
                         4 => s0 != s1,
                         5 => s0 > s1,
                         7 => s0 < s1,
-                        _ => todo_instr!(instruction),
+                        _ => todo_instr!(instruction)?,
                     } as u32
                 }
                 9..=14 => {
@@ -229,7 +229,7 @@ impl<'a> Thread<'a> {
                         9 => s0 == s1,
                         10 => s0 != s1,
                         13 => s0 < s1,
-                        _ => todo_instr!(instruction),
+                        _ => todo_instr!(instruction)?,
                     } as u32
                 }
                 15 => {
@@ -247,7 +247,7 @@ impl<'a> Thread<'a> {
                     let ret = (s0 as i32 * simm16 as i32) as u32;
                     self.write_to_sdst(sdst as u32, ret);
                 }
-                _ => todo_instr!(instruction),
+                _ => todo_instr!(instruction)?,
             };
             self.scalar = true;
         }
@@ -272,7 +272,7 @@ impl<'a> Thread<'a> {
                         23 => s0 & s1,
                         25 => s0 | s1,
                         27 => s0 ^ s1,
-                        _ => panic!(),
+                        _ => todo_instr!(instruction)?,
                     };
                     self.scalar_reg.write64(sdst as usize, ret);
                     *self.scc = (ret != 0) as u32;
@@ -303,7 +303,7 @@ impl<'a> Thread<'a> {
                             ret = (ret << shift) >> shift;
                             (ret as u64, Some(ret != 0))
                         }
-                        _ => todo_instr!(instruction),
+                        _ => todo_instr!(instruction)?,
                     };
                     self.scalar_reg.write64(sdst as usize, ret.0);
                     if let Some(val) = ret.1 {
@@ -318,7 +318,7 @@ impl<'a> Thread<'a> {
                             let ret = match op {
                                 0 => s0 + s1,
                                 4 => s0 + s1 + *self.scc as u64,
-                                _ => panic!(),
+                                _ => todo_instr!(instruction)?,
                             };
                             (ret as u32, Some(ret >= 0x100000000))
                         }
@@ -333,7 +333,7 @@ impl<'a> Thread<'a> {
                             let ret = match op {
                                 2 => s0 + s1,
                                 3 => s0 - s1,
-                                _ => panic!(),
+                                _ => todo_instr!(instruction)?,
                             };
                             let overflow = (nth(s0 as u32, 31) == nth(s1 as u32, 31))
                                 && (nth(s0 as u32, 31) != nth(ret as u32, 31));
@@ -346,7 +346,7 @@ impl<'a> Thread<'a> {
                                 8 => s0 << s1,
                                 10 => s0 >> s1,
                                 12 => ((s0 as i32) >> (s1 as i32)) as u32,
-                                _ => todo_instr!(instruction),
+                                _ => todo_instr!(instruction)?,
                             };
                             (ret, Some(ret != 0))
                         }
@@ -355,7 +355,7 @@ impl<'a> Thread<'a> {
                                 18 => (s0 as i32) < (s1 as i32),
                                 19 => s0 < s1,
                                 20 => (s0 as i32) > (s1 as i32),
-                                _ => panic!(),
+                                _ => todo_instr!(instruction)?,
                             };
                             let ret = match scc {
                                 true => s0,
@@ -370,7 +370,7 @@ impl<'a> Thread<'a> {
                                 26 => s0 ^ s1,
                                 34 => s0 & !s1,
                                 36 => s0 | !s1,
-                                _ => todo_instr!(instruction),
+                                _ => todo_instr!(instruction)?,
                             };
                             (ret, Some(ret != 0))
                         }
@@ -395,7 +395,7 @@ impl<'a> Thread<'a> {
                             true => (s0, None),
                             false => (s1, None),
                         },
-                        _ => todo_instr!(instruction),
+                        _ => todo_instr!(instruction)?,
                     };
 
                     self.write_to_sdst(sdst, ret.0);
@@ -446,24 +446,26 @@ impl<'a> Thread<'a> {
 
             match op {
                 0..=18 => {
-                    let fxn = |x, y, z| match op {
-                        1 => x * y,
-                        4 => y << (x & 0xf),
-                        10 => x + y,
-                        9 => x * y + z,
-                        11 => x - y,
-                        _ => {
-                            let (x, y, z) =
-                                (f16::from_bits(x), f16::from_bits(y), f16::from_bits(z));
-                            match op {
-                                14 => f16::mul_add(x, y, z),
-                                15 => x + y,
-                                16 => x * y,
-                                17 => f16::min(x, y),
-                                18 => f16::max(x, y),
-                                _ => todo_instr!(instruction),
+                    let fxn = |x, y, z| -> Result<u16, i32> {
+                        match op {
+                            1 => Ok(x * y),
+                            4 => Ok(y << (x & 0xf)),
+                            10 => Ok(x + y),
+                            9 => Ok(x * y + z),
+                            11 => Ok(x - y),
+                            _ => {
+                                let (x, y, z) =
+                                    (f16::from_bits(x), f16::from_bits(y), f16::from_bits(z));
+                                let ret = match op {
+                                    14 => Ok::<f16, i32>(f16::mul_add(x, y, z)),
+                                    15 => Ok(x + y),
+                                    16 => Ok(x * y),
+                                    17 => Ok(f16::min(x, y)),
+                                    18 => Ok(f16::max(x, y)),
+                                    _ => todo_instr!(instruction)?,
+                                }?;
+                                Ok(ret.to_bits())
                             }
-                            .to_bits()
                         }
                     };
                     let src = |opsel: [bool; 3]| {
@@ -487,8 +489,8 @@ impl<'a> Thread<'a> {
                             .collect::<Vec<u16>>()
                     };
                     let (src_hi, src_lo) = (src(opsel_hi), src(opsel));
-                    let ret = ((fxn(src_hi[0], src_hi[1], src_hi[2]) as u32) << 16)
-                        | (fxn(src_lo[0], src_lo[1], src_lo[2]) as u32);
+                    let ret = ((fxn(src_hi[0], src_hi[1], src_hi[2])? as u32) << 16)
+                        | (fxn(src_lo[0], src_lo[1], src_lo[2])? as u32);
 
                     if self.exec.read() {
                         self.vec_reg[vdst] = ret;
@@ -515,10 +517,10 @@ impl<'a> Thread<'a> {
                             match op {
                                 33 => (self.vec_reg[vdst] & 0xffff0000) | (ret as u32),
                                 34 => (self.vec_reg[vdst] & 0x0000ffff) | ((ret as u32) << 16),
-                                _ => panic!(),
+                                _ => todo_instr!(instruction)?,
                             }
                         }
-                        _ => todo_instr!(instruction),
+                        _ => todo_instr!(instruction)?,
                     };
                     if self.exec.read() {
                         self.vec_reg[vdst] = ret;
@@ -577,11 +579,11 @@ impl<'a> Thread<'a> {
                                 self.vec_reg.get_lane_mut(lane)[register].mut_lo16(val.to_bits());
                             }
                         }
-                        _ => todo_instr!(instruction),
+                        _ => todo_instr!(instruction)?,
                     };
                     self.scalar = true;
                 }
-                _ => todo_instr!(instruction),
+                _ => todo_instr!(instruction)?,
             }
         }
         // vop1
@@ -616,7 +618,7 @@ impl<'a> Thread<'a> {
                                         47 => 1.0 / s0,
                                         49 => 1.0 / f64::sqrt(s0),
                                         61 => extract_mantissa(s0),
-                                        _ => panic!(),
+                                        _ => todo_instr!(instruction)?,
                                     };
                                     if self.exec.read() {
                                         self.vec_reg.write64(vdst, ret.to_bits())
@@ -636,7 +638,7 @@ impl<'a> Thread<'a> {
                                                 false => (s0.exponent() as i32 - 1023 + 1) as u32,
                                             }
                                         }
-                                        _ => panic!(),
+                                        _ => todo_instr!(instruction)?,
                                     };
                                     if self.exec.read() {
                                         self.vec_reg[vdst] = ret;
@@ -644,7 +646,7 @@ impl<'a> Thread<'a> {
                                 }
                             }
                         }
-                        _ => panic!(),
+                        _ => todo_instr!(instruction)?,
                     }
                 }
                 84..=97 => {
@@ -654,7 +656,7 @@ impl<'a> Thread<'a> {
                         85 => f16::sqrt(s0),
                         87 => f16::log2(s0),
                         88 => f16::exp2(s0),
-                        _ => todo_instr!(instruction),
+                        _ => todo_instr!(instruction)?,
                     };
                     if self.exec.read() {
                         self.vec_reg[vdst] = ret.to_bits() as u32;
@@ -668,7 +670,7 @@ impl<'a> Thread<'a> {
                                 4 => (s0 as i32 as f64).to_bits(),
                                 22 => (s0 as f64).to_bits(),
                                 16 => (f32::from_bits(s0) as f64).to_bits(),
-                                _ => panic!(),
+                                _ => todo_instr!(instruction)?,
                             };
                             if self.exec.read() {
                                 self.vec_reg.write64(vdst, ret)
@@ -710,7 +712,7 @@ impl<'a> Thread<'a> {
                                         42 => 1.0 / s0,
                                         43 => 1.0 / s0,
                                         51 => f32::sqrt(s0),
-                                        _ => panic!(),
+                                        _ => todo_instr!(instruction)?,
                                     }
                                     .to_bits()
                                 }
@@ -720,7 +722,7 @@ impl<'a> Thread<'a> {
                                 81 => f16::from_f32(s0 as i16 as f32).to_bits() as u32,
                                 82 => f32::from(f16::from_bits(s0 as u16)) as u32,
                                 83 => f32::from(f16::from_bits(s0 as u16)) as i16 as u32,
-                                _ => todo_instr!(instruction),
+                                _ => todo_instr!(instruction)?,
                             };
                             if self.exec.read() {
                                 self.vec_reg[vdst] = ret;
@@ -761,43 +763,41 @@ impl<'a> Thread<'a> {
                 );
             }
 
-            ([(opx, srcx0, vsrcx1, vdstx), (opy, srcy0, vsrcy1, vdsty)])
-                .iter()
-                .for_each(|(op, s0, s1, dst)| {
-                    let ret = match *op {
-                        0 | 1 | 2 | 3 | 4 | 5 | 6 | 10 | 11 => {
-                            let s0 = f32::from_bits(*s0 as u32);
-                            let s1 = f32::from_bits(*s1 as u32);
-                            match *op {
-                                0 => f32::mul_add(s0, s1, f32::from_bits(self.vec_reg[*dst])),
-                                1 => f32::mul_add(s0, s1, f32::from_bits(self.simm())),
-                                2 => f32::mul_add(s0, f32::from_bits(self.simm()), s1),
-                                3 => s0 * s1,
-                                4 => s0 + s1,
-                                5 => s0 - s1,
-                                6 => s1 - s0,
-                                10 => f32::max(s0, s1),
-                                11 => f32::min(s0, s1),
-                                _ => panic!(),
-                            }
-                            .to_bits()
+            for (op, s0, s1, dst) in
+                ([(opx, srcx0, vsrcx1, vdstx), (opy, srcy0, vsrcy1, vdsty)]).iter()
+            {
+                let ret = match *op {
+                    0 | 1 | 2 | 3 | 4 | 5 | 6 | 10 | 11 => {
+                        let s0 = f32::from_bits(*s0 as u32);
+                        let s1 = f32::from_bits(*s1 as u32);
+                        match *op {
+                            0 => f32::mul_add(s0, s1, f32::from_bits(self.vec_reg[*dst])),
+                            1 => f32::mul_add(s0, s1, f32::from_bits(self.simm())),
+                            2 => f32::mul_add(s0, f32::from_bits(self.simm()), s1),
+                            3 => s0 * s1,
+                            4 => s0 + s1,
+                            5 => s0 - s1,
+                            6 => s1 - s0,
+                            10 => f32::max(s0, s1),
+                            11 => f32::min(s0, s1),
+                            _ => todo_instr!(instruction)?,
                         }
-                        _ => match op {
-                            8 => *s0,
-                            9 => match self.vcc.read() {
-                                true => *s1,
-                                false => *s0,
-                            },
-                            16 => s0 + s1,
-                            17 => s1 << s0,
-                            18 => s0 & s1,
-                            _ => todo_instr!(instruction),
-                        },
-                    };
-                    if self.exec.read() {
-                        self.vec_reg[*dst] = ret;
+                        .to_bits()
                     }
-                });
+                    8 => *s0,
+                    9 => match self.vcc.read() {
+                        true => *s1,
+                        false => *s0,
+                    },
+                    16 => s0 + s1,
+                    17 => s1 << s0,
+                    18 => s0 & s1,
+                    _ => todo_instr!(instruction)?,
+                };
+                if self.exec.read() {
+                    self.vec_reg[*dst] = ret;
+                };
+            }
         }
         // vopc
         else if instruction >> 25 == 0b0111110 {
@@ -864,7 +864,7 @@ impl<'a> Thread<'a> {
                     let (s0, s1): (u64, u64) = (self.val(s0), self.vec_reg.read64(s1));
                     self.cmpi(s0, s1, op - 88 - dest_offset)
                 }
-                _ => todo_instr!(instruction),
+                _ => todo_instr!(instruction)?,
             };
 
             match op >= 128 {
@@ -892,7 +892,7 @@ impl<'a> Thread<'a> {
                     let ret = match op {
                         54 => f16::mul_add(s0, s1, f16::from_bits(self.vec_reg[vdst] as u16)),
                         56 => f16::mul_add(s0, s1, f16::from_bits(self.simm() as u16)),
-                        _ => todo_instr!(instruction),
+                        _ => todo_instr!(instruction)?,
                     };
                     if self.exec.read() {
                         self.vec_reg[vdst] = ret.to_bits() as u32;
@@ -920,7 +920,7 @@ impl<'a> Thread<'a> {
                                     53 => s0 * s1,
                                     57 => f16::max(s0, s1),
                                     58 => f16::min(s0, s1),
-                                    _ => todo_instr!(instruction),
+                                    _ => todo_instr!(instruction)?,
                                 }
                                 .to_bits() as u32,
                             }
@@ -938,7 +938,7 @@ impl<'a> Thread<'a> {
                                 43 => f32::mul_add(s0, s1, f32::from_bits(self.vec_reg[vdst])),
                                 44 => f32::mul_add(s0, f32::from_bits(self.simm()), s1),
                                 45 => f32::mul_add(s0, s1, f32::from_bits(self.simm())),
-                                _ => panic!(),
+                                _ => todo_instr!(instruction)?,
                             }
                             .to_bits()
                         }
@@ -952,7 +952,7 @@ impl<'a> Thread<'a> {
                             (match op {
                                 18 => i32::max(s0, s1),
                                 26 => s1 >> s0,
-                                _ => panic!(),
+                                _ => todo_instr!(instruction)?,
                             }) as u32
                         }
                         32 => {
@@ -964,7 +964,7 @@ impl<'a> Thread<'a> {
                             let temp = match op {
                                 33 => s0 - s1 - self.vcc.read() as u32,
                                 34 => s1 - s0 - self.vcc.read() as u32,
-                                _ => panic!(),
+                                _ => todo_instr!(instruction)?,
                             };
                             self.vcc
                                 .set_lane((s1 as u64 + self.vcc.read() as u64) > s0 as u64);
@@ -980,7 +980,7 @@ impl<'a> Thread<'a> {
                         37 => s0 + s1,
                         38 => s0 - s1,
                         39 => s1 - s0,
-                        _ => todo_instr!(instruction),
+                        _ => todo_instr!(instruction)?,
                     };
                     if self.exec.read() {
                         self.vec_reg[vdst] = ret;
@@ -1067,7 +1067,7 @@ impl<'a> Thread<'a> {
                                     let ret = s0.wrapping_sub(s1);
                                     (ret as u32, s1 > s0)
                                 }
-                                _ => todo_instr!(instruction),
+                                _ => todo_instr!(instruction)?,
                             };
                             if self.exec.read() {
                                 self.vec_reg[vdst] = ret;
@@ -1169,14 +1169,14 @@ impl<'a> Thread<'a> {
                                     let (s0, s1): (u64, u64) = (self.val(src.0), self.val(src.1));
                                     self.cmpi(s0, s1, op - 88 - dest_offset)
                                 }
-                                _ => todo_instr!(instruction),
+                                _ => todo_instr!(instruction)?,
                             };
 
                             match vdst {
                                 0..=SGPR_COUNT => self.set_sgpr_co(vdst, ret),
                                 106 => self.vcc.set_lane(ret),
                                 126 => self.exec.set_lane(ret),
-                                _ => todo_instr!(instruction),
+                                _ => todo_instr!(instruction)?,
                             }
                         }
                         828..=830 => {
@@ -1187,7 +1187,7 @@ impl<'a> Thread<'a> {
                                 828 => s1 << shift,
                                 829 => s1 >> shift,
                                 830 => ((s1 as i64) >> shift) as u64,
-                                _ => todo_instr!(instruction),
+                                _ => todo_instr!(instruction)?,
                             };
                             if self.exec.read() {
                                 self.vec_reg.write64(vdst, ret)
@@ -1221,11 +1221,11 @@ impl<'a> Thread<'a> {
                                             assert!(!self.vcc.read());
                                             f64::mul_add(s0, s1, s2)
                                         }
-                                        _ => panic!(),
+                                        _ => todo_instr!(instruction)?,
                                     }
                                     .to_bits()
                                 }
-                                _ => panic!(),
+                                _ => todo_instr!(instruction)?,
                             };
                             if self.exec.read() {
                                 self.vec_reg.write64(vdst, ret)
@@ -1244,7 +1244,7 @@ impl<'a> Thread<'a> {
                                 596 => s2 / s1,
                                 313 => f16::max(s0, s1),
                                 314 => f16::min(s0, s1),
-                                _ => panic!(),
+                                _ => todo_instr!(instruction)?,
                             }
                             .to_bits();
                             if self.exec.read() {
@@ -1281,20 +1281,20 @@ impl<'a> Thread<'a> {
                                     if self.exec.read() {
                                         self.vec_reg.get_lane_mut(s1 as usize)[vdst] = s0;
                                     }
-                                    return;
+                                    return Ok(());
                                 }
                                 864 => {
                                     let val =
                                         self.vec_reg.get_lane(s1 as usize)[src.0 - VGPR_COUNT];
                                     self.write_to_sdst(vdst as u32, val);
-                                    return;
+                                    return Ok(());
                                 }
                                 826 => {
                                     if self.exec.read() {
                                         self.vec_reg[vdst]
                                             .mut_lo16(((s1 as i16) >> (s0 & 0xf)) as u16);
                                     }
-                                    return;
+                                    return Ok(());
                                 }
                                 577 | 771 | 772 | 773 | 779 | 824 | 825 => {
                                     let (s0, s1, s2) = (s0 as u16, s1 as u16, s2 as u16);
@@ -1306,12 +1306,12 @@ impl<'a> Thread<'a> {
                                         779 => u16::max(s0, s1),
                                         824 => s1 << s0,
                                         825 => s1 >> s0,
-                                        _ => panic!(),
+                                        _ => todo_instr!(instruction)?,
                                     };
                                     if self.exec.read() {
                                         self.vec_reg[vdst].mut_lo16(ret);
                                     }
-                                    return;
+                                    return Ok(());
                                 }
                                 778 | 780 | 781 | 782 => {
                                     let (s0, s1, _s2) = (s0 as i16, s1 as i16, s2 as i16);
@@ -1320,12 +1320,12 @@ impl<'a> Thread<'a> {
                                         780 => i16::min(s0, s1),
                                         781 => s0 + s1,
                                         782 => s0 - s1,
-                                        _ => panic!(),
+                                        _ => todo_instr!(instruction)?,
                                     };
                                     if self.exec.read() {
                                         self.vec_reg[vdst].mut_lo16(ret as u16);
                                     }
-                                    return;
+                                    return Ok(());
                                 }
                                 _ => {}
                             }
@@ -1367,7 +1367,7 @@ impl<'a> Thread<'a> {
                                             }
                                         }
                                         392 => f32::from_bits(s0 as i32 as u32),
-                                        _ => panic!(),
+                                        _ => todo_instr!(instruction)?,
                                     }
                                     .to_bits()
                                 }
@@ -1404,7 +1404,7 @@ impl<'a> Thread<'a> {
                                                     }
                                                 }
                                                 814 => ((s0 as i64) * (s1 as i64) >> 32) as i32,
-                                                _ => panic!(),
+                                                _ => todo_instr!(instruction)?,
                                             }) as u32
                                         }
                                         283 => s0 & s1,
@@ -1459,7 +1459,7 @@ impl<'a> Thread<'a> {
                                         }
                                         812 => s0 * s1,
                                         813 => ((s0 as u64) * (s1 as u64) >> 32) as u32,
-                                        _ => todo_instr!(instruction),
+                                        _ => todo_instr!(instruction)?,
                                     }
                                 }
                             };
@@ -1473,7 +1473,7 @@ impl<'a> Thread<'a> {
         } else if instruction >> 26 == 0b110110 {
             let instr = self.u64_instr();
             if !self.exec.read() {
-                return;
+                return Ok(());
             }
             let op = (instr >> 18) & 0xff;
             assert_eq!((instr >> 17) & 0x1, 0);
@@ -1556,7 +1556,7 @@ impl<'a> Thread<'a> {
                     self.lds.write64(addr0, self.vec_reg.read64(data0));
                     self.lds.write64(addr1, self.vec_reg.read64(data1));
                 }
-                _ => todo_instr!(instruction),
+                _ => todo_instr!(instruction)?,
             }
         }
         // global
@@ -1564,7 +1564,7 @@ impl<'a> Thread<'a> {
         else if instruction >> 26 == 0b110111 {
             let instr = self.u64_instr();
             if !self.exec.read() {
-                return;
+                return Ok(());
             }
             let offset = sign_ext(instr & 0x1fff, 13);
             let seg = (instr >> 16) & 0x3;
@@ -1585,7 +1585,7 @@ impl<'a> Thread<'a> {
                     }
                     let addr = match (sve, saddr_off) {
                         (true, true) => offset as u64 as usize,
-                        _ => todo_instr!(instruction),
+                        _ => todo_instr!(instruction)?,
                     };
                     match op {
                         // load
@@ -1596,7 +1596,7 @@ impl<'a> Thread<'a> {
                         26..=29 => (0..op - 25).for_each(|i| {
                             self.sds.write(addr + 4 * i, self.vec_reg[data + i]);
                         }),
-                        _ => todo_instr!(instruction),
+                        _ => todo_instr!(instruction)?,
                     }
                 }
                 2 => {
@@ -1638,15 +1638,16 @@ impl<'a> Thread<'a> {
                             37 => {
                                 *(addr as *mut u16) = ((self.vec_reg[data] >> 16) & 0xffff) as u16
                             }
-                            _ => todo_instr!(instruction),
+                            _ => todo_instr!(instruction)?,
                         };
                     }
                 }
-                _ => todo_instr!(instruction),
+                _ => todo_instr!(instruction)?,
             };
         } else {
-            todo_instr!(instruction);
+            todo_instr!(instruction)?;
         }
+        Ok(())
     }
 
     fn cmpf<T>(&self, s0: T, s1: T, offset: u32) -> bool
@@ -3752,7 +3753,7 @@ fn r(prg: &Vec<u32>, thread: &mut Thread) {
         }
         thread.pc_offset = 0;
         thread.stream = instructions[pc..instructions.len()].to_vec();
-        thread.interpret();
+        thread.interpret().unwrap();
         thread.simm = None;
         if thread.vcc.mutations.is_some() {
             thread.vcc.apply_muts();

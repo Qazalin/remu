@@ -137,12 +137,11 @@ macro_rules! todo_instr {
         let instr = format!("{:08X}", $x);
         use std::io::Write;
         use std::process::{Command, Stdio};
-        Command::new("pbcopy")
+        let _ = Command::new("pbcopy")
             .stdin(Stdio::piped())
             .spawn()
-            .and_then(|mut process| process.stdin.as_mut().unwrap().write_all(instr.as_bytes()))
-            .unwrap();
-        std::panic!("TODO instruction {instr}");
+            .and_then(|mut process| process.stdin.as_mut().unwrap().write_all(instr.as_bytes()));
+        Err(1)
     }};
 }
 

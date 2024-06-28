@@ -49,7 +49,7 @@ impl<'a> WorkGroup<'a> {
         };
     }
 
-    pub fn exec_waves(&mut self) {
+    pub fn exec_waves(&mut self) -> Result<(), i32> {
         let mut blocks = vec![];
         for z in 0..self.launch_bounds[2] {
             for y in 0..self.launch_bounds[1] {
@@ -71,11 +71,14 @@ impl<'a> WorkGroup<'a> {
         });
         assert!(syncs <= 1);
         for _ in 0..=syncs {
-            waves.iter().enumerate().for_each(|w| self.exec_wave(w))
+            for w in waves.iter().enumerate() {
+                self.exec_wave(w)?
+            }
         }
+        Ok(())
     }
 
-    fn exec_wave(&mut self, (wave_id, threads): (usize, &Vec<[u32; 3]>)) {
+    fn exec_wave(&mut self, (wave_id, threads): (usize, &Vec<[u32; 3]>)) -> Result<(), i32> {
         let wave_state = self.wave_state.get(&wave_id);
         let mut sds = match wave_state {
             Some(val) => val.6.clone(),
@@ -115,14 +118,14 @@ impl<'a> WorkGroup<'a> {
                         WaveState(scalar_reg, scc, vec_reg, vcc, exec, pc, sds),
                     );
                 }
-                break;
+                break Ok(());
             }
             if BARRIERS.contains(&[self.kernel[pc], self.kernel[pc + 1]]) && wave_state.is_none() {
                 self.wave_state.insert(
                     wave_id,
                     WaveState(scalar_reg, scc, vec_reg, vcc, exec, pc, sds),
                 );
-                break;
+                break Ok(());
             }
             if SYNCS.contains(&self.kernel[pc])
                 || self.kernel[pc] >> 20 == 0xbf8
@@ -166,7 +169,7 @@ impl<'a> WorkGroup<'a> {
                     simm: None,
                     sgpr_co: &mut sgpr_co,
                 };
-                thread.interpret();
+                thread.interpret()?;
                 if thread.scalar {
                     pc = ((pc as isize) + 1 + (thread.pc_offset as isize)) as usize;
                     break;
@@ -208,7 +211,7 @@ mod test_workgroup {
         ];
         let args = vec![];
         let mut wg = WorkGroup::new(1, [0, 0, 0], [3, 1, 1], &kernel, args.as_ptr());
-        wg.exec_waves();
+        wg.exec_waves().unwrap();
         let w0 = wg.wave_state.get(&0).unwrap();
         assert_eq!(w0.3.value, 0b100);
     }
@@ -225,7 +228,7 @@ mod test_workgroup {
         ];
         let args = vec![];
         let mut wg = WorkGroup::new(1, [0, 0, 0], [4, 1, 1], &kernel, args.as_ptr());
-        wg.exec_waves();
+        wg.exec_waves().unwrap();
         let w0 = wg.wave_state.get(&0).unwrap();
         assert_eq!(w0.4.value, 0b0111);
     }
@@ -244,7 +247,7 @@ mod test_workgroup {
         ];
         let args = vec![];
         let mut wg = WorkGroup::new(1, [0, 0, 0], [5, 1, 1], &kernel, args.as_ptr());
-        wg.exec_waves();
+        wg.exec_waves().unwrap();
         let w0 = wg.wave_state.get(&0).unwrap();
         assert_eq!(w0.0[13], 0b11110);
     }
