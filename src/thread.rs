@@ -771,9 +771,6 @@ impl<'a> Thread<'a> {
                         let s0 = f32::from_bits(*s0 as u32);
                         let s1 = f32::from_bits(*s1 as u32);
                         match *op {
-                            0 => f32::mul_add(s0, s1, f32::from_bits(self.vec_reg[*dst])),
-                            1 => f32::mul_add(s0, s1, f32::from_bits(self.simm())),
-                            2 => f32::mul_add(s0, f32::from_bits(self.simm()), s1),
                             3 => s0 * s1,
                             4 => s0 + s1,
                             5 => s0 - s1,
@@ -2395,41 +2392,6 @@ mod test_vopd {
         assert_eq!(f32::from_bits(thread.vec_reg[3]), 4.0 * constant);
     }
 
-    #[test]
-    fn test_simm_op_shared_1() {
-        let mut thread = _helper_test_thread();
-        thread.vec_reg[23] = f32::to_bits(4.0);
-        thread.vec_reg[12] = f32::to_bits(2.0);
-
-        thread.vec_reg[13] = f32::to_bits(10.0);
-        thread.vec_reg[24] = f32::to_bits(3.0);
-
-        let simm = f32::from_bits(0x3e000000);
-        r(
-            &vec![0xC8841917, 0x0C0C1B18, 0x3E000000, END_PRG],
-            &mut thread,
-        );
-        assert_eq!(f32::from_bits(thread.vec_reg[12]), 4.0 * simm + 2.0);
-        assert_eq!(f32::from_bits(thread.vec_reg[13]), 3.0 * simm + 10.0);
-    }
-
-    #[test]
-    fn test_simm_op_shared_2() {
-        let mut thread = _helper_test_thread();
-        thread.vec_reg[29] = f32::to_bits(4.0);
-        thread.vec_reg[10] = f32::to_bits(2.0);
-
-        thread.vec_reg[11] = f32::to_bits(10.0);
-        thread.vec_reg[26] = f32::to_bits(6.5);
-
-        let simm = 0.125;
-        r(
-            &vec![0xC880151D, 0x0A0A34FF, 0x3E000000, END_PRG],
-            &mut thread,
-        );
-        assert_eq!(f32::from_bits(thread.vec_reg[10]), 4.0 * simm + 2.0);
-        assert_eq!(f32::from_bits(thread.vec_reg[11]), simm * 6.5 + 10.0);
-    }
 
     #[test]
     fn test_add_mov() {
