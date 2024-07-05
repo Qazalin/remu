@@ -135,12 +135,16 @@ impl<'a> Colorize for &'a str {
 macro_rules! todo_instr {
     ($x:expr) => {{
         let instr = format!("{:08X}", $x);
+        use std::env;
         use std::io::Write;
         use std::process::{Command, Stdio};
         let _ = Command::new("pbcopy")
             .stdin(Stdio::piped())
             .spawn()
             .and_then(|mut process| process.stdin.as_mut().unwrap().write_all(instr.as_bytes()));
+        if env::var("OSX").map(|v| v == "1").unwrap_or(false) {
+            panic!("{:08X}", $x)
+        }
         Err(1)
     }};
 }

@@ -887,10 +887,11 @@ impl<'a> Thread<'a> {
             }
 
             match op {
-                54 | 56 => {
+                (54..=60) => {
                     let (s0, s1) = (f16::from_bits(self.val(s0)), f16::from_bits(s1 as u16));
                     let ret = match op {
                         54 => f16::mul_add(s0, s1, f16::from_bits(self.vec_reg[vdst] as u16)),
+                        55 => f16::mul_add(s0, f16::from_bits(self.simm() as u16), s1),
                         56 => f16::mul_add(s0, s1, f16::from_bits(self.simm() as u16)),
                         _ => todo_instr!(instruction)?,
                     };
@@ -972,11 +973,12 @@ impl<'a> Thread<'a> {
                         }
                         11 => s0 * s1,
                         19 => u32::min(s0, s1),
+                        20 => u32::max(s0, s1),
                         24 => s1 << s0,
-                        29 => s0 ^ s1,
                         25 => s1 >> s0,
                         27 => s0 & s1,
                         28 => s0 | s1,
+                        29 => s0 ^ s1,
                         37 => s0 + s1,
                         38 => s0 - s1,
                         39 => s1 - s0,
@@ -999,14 +1001,8 @@ impl<'a> Thread<'a> {
                     let sdst = ((instr >> 8) & 0x7f) as usize;
                     let f = |i: u32| -> usize { ((instr >> i) & 0x1ff) as usize };
                     let (s0, s1, s2) = (f(32), f(41), f(50));
-                    let carry_in = match s2 <= SGPR_COUNT {
-                        true => {
-                            let mut wv = WaveValue::new(self.scalar_reg[s2]);
-                            wv.default_lane = self.vcc.default_lane;
-                            Some(wv.read())
-                        }
-                        false => None,
-                    };
+                    let mut carry_in = WaveValue::new(self.val(s2));
+                    carry_in.default_lane = self.vcc.default_lane;
                     let omod = (instr >> 59) & 0x3;
                     let _neg = (instr >> 61) & 0x7;
                     let clmp = (instr >> 15) & 0x1;
@@ -1046,17 +1042,14 @@ impl<'a> Thread<'a> {
                                 (self.val(s0), self.val(s1), self.val(s2));
                             let (ret, vcc) = match op {
                                 288 => {
-                                    let ret = s0 as u64 + s1 as u64 + carry_in.unwrap() as u64;
+                                    let ret = s0 as u64 + s1 as u64 + carry_in.read() as u64;
                                     (ret as u32, ret >= 0x100000000)
                                 }
                                 289 => {
                                     let ret = (s0 as u64)
                                         .wrapping_sub(s1 as u64)
-                                        .wrapping_sub(carry_in.unwrap() as u64);
-                                    (
-                                        ret as u32,
-                                        s1 as u64 + (carry_in.unwrap() as u64) > s0 as u64,
-                                    )
+                                        .wrapping_sub(carry_in.read() as u64);
+                                    (ret as u32, s1 as u64 + (carry_in.read() as u64) > s0 as u64)
                                 }
                                 764 => (0, false), // NOTE: div scaling isn't required
                                 768 => {
@@ -1193,40 +1186,40 @@ impl<'a> Thread<'a> {
                                 self.vec_reg.write64(vdst, ret)
                             }
                         }
-                        532 | 552 | 568 | (807..=811) => {
-                            let (s0, s1, s2): (u64, u64, u64) =
-                                (self.val(src.0), self.val(src.1), self.val(src.2));
+                        407 | 532 | 552 | 568 | (807..=811) => {
+                            let (s0, s1, s2) = (
+                                f64::from_bits(self.val(src.0))
+                                    .negate(0, neg)
+                                    .absolute(0, abs),
+                                f64::from_bits(self.val(src.1))
+                                    .negate(1, neg)
+                                    .absolute(1, abs),
+                                f64::from_bits(self.val(src.2))
+                                    .negate(2, neg)
+                                    .absolute(2, abs),
+                            );
                             let ret = match op {
-                                532 | 552 | 568 | (807..=811) => {
-                                    let (s0, s1, s2) = (
-                                        f64::from_bits(s0).negate(0, neg).absolute(0, abs),
-                                        f64::from_bits(s1).negate(1, neg).absolute(1, abs),
-                                        f64::from_bits(s2).negate(2, neg).absolute(2, abs),
-                                    );
-                                    match op {
-                                        532 => f64::mul_add(s0, s1, s2),
-                                        552 => {
-                                            assert!(s0.is_normal());
-                                            s0
-                                        }
-                                        807 => s0 + s1,
-                                        808 => s0 * s1,
-                                        809 => f64::min(s0, s1),
-                                        810 => f64::max(s0, s1),
-                                        811 => {
-                                            let s1: u32 = self.val(src.1);
-                                            s0 * 2f64.powi(s1 as i32)
-                                        }
-                                        568 => {
-                                            assert!(!self.vcc.read());
-                                            f64::mul_add(s0, s1, s2)
-                                        }
-                                        _ => todo_instr!(instruction)?,
-                                    }
-                                    .to_bits()
+                                407 => f64::trunc(s0),
+                                532 => f64::mul_add(s0, s1, s2),
+                                552 => {
+                                    assert!(s0.is_normal());
+                                    s0
+                                }
+                                807 => s0 + s1,
+                                808 => s0 * s1,
+                                809 => f64::min(s0, s1),
+                                810 => f64::max(s0, s1),
+                                811 => {
+                                    let s1: u32 = self.val(src.1);
+                                    s0 * 2f64.powi(s1 as i32)
+                                }
+                                568 => {
+                                    assert!(!self.vcc.read());
+                                    f64::mul_add(s0, s1, s2)
                                 }
                                 _ => todo_instr!(instruction)?,
-                            };
+                            }
+                            .to_bits();
                             if self.exec.read() {
                                 self.vec_reg.write64(vdst, ret)
                             }
@@ -1257,6 +1250,14 @@ impl<'a> Thread<'a> {
                                 .absolute(0, abs);
                             if self.exec.read() {
                                 self.vec_reg[vdst].mut_lo16(f16::from_f32(s0).to_bits());
+                            }
+                        }
+                        467 => {
+                            let s0 = f16::from_bits(self.val(src.0))
+                                .negate(0, neg)
+                                .absolute(0, abs);
+                            if self.exec.read() {
+                                self.vec_reg[vdst] = s0.to_f32() as i16 as u32;
                             }
                         }
                         395 => {
@@ -1296,14 +1297,15 @@ impl<'a> Thread<'a> {
                                     }
                                     return Ok(());
                                 }
-                                577 | 771 | 772 | 773 | 779 | 824 | 825 => {
+                                577 | 771 | 772 | 773 | 777 | 779 | 824 | 825 => {
                                     let (s0, s1, s2) = (s0 as u16, s1 as u16, s2 as u16);
                                     let ret = match op {
                                         577 => s0 * s1 + s2,
                                         771 => s0 + s1,
                                         772 => s0 - s1,
                                         773 => s0 * s1,
-                                        779 => u16::max(s0, s1),
+                                        777 => u16::max(s0, s1),
+                                        779 => u16::min(s0, s1),
                                         824 => s1 << s0,
                                         825 => s1 >> s0,
                                         _ => todo_instr!(instruction)?,
@@ -1372,7 +1374,9 @@ impl<'a> Thread<'a> {
                                     .to_bits()
                                 }
                                 _ => {
-                                    assert!(neg == 0);
+                                    if neg != 0 {
+                                        todo_instr!(instruction)?
+                                    }
                                     match op {
                                         529 => {
                                             let s0 = s0 as i32;
