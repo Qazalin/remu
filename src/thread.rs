@@ -893,6 +893,8 @@ impl<'a> Thread<'a> {
                         54 => f16::mul_add(s0, s1, f16::from_bits(self.vec_reg[vdst] as u16)),
                         55 => f16::mul_add(s0, f16::from_bits(self.simm() as u16), s1),
                         56 => f16::mul_add(s0, s1, f16::from_bits(self.simm() as u16)),
+                        57 => f16::max(s0, s1),
+                        58 => f16::min(s0, s1),
                         _ => todo_instr!(instruction)?,
                     };
                     if self.exec.read() {
