@@ -887,9 +887,12 @@ impl<'a> Thread<'a> {
             }
 
             match op {
-                (54..=60) => {
+                (50..=60) => {
                     let (s0, s1) = (f16::from_bits(self.val(s0)), f16::from_bits(s1 as u16));
                     let ret = match op {
+                        50 => s0 + s1,
+                        51 => s0 - s1,
+                        53 => s0 * s1,
                         54 => f16::mul_add(s0, s1, f16::from_bits(self.vec_reg[vdst] as u16)),
                         55 => f16::mul_add(s0, f16::from_bits(self.simm() as u16), s1),
                         56 => f16::mul_add(s0, s1, f16::from_bits(self.simm() as u16)),
@@ -913,20 +916,6 @@ impl<'a> Thread<'a> {
                             acc += f32::from(f16_lo(s0)) * f32::from(f16_lo(s1));
                             acc += f32::from(f16_hi(s0)) * f32::from(f16_hi(s1));
                             acc.to_bits()
-                        }
-                        50..=60 => {
-                            let (s0, s1) = (f16::from_bits(s0 as u16), f16::from_bits(s1 as u16));
-                            match op {
-                                _ => match op {
-                                    50 => s0 + s1,
-                                    51 => s0 - s1,
-                                    53 => s0 * s1,
-                                    57 => f16::max(s0, s1),
-                                    58 => f16::min(s0, s1),
-                                    _ => todo_instr!(instruction)?,
-                                }
-                                .to_bits() as u32,
-                            }
                         }
 
                         3 | 4 | 5 | 8 | 15 | 16 | 43 | 44 | 45 => {
@@ -1658,7 +1647,7 @@ impl<'a> Thread<'a> {
 
     fn cmpf<T>(&self, s0: T, s1: T, offset: u32) -> bool
     where
-        T: Float + std::fmt::Debug,
+        T: Float + std::fmt::Display,
     {
         return match offset {
             0 => true,
@@ -2791,6 +2780,14 @@ mod test_vop2 {
         thread.vec_reg[0] = f32::to_bits(1.0);
         r(&vec![0x06000002, END_PRG], &mut thread);
         assert_eq!(f32::from_bits(thread.vec_reg[0]), 43.0);
+    }
+
+    #[test]
+    fn test_v_and_b32() {
+        let mut thread = _helper_test_thread();
+        thread.vec_reg[10] = 15;
+        r(&vec![0x36141482, END_PRG], &mut thread);
+        assert_eq!(thread.vec_reg[10], 2);
     }
 
     #[test]
