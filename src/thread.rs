@@ -1658,7 +1658,7 @@ impl<'a> Thread<'a> {
 
     fn cmpf<T>(&self, s0: T, s1: T, offset: u32) -> bool
     where
-        T: Float,
+        T: Float + std::fmt::Debug,
     {
         return match offset {
             0 => true,
@@ -1668,8 +1668,7 @@ impl<'a> Thread<'a> {
             4 => s0 > s1,
             5 => s0 != s1,
             6 => s0 >= s1,
-            7 => !(s0.to_f64().unwrap()).is_nan() && !(s1.to_f64().unwrap()).is_nan(),
-            8 => (s0.to_f64().unwrap()).is_nan() || (s1.to_f64().unwrap()).is_nan(),
+            8 => s0.is_nan() || s1.is_nan(),
             9 => !(s0 >= s1),
             10 => !(s0 != s1),
             11 => !(s0 > s1),
