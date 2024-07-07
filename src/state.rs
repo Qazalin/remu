@@ -150,6 +150,20 @@ mod test_state {
     }
 
     #[test]
+    fn test_wave_value_toggle_one() {
+        let warp_size = 2;
+        let mut val = WaveValue::new(0b11, warp_size);
+        // 0
+        val.default_lane = Some(0);
+        val.set_lane(false);
+        // 1
+        val.default_lane = Some(1);
+        val.set_lane(true);
+        val.apply_muts();
+        assert_eq!(val.value, 2);
+    }
+
+    #[test]
     fn test_wave_value_mutate_small() {
         let mut val = WaveValue::new(0, 2);
         val.default_lane = Some(0);
