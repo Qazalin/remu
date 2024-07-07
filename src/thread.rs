@@ -28,6 +28,7 @@ pub struct Thread<'a> {
     pub stream: Vec<u32>,
     pub simm: Option<u32>,
     pub sgpr_co: &'a mut Option<(usize, WaveValue)>,
+    pub warp_size: usize,
     pub scalar: bool,
 }
 
@@ -992,7 +993,7 @@ impl<'a> Thread<'a> {
                     let sdst = ((instr >> 8) & 0x7f) as usize;
                     let f = |i: u32| -> usize { ((instr >> i) & 0x1ff) as usize };
                     let (s0, s1, s2) = (f(32), f(41), f(50));
-                    let mut carry_in = WaveValue::new(self.val(s2));
+                    let mut carry_in = WaveValue::new(self.val(s2), self.warp_size);
                     carry_in.default_lane = self.vcc.default_lane;
                     let omod = (instr >> 59) & 0x3;
                     let _neg = (instr >> 61) & 0x7;
@@ -1352,7 +1353,8 @@ impl<'a> Thread<'a> {
                                         796 => s0 * 2f32.powi(s1.to_bits() as i32),
                                         // cnd_mask isn't a float only ALU but supports neg
                                         257 => {
-                                            let mut cond = WaveValue::new(s2.to_bits());
+                                            let mut cond =
+                                                WaveValue::new(s2.to_bits(), self.warp_size);
                                             cond.default_lane = self.vcc.default_lane;
                                             match cond.read() {
                                                 true => s1,
@@ -1795,7 +1797,7 @@ impl<'a> Thread<'a> {
         let mut wv = self
             .sgpr_co
             .map(|(_, wv)| wv)
-            .unwrap_or_else(|| WaveValue::new(0));
+            .unwrap_or_else(|| WaveValue::new(0, self.warp_size));
         wv.default_lane = self.vcc.default_lane;
         wv.set_lane(val);
         *self.sgpr_co = Some((idx, wv));
@@ -3777,8 +3779,8 @@ fn _helper_test_thread() -> Thread<'static> {
     let static_sgpr: &'static mut Vec<u32> = Box::leak(Box::new(vec![0; 256]));
     let static_vgpr: &'static mut VGPR = Box::leak(Box::new(VGPR::new()));
     let static_scc: &'static mut u32 = Box::leak(Box::new(0));
-    let static_exec: &'static mut WaveValue = Box::leak(Box::new(WaveValue::new(u32::MAX)));
-    let static_vcc: &'static mut WaveValue = Box::leak(Box::new(WaveValue::new(0)));
+    let static_exec: &'static mut WaveValue = Box::leak(Box::new(WaveValue::new(u32::MAX, 32)));
+    let static_vcc: &'static mut WaveValue = Box::leak(Box::new(WaveValue::new(0, 32)));
     let static_sds: &'static mut VecDataStore = Box::leak(Box::new(VecDataStore::new()));
     let static_co: &'static mut Option<(usize, WaveValue)> = Box::leak(Box::new(None));
 
@@ -3794,6 +3796,7 @@ fn _helper_test_thread() -> Thread<'static> {
         pc_offset: 0,
         stream: vec![],
         sgpr_co: static_co,
+        warp_size: 32,
         scalar: false,
     };
     thread.vec_reg.default_lane = Some(0);

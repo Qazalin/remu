@@ -70,13 +70,15 @@ impl Value for u32 {
 #[derive(Debug, Clone, Copy)]
 pub struct WaveValue {
     pub value: u32,
+    pub warp_size: usize,
     pub default_lane: Option<usize>,
     pub mutations: Option<[bool; 32]>,
 }
 impl WaveValue {
-    pub fn new(value: u32) -> Self {
+    pub fn new(value: u32, warp_size: usize) -> Self {
         Self {
             value,
+            warp_size,
             default_lane: None,
             mutations: None,
         }
@@ -92,7 +94,7 @@ impl WaveValue {
     }
     pub fn apply_muts(&mut self) {
         self.value = 0;
-        for lane in 0..32 {
+        for lane in 0..self.warp_size {
             if self.mutations.unwrap()[lane] {
                 self.value |= 1 << lane;
             }
@@ -106,7 +108,7 @@ mod test_state {
 
     #[test]
     fn test_wave_value() {
-        let mut val = WaveValue::new(0b11000000000000011111111111101110);
+        let mut val = WaveValue::new(0b11000000000000011111111111101110, 32);
         val.default_lane = Some(0);
         assert!(!val.read());
         val.default_lane = Some(31);
@@ -114,8 +116,32 @@ mod test_state {
     }
 
     #[test]
+    fn test_wave_value_small() {
+        let mut val = WaveValue::new(0, 1);
+        val.default_lane = Some(0);
+        assert!(!val.read());
+        assert_eq!(val.value, 0);
+        val.set_lane(true);
+        val.apply_muts();
+        assert!(val.read());
+        assert_eq!(val.value, 1);
+    }
+
+    #[test]
+    fn test_wave_value_small_alt() {
+        let mut val = WaveValue::new(0, 2);
+        val.default_lane = Some(0);
+        assert!(!val.read());
+        assert_eq!(val.value, 0);
+        val.set_lane(true);
+        val.apply_muts();
+        assert!(val.read());
+        assert_eq!(val.value, 1);
+    }
+
+    #[test]
     fn test_wave_value_mutations() {
-        let mut val = WaveValue::new(0b10001);
+        let mut val = WaveValue::new(0b10001, 32);
         val.default_lane = Some(0);
         val.set_lane(false);
         assert!(val.mutations.unwrap().iter().all(|x| !x));
