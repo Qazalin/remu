@@ -140,6 +140,28 @@ mod test_state {
     }
 
     #[test]
+    fn test_wave_value_exec() {
+        let warp_size = 32;
+        let val = WaveValue::new(u32::MAX, warp_size);
+        assert_eq!(val.value, u32::MAX);
+        let warp_size = 3;
+        let val = WaveValue::new((1 << warp_size) - 1, warp_size);
+        assert_eq!(val.value, 7)
+    }
+
+    #[test]
+    fn test_wave_value_mutate_small() {
+        let mut val = WaveValue::new(0, 2);
+        val.default_lane = Some(0);
+        assert!(!val.read());
+        assert_eq!(val.value, 0);
+        val.set_lane(true);
+        val.apply_muts();
+        assert!(val.read());
+        assert_eq!(val.value, 1);
+    }
+
+    #[test]
     fn test_wave_value_mutations() {
         let mut val = WaveValue::new(0b10001, 32);
         val.default_lane = Some(0);

@@ -104,13 +104,19 @@ impl<'a> WorkGroup<'a> {
                 (scalar_reg, 0, 0)
             }
         };
-        let (mut vec_reg, mut vcc, mut exec) = match wave_state {
-            Some(val) => (val.2.clone(), val.3.clone(), val.4.clone()),
-            _ => (
-                VGPR::new(),
-                WaveValue::new(0, threads.len()),
-                WaveValue::new((1 << threads.len()) - 1, threads.len()),
-            ),
+        let (mut vec_reg, mut vcc) = match wave_state {
+            Some(val) => (val.2.clone(), val.3.clone()),
+            None => (VGPR::new(), WaveValue::new(0, threads.len())),
+        };
+        let mut exec = match wave_state {
+            Some(val) => val.4.clone(),
+            None => {
+                let active = match threads.len() == 32 {
+                    true => u32::MAX,
+                    false => (1 << threads.len()) - 1,
+                };
+                WaveValue::new(active, threads.len())
+            }
         };
 
         let mut seeded_lanes = vec![];
