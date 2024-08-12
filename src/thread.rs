@@ -451,6 +451,7 @@ impl<'a> Thread<'a> {
                         match op {
                             1 => Ok(x * y),
                             4 => Ok(y << (x & 0xf)),
+                            5 => Ok(y >> (x & 0xf)),
                             10 => Ok(x + y),
                             9 => Ok(x * y + z),
                             11 => Ok(x - y),
