@@ -161,6 +161,10 @@ impl<'a> Thread<'a> {
                     let (s0, s1): (u32, u32) = (self.val(s0), self.val(s1));
                     s0 & (1 << (s1 & 0x1F)) == 0
                 }
+                13 => {
+                    let (s0, s1): (u32, u32) = (self.val(s0), self.val(s1));
+                    s0 & (1 << (s1 & 0x1F)) == 1
+                }
                 16 | 17 => {
                     let (s0, s1): (u64, u64) = (self.val(s0), self.val(s1));
                     scmp(s0, s1, 16, op)
