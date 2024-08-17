@@ -1536,6 +1536,18 @@ impl<'a> Thread<'a> {
                             .write(single_addr() + 4 * i, self.vec_reg[data0 + i]);
                     })
                 }
+                30 => {
+                    let addr = single_addr();
+                    if addr + 1 >= self.lds.data.len() {
+                        self.lds.data.resize(self.lds.data.len() + addr + 2, 0);
+                    }
+                    self.lds.data[addr..addr + 1]
+                        .iter_mut()
+                        .enumerate()
+                        .for_each(|(i, x)| {
+                            *x = (self.vec_reg[data0] as u8).to_le_bytes()[i];
+                        });
+                }
                 31 => {
                     let addr = single_addr();
                     if addr + 2 >= self.lds.data.len() {
