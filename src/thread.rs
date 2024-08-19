@@ -1383,7 +1383,7 @@ impl<'a> Thread<'a> {
                                             let ret = (s0 >> (s1 & 0x1f)) & (mask.wrapping_sub(1));
                                             ((ret << shift) >> shift) as u32
                                         }
-                                        522 | 541 | 544 | 814 => {
+                                        522 | 541 | 538 | 544 | 814 => {
                                             let (s0, s1, s2) = (s0 as i32, s1 as i32, s2 as i32);
 
                                             (match op {
@@ -1394,6 +1394,7 @@ impl<'a> Thread<'a> {
                                                         sign_ext((s1 & 0xffffff) as u64, 24) as i32;
                                                     s0 * s1 + s2
                                                 }
+                                                538 => i32::min(i32::min(s0, s1), s2),
                                                 541 => i32::max(i32::max(s0, s1), s2),
                                                 544 => {
                                                     if (i32::max(i32::max(s0, s1), s2)) == s0 {
