@@ -211,7 +211,10 @@ mod test_workgroup {
 
     #[test]
     fn test_wave_value_state_vcc() {
-        assert!(*CI, "NOTE: this tests needs CI=1");
+        if *CI == false {
+            println!("WARN: this test needs CI=1");
+            return;
+        }
         let kernel = vec![
             0xBEEA00FF,
             0b11111111111111111111111111111111, // initial vcc state
@@ -228,7 +231,10 @@ mod test_workgroup {
 
     #[test]
     fn test_wave_value_state_exec() {
-        assert!(*CI, "NOTE: this tests needs CI=1");
+        if *CI == false {
+            println!("WARN: this test needs CI=1");
+            return;
+        }
         let kernel = vec![
             0xBEFE00FF,
             0b11111111111111111111111111111111,
@@ -245,7 +251,10 @@ mod test_workgroup {
 
     #[test]
     fn test_wave_value_sgpr_co() {
-        assert!(*CI, "NOTE: this tests needs CI=1");
+        if *CI == false {
+            println!("WARN: this test needs CI=1");
+            return;
+        }
         let kernel = vec![
             0xBE8D00FF,
             0x7FFFFFFF,
