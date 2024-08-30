@@ -3,7 +3,6 @@ use crate::work_group::WorkGroup;
 use std::os::raw::c_char;
 use std::slice;
 mod dtype;
-mod memory;
 mod state;
 mod thread;
 mod utils;

@@ -1,6 +1,5 @@
 use crate::dtype::{extract_mantissa, ldexp, IEEEClass, VOPModifier};
-use crate::memory::VecDataStore;
-use crate::state::{Register, Value, WaveValue, VGPR};
+use crate::state::{Register, Value, VecDataStore, WaveValue, VGPR};
 use crate::todo_instr;
 use crate::utils::{
     f16_hi, f16_lo, nth, sign_ext, Colorize, GLOBAL_COUNTER, GLOBAL_DEBUG, PROFILE,

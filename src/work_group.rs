@@ -1,5 +1,4 @@
-use crate::memory::VecDataStore;
-use crate::state::{Register, WaveValue, VGPR};
+use crate::state::{Register, VecDataStore, WaveValue, VGPR};
 use crate::thread::Thread;
 use crate::utils::{Colorize, CI, END_PRG, GLOBAL_COUNTER, GLOBAL_DEBUG, PROFILE};
 use std::collections::HashMap;
