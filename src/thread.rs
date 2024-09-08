@@ -992,7 +992,7 @@ impl<'a> Thread<'a> {
 
             let op = ((instr >> 16) & 0x3ff) as u32;
             match op {
-                764 | 765 | 288 | 289 | 766 | 768 | 769 => {
+                764 | 765 | 288 | 289 | 290 | 766 | 768 | 769 => {
                     let vdst = (instr & 0xff) as usize;
                     let sdst = ((instr >> 8) & 0x7f) as usize;
                     let f = |i: u32| -> usize { ((instr >> i) & 0x1ff) as usize };
@@ -1044,6 +1044,12 @@ impl<'a> Thread<'a> {
                                 289 => {
                                     let ret = (s0 as u64)
                                         .wrapping_sub(s1 as u64)
+                                        .wrapping_sub(carry_in.read() as u64);
+                                    (ret as u32, s1 as u64 + (carry_in.read() as u64) > s0 as u64)
+                                }
+                                290 => {
+                                    let ret = (s1 as u64)
+                                        .wrapping_sub(s0 as u64)
                                         .wrapping_sub(carry_in.read() as u64);
                                     (ret as u32, s1 as u64 + (carry_in.read() as u64) > s0 as u64)
                                 }
