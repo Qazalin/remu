@@ -232,7 +232,10 @@ impl<'a> Thread<'a> {
                     *self.scc = match op {
                         9 => s0 == s1,
                         10 => s0 != s1,
+                        11 => s0 > s1,
+                        12 => s0 >= s1,
                         13 => s0 < s1,
+                        14 => s0 <= s1,
                         _ => todo_instr!(instruction)?,
                     } as u32
                 }
