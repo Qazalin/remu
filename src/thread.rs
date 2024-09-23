@@ -1651,6 +1651,7 @@ impl<'a> Thread<'a> {
                             20..=23 => (0..op - 19).for_each(|i| {
                                 self.vec_reg[vdst + i] = *((addr + 4 * i as u64) as *const u32);
                             }),
+                            32 => self.vec_reg[vdst].mut_lo16(*(addr as *const u16)),
                             35 => self.vec_reg[vdst].mut_hi16(*(addr as *const u16)),
                             // store
                             24 => *(addr as *mut u8) = self.vec_reg[data] as u8,
