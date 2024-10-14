@@ -454,28 +454,34 @@ impl<'a> Thread<'a> {
 
             match op {
                 0..=18 => {
-                    let fxn = |x, y, z| -> Result<u16, i32> {
+                    let fxn = |x, y, z| -> u16 {
                         match op {
-                            1 => Ok(x * y),
-                            4 => Ok(y << (x & 0xf)),
-                            5 => Ok(y >> (x & 0xf)),
-                            7 => Ok(i16::min(x as i16, y as i16) as u16),
-                            9 => Ok(x * y + z),
-                            10 => Ok(x + y),
-                            11 => Ok(x - y),
-                            12 => Ok(u16::max(x, y)),
+                            0 => x * y + z,
+                            1 => x * y,
+                            2 => x + y,
+                            3 => x - y,
+                            4 => y << (x & 0xf),
+                            5 => y >> (x & 0xf),
+                            6 => ((y as i16) >> ((x as i16) & 0xf)) as u16,
+                            7 => i16::max(x as i16, y as i16) as u16,
+                            8 => i16::min(x as i16, y as i16) as u16,
+                            9 => x * y + z,
+                            10 => x + y,
+                            11 => x - y,
+                            12 => u16::max(x, y),
+                            13 => u16::min(x, y),
                             _ => {
                                 let (x, y, z) =
                                     (f16::from_bits(x), f16::from_bits(y), f16::from_bits(z));
                                 let ret = match op {
-                                    14 => Ok::<f16, i32>(f16::mul_add(x, y, z)),
-                                    15 => Ok(x + y),
-                                    16 => Ok(x * y),
-                                    17 => Ok(f16::min(x, y)),
-                                    18 => Ok(f16::max(x, y)),
-                                    _ => todo_instr!(instruction)?,
-                                }?;
-                                Ok(ret.to_bits())
+                                    14 => f16::mul_add(x, y, z),
+                                    15 => x + y,
+                                    16 => x * y,
+                                    17 => f16::min(x, y),
+                                    18 => f16::max(x, y),
+                                    _ => panic!("{op}"),
+                                };
+                                ret.to_bits()
                             }
                         }
                     };
@@ -500,8 +506,8 @@ impl<'a> Thread<'a> {
                             .collect::<Vec<u16>>()
                     };
                     let (src_hi, src_lo) = (src(opsel_hi), src(opsel));
-                    let ret = ((fxn(src_hi[0], src_hi[1], src_hi[2])? as u32) << 16)
-                        | (fxn(src_lo[0], src_lo[1], src_lo[2])? as u32);
+                    let ret = ((fxn(src_hi[0], src_hi[1], src_hi[2]) as u32) << 16)
+                        | (fxn(src_lo[0], src_lo[1], src_lo[2]) as u32);
 
                     if self.exec.read() {
                         self.vec_reg[vdst] = ret;
