@@ -362,6 +362,7 @@ impl<'a> Thread<'a> {
                                 18 => (s0 as i32) < (s1 as i32),
                                 19 => s0 < s1,
                                 20 => (s0 as i32) > (s1 as i32),
+                                21 => s0 > s1,
                                 _ => todo_instr!(instruction)?,
                             };
                             let ret = match scc {
@@ -458,9 +459,11 @@ impl<'a> Thread<'a> {
                             1 => Ok(x * y),
                             4 => Ok(y << (x & 0xf)),
                             5 => Ok(y >> (x & 0xf)),
-                            10 => Ok(x + y),
+                            7 => Ok(i16::min(x as i16, y as i16) as u16),
                             9 => Ok(x * y + z),
+                            10 => Ok(x + y),
                             11 => Ok(x - y),
+                            12 => Ok(u16::max(x, y)),
                             _ => {
                                 let (x, y, z) =
                                     (f16::from_bits(x), f16::from_bits(y), f16::from_bits(z));
@@ -1321,9 +1324,10 @@ impl<'a> Thread<'a> {
                                     }
                                     return Ok(());
                                 }
-                                778 | 780 | 781 | 782 => {
-                                    let (s0, s1, _s2) = (s0 as i16, s1 as i16, s2 as i16);
+                                778 | 780 | 781 | 782 | 589 => {
+                                    let (s0, s1, s2) = (s0 as i16, s1 as i16, s2 as i16);
                                     let ret = match op {
+                                        589 => i16::max(i16::max(s0, s1), s2),
                                         778 => i16::max(s0, s1),
                                         780 => i16::min(s0, s1),
                                         781 => s0 + s1,
@@ -1431,6 +1435,7 @@ impl<'a> Thread<'a> {
                                             let shift = (s2 & 0x1F) as u64;
                                             ((val >> shift) & 0xffffffff) as u32
                                         }
+                                        542 => u32::max(u32::max(s0, s1), s2),
                                         576 => s0 ^ s1 ^ s2,
                                         580 => {
                                             fn byte_permute(data: u64, sel: u32) -> u8 {
