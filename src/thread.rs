@@ -82,10 +82,14 @@ impl<'a> Thread<'a> {
                     let ret = match op {
                         1 | 3 => s0,
                         5 => s0.reverse_bits(),
-                        9 => todo!(),
                         _ => todo_instr!(instruction)?,
                     };
                     self.scalar_reg.write64(sdst as usize, ret);
+                }
+                9 => {
+                    let s0: u64 = self.val(src);
+                    let ret = self.clz_i32_b64(s0);
+                    self.write_to_sdst(sdst, ret);
                 }
                 _ => {
                     let s0: u32 = self.val(src);
@@ -1818,6 +1822,16 @@ impl<'a> Thread<'a> {
     fn clz_i32_b32(&self, s0: u32) -> u32 {
         let mut ret: i32 = -1;
         for i in (0..=31).into_iter() {
+            if ((s0 >> i) & 1) == 1 {
+                ret = i;
+                break;
+            }
+        }
+        ret as u32
+    }
+    fn clz_i32_b64(&self, s0: u64) -> u32 {
+        let mut ret: i32 = -1;
+        for i in (0..=63).into_iter() {
             if ((s0 >> i) & 1) == 1 {
                 ret = i;
                 break;
