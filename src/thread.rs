@@ -91,6 +91,7 @@ impl<'a> Thread<'a> {
                     let ret = match op {
                         9 => self.ctz_i32_b64(s0),
                         11 => self.clz_i32_u64(s0),
+                        13 => self.cls_i64(s0),
                         _ => panic!(),
                     };
                     self.write_to_sdst(sdst, ret);
@@ -1807,6 +1808,17 @@ impl<'a> Thread<'a> {
         let s0 = s0 as i32;
         for i in (1..=31).into_iter() {
             if s0 >> (31 - i as u32) != s0 >> 31 {
+                ret = i;
+                break;
+            }
+        }
+        ret as u32
+    }
+    fn cls_i64(&self, s0: u64) -> u32 {
+        let mut ret: i32 = -1;
+        let s0 = s0 as i64;
+        for i in (1..=63).into_iter() {
+            if s0 >> (63 - i as u32) != s0 >> 63 {
                 ret = i;
                 break;
             }
