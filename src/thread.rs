@@ -73,23 +73,28 @@ impl<'a> Thread<'a> {
             if *GLOBAL_DEBUG {
                 println!("{} src={src} sdst={sdst} op={op}", "SOP1".color("blue"));
             }
-
+            if *self.scc == 0 && matches!(op, 2 | 3) {
+                return Ok(());
+            }
             match op {
-                1 => {
-                    let s0 = self.val(src);
+                1 | 3 => {
+                    let s0: u64 = self.val(src);
                     let ret = match op {
-                        1 => s0,
+                        1 | 3 => s0,
+                        5 => s0.reverse_bits(),
+                        9 => todo!(),
                         _ => todo_instr!(instruction)?,
                     };
                     self.scalar_reg.write64(sdst as usize, ret);
                 }
                 _ => {
-                    let s0 = self.val(src);
+                    let s0: u32 = self.val(src);
                     let ret = match op {
-                        0 => s0,
+                        0 | 2 => s0,
+                        4 => s0.reverse_bits(),
+                        8 => self.clz_i32_b32(s0),
                         10 => self.clz_i32_u32(s0),
                         12 => self.cls_i32(s0),
-                        4 => s0.reverse_bits(),
                         14 => s0 as i8 as i32 as u32,
                         15 => s0 as i16 as i32 as u32,
                         16 | 18 => {
@@ -118,7 +123,6 @@ impl<'a> Thread<'a> {
                         }
                         _ => todo_instr!(instruction)?,
                     };
-
                     self.write_to_sdst(sdst, ret);
                 }
             };
@@ -508,7 +512,6 @@ impl<'a> Thread<'a> {
                     let (src_hi, src_lo) = (src(opsel_hi), src(opsel));
                     let ret = ((fxn(src_hi[0], src_hi[1], src_hi[2]) as u32) << 16)
                         | (fxn(src_lo[0], src_lo[1], src_lo[2]) as u32);
-
                     if self.exec.read() {
                         self.vec_reg[vdst] = ret;
                     }
@@ -1812,6 +1815,16 @@ impl<'a> Thread<'a> {
         }
         ret as u32
     }
+    fn clz_i32_b32(&self, s0: u32) -> u32 {
+        let mut ret: i32 = -1;
+        for i in (0..=31).into_iter() {
+            if ((s0 >> i) & 1) == 1 {
+                ret = i;
+                break;
+            }
+        }
+        ret as u32
+    }
 
     /* ALU utils */
     fn _common_srcs(&mut self, code: u32) -> u32 {
@@ -2097,6 +2110,24 @@ mod test_sop1 {
                 assert_eq!(thread.scalar_reg[10], *ret);
                 assert_eq!(*thread.scc, *scc);
             });
+    }
+
+    #[test]
+    fn test_s_ctz_i32_b32() {
+        [
+            [0xaaaaaaaa, 1],
+            [0x55555555, 0],
+            [0x00000000, 0xffffffff],
+            [0xffffffff, 0],
+            [0x00010000, 16],
+        ]
+        .iter()
+        .for_each(|[a, ret]| {
+            let mut thread = _helper_test_thread();
+            thread.scalar_reg[10] = *a;
+            r(&vec![0xbe94080a, END_PRG], &mut thread);
+            assert_eq!(thread.scalar_reg[20], *ret);
+        });
     }
 }
 
