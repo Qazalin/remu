@@ -82,6 +82,13 @@ impl<'a> Thread<'a> {
                     let ret = match op {
                         1 | 3 => s0,
                         5 => s0.reverse_bits(),
+                        17 | 19 => {
+                            let sdst: u64 = self.val(sdst as usize);
+                            match op {
+                                17 => sdst & !(1 << (s0 & 0x1f)),
+                                _ => sdst | (1 << (s0 & 0x1f)),
+                            }
+                        }
                         _ => todo_instr!(instruction)?,
                     };
                     self.scalar_reg.write64(sdst as usize, ret);
