@@ -86,9 +86,13 @@ impl<'a> Thread<'a> {
                     };
                     self.scalar_reg.write64(sdst as usize, ret);
                 }
-                9 => {
+                9 | 11 => {
                     let s0: u64 = self.val(src);
-                    let ret = self.clz_i32_b64(s0);
+                    let ret = match op {
+                        9 => self.ctz_i32_b64(s0),
+                        11 => self.clz_i32_u64(s0),
+                        _ => panic!(),
+                    };
                     self.write_to_sdst(sdst, ret);
                 }
                 _ => {
@@ -96,7 +100,7 @@ impl<'a> Thread<'a> {
                     let ret = match op {
                         0 | 2 => s0,
                         4 => s0.reverse_bits(),
-                        8 => self.clz_i32_b32(s0),
+                        8 => self.ctz_i32_b32(s0),
                         10 => self.clz_i32_u32(s0),
                         12 => self.cls_i32(s0),
                         14 => s0 as i8 as i32 as u32,
@@ -1819,7 +1823,17 @@ impl<'a> Thread<'a> {
         }
         ret as u32
     }
-    fn clz_i32_b32(&self, s0: u32) -> u32 {
+    fn clz_i32_u64(&self, s0: u64) -> u32 {
+        let mut ret: i32 = -1;
+        for i in (0..=63).into_iter() {
+            if s0 >> (63 - i as u32) == 1 {
+                ret = i;
+                break;
+            }
+        }
+        ret as u32
+    }
+    fn ctz_i32_b32(&self, s0: u32) -> u32 {
         let mut ret: i32 = -1;
         for i in (0..=31).into_iter() {
             if ((s0 >> i) & 1) == 1 {
@@ -1829,7 +1843,7 @@ impl<'a> Thread<'a> {
         }
         ret as u32
     }
-    fn clz_i32_b64(&self, s0: u64) -> u32 {
+    fn ctz_i32_b64(&self, s0: u64) -> u32 {
         let mut ret: i32 = -1;
         for i in (0..=63).into_iter() {
             if ((s0 >> i) & 1) == 1 {
