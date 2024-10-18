@@ -403,6 +403,15 @@ impl<'a> Thread<'a> {
                             true => (s0, None),
                             false => (s1, None),
                         },
+                        50..=53 => {
+                            let (s0, s1) = match op {
+                                50 => (s0 as u16, s1 as u16),
+                                51 => (s0 as u16, (s1 >> 16) as u16),
+                                52 => ((s0 >> 16) as u16, (s1 >> 16) as u16),
+                                _ => ((s0 >> 16) as u16, s1 as u16),
+                            };
+                            (((s1 as u32) << 16) | (s0 as u32), None)
+                        }
                         _ => todo_instr!(instruction)?,
                     };
 
@@ -2348,6 +2357,24 @@ mod test_sop2 {
             r(&vec![0x9303FF00, 0x00080008, END_PRG], &mut thread);
             assert_eq!(thread.scalar_reg[3], *ret);
         });
+    }
+
+    #[test]
+    fn test_s_pack_xx_b32_b16() {
+        let mut thread = _helper_test_thread();
+        // ll
+        thread.scalar_reg[0] = 0x12345678;
+        r(&vec![0x9903ff00, 0x9ABCDEF0, END_PRG], &mut thread);
+        assert_eq!(thread.scalar_reg[3], 0xdef05678);
+        // lh
+        r(&vec![0x9983ff00, 0x9ABCDEF0, END_PRG], &mut thread);
+        assert_eq!(thread.scalar_reg[3], 0x9abc5678);
+        // hh
+        r(&vec![0x9a03ff00, 0x9ABCDEF0, END_PRG], &mut thread);
+        assert_eq!(thread.scalar_reg[3], 2596016692);
+        // hl
+        r(&vec![0x9a83ff00, 0x9ABCDEF0, END_PRG], &mut thread);
+        assert_eq!(thread.scalar_reg[3], 3740275252);
     }
 }
 
