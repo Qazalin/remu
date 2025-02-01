@@ -488,7 +488,7 @@ impl<'a> Thread<'a> {
                                     16 => x * y,
                                     17 => f16::min(x, y),
                                     18 => f16::max(x, y),
-                                    _ => panic!("{op}"),
+                                    _ => unreachable!("op should be in range 0..=18, got {op}")
                                 };
                                 ret.to_bits()
                             }
@@ -1718,7 +1718,7 @@ impl<'a> Thread<'a> {
             13 => !(s0 == s1),
             14 => !(s0 < s1),
             15 => true,
-            _ => panic!("{offset}"),
+            _ => panic!("invalid offset for float compare {offset}"),
         };
     }
     fn cmp_class_f64(&self, s0: f64, s1: u32) -> bool {
@@ -1800,7 +1800,7 @@ impl<'a> Thread<'a> {
             5 => s0 != s1,
             6 => s0 >= s1,
             7 => true,
-            _ => panic!("{offset}"),
+            _ => panic!("invalid offset for integer compare {offset}"),
         };
     }
     fn cls_i32(&self, s0: u32) -> u32 {
