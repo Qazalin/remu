@@ -6,14 +6,15 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-linux:
+    name: test / build (linux)
     runs-on: ubuntu-22.04
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Run tests
+    - name: Run unit tests
       run: CI=1 cargo test
 
     - name: Build release binary
@@ -24,3 +25,23 @@ jobs:
       with:
         name: libremu.so
         path: target/release/libremu.so
+
+  build-macos:
+    name: test / build (macos)
+    runs-on: macos-14
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run unit tests
+      run: CI=1 cargo test
+
+    - name: Build release binary
+      run: cargo build --release
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: libremu.dylib
+        path: target/release/libremu.dylib
