@@ -1845,6 +1845,7 @@ impl<'a> Thread<'a> {
     fn _common_srcs(&mut self, code: u32) -> u32 {
         match code {
             106 => self.vcc.value,
+            107 => self.scalar_reg[code as usize],
             126 => self.exec.value,
             128 => 0,
             124 => NULL_SRC,
@@ -1854,7 +1855,8 @@ impl<'a> Thread<'a> {
     }
     fn write_to_sdst(&mut self, sdst_bf: u32, val: u32) {
         match sdst_bf as usize {
-            0..=SGPR_COUNT => self.scalar_reg[sdst_bf as usize] = val,
+            // NOTE: remu is only wave32, vcc_hi is treated as a regular SGPR
+            0..=SGPR_COUNT | 107 => self.scalar_reg[sdst_bf as usize] = val,
             106 => self.vcc.value = val,
             126 => self.exec.value = val,
             _ => todo!("write to sdst {}", sdst_bf),
