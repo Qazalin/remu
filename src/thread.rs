@@ -59,14 +59,7 @@ impl<'a> Thread<'a> {
             match op {
                 0..=4 => (0..2_usize.pow(op as u32)).for_each(|i| {
                     let ret = unsafe { *((addr + (4 * i as u64)) as *const u32) };
-                    match sdata {
-                      // sgpr
-                      0..=105 => self.scalar_reg[sdata+i] = ret,
-                      // vcc_lo
-                      106 => self.vcc.value = ret,
-                      // vcc_hi + trap handlers
-                      _ => todo!("remu does not support trap handlers or wave64."),
-                    }
+                    self.write_to_sdst((sdata+i) as u32, ret);
                 }),
                 _ => todo_instr!(instruction)?,
             };
@@ -730,9 +723,17 @@ impl<'a> Thread<'a> {
                                 20 => (((s0 >> 24) & 0xff) as f32).to_bits(),
                                 56 => s0.reverse_bits(),
                                 57 => self.clz_i32_u32(s0),
-                                35..=51 => {
+                                33..=51 => {
                                     let s0 = f32::from_bits(s0);
                                     match op {
+                                        33 => s0.trunc(),
+                                        34 => {
+                                            let mut d0 = s0.trunc();
+                                            if s0 > 0.0 && s0 != d0 {
+                                                d0 += 1.0;
+                                            }
+                                            d0
+                                        }
                                         35 => {
                                             let mut temp = f32::floor(s0 + 0.5);
                                             if f32::floor(s0) % 2.0 != 0.0 && f32::fract(s0) == 0.5
@@ -741,6 +742,13 @@ impl<'a> Thread<'a> {
                                             }
                                             temp
                                         }
+                                        36 => {
+                                            let mut d0 = s0.trunc();
+                                            if s0 < 0.0 && s0 != d0 {
+                                                d0 -= 1.0;
+                                            }
+                                            d0
+                                        },
                                         37 => f32::exp2(s0),
                                         39 => f32::log2(s0),
                                         42 => 1.0 / s0,
