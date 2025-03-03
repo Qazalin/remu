@@ -981,9 +981,10 @@ impl<'a> Thread<'a> {
                             let s1 = sign_ext((s1 & 0xffffff) as u64, 24) as i32;
                             (s0 * s1) as u32
                         }
-                        18 | 26 => {
+                        17 | 18 | 26 => {
                             let (s0, s1) = (s0 as i32, s1 as i32);
                             (match op {
+                                17 => i32::min(s0, s1),
                                 18 => i32::max(s0, s1),
                                 26 => s1 >> s0,
                                 _ => todo_instr!(instruction)?,
@@ -1205,7 +1206,7 @@ impl<'a> Thread<'a> {
                             };
 
                             match vdst {
-                                0..=SGPR_COUNT => self.set_sgpr_co(vdst, ret),
+                                0..=SGPR_COUNT | 107 => self.set_sgpr_co(vdst, ret),
                                 106 => self.vcc.set_lane(ret),
                                 126 => self.exec.set_lane(ret),
                                 _ => todo_instr!(instruction)?,
