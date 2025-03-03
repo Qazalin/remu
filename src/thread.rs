@@ -57,8 +57,16 @@ impl<'a> Thread<'a> {
             let addr = (base_addr as i64 + offset + soffset as i64) as u64;
 
             match op {
-                0..=4 => (0..2_usize.pow(op as u32)).for_each(|i| unsafe {
-                    self.scalar_reg[sdata + i] = *((addr + (4 * i as u64)) as *const u32);
+                0..=4 => (0..2_usize.pow(op as u32)).for_each(|i| {
+                    let ret = unsafe { *((addr + (4 * i as u64)) as *const u32) };
+                    match sdata {
+                      // sgpr
+                      0..=105 => self.scalar_reg[sdata+i] = ret,
+                      // vcc_lo
+                      106 => self.vcc.value = ret,
+                      // vcc_hi + trap handlers
+                      _ => todo!("remu does not support trap handlers or wave64."),
+                    }
                 }),
                 _ => todo_instr!(instruction)?,
             };
@@ -2010,6 +2018,37 @@ mod test_alu_utils {
         assert_eq!(thread.sgpr_co.unwrap().0, 10);
         assert_eq!(thread.sgpr_co.unwrap().1.mutations.unwrap()[1], true);
         assert_eq!(thread.sgpr_co.unwrap().1.mutations.unwrap()[0], true);
+    }
+}
+
+#[cfg(test)]
+mod test_smem {
+    use super::*;
+
+    #[test]
+    fn test_s_load_b32_simple() {
+        let mut thread = _helper_test_thread();
+        let mut buf = vec![0u8; 4];
+        let a: u32 = 0xDEADBEEF;
+        unsafe { *(buf.as_mut_ptr() as *mut u32) = a; }
+        let base_addr = buf.as_ptr() as u64;
+        thread.scalar_reg.write64(0, base_addr);
+        r(&vec![0xF4000040, 0xF8000000, END_PRG], &mut thread);
+        assert_eq!(thread.scalar_reg[1], a);
+        std::mem::forget(buf);
+    }
+
+    #[test]
+    fn test_s_load_b32_vcc() {
+        let mut thread = _helper_test_thread();
+        let mut buf = vec![0u8; 4];
+        let a: u32 = 0xDEADBEEF;
+        unsafe { *(buf.as_mut_ptr() as *mut u32) = a; }
+        let base_addr = buf.as_ptr() as u64;
+        thread.scalar_reg.write64(0, base_addr);
+        r(&vec![0xF4001A80, 0xF8000000, END_PRG], &mut thread);
+        assert_eq!(thread.vcc.value, a);
+        std::mem::forget(buf);
     }
 }
 
