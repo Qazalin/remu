@@ -11,6 +11,7 @@ use num_traits::Float;
 pub const SGPR_COUNT: usize = 105;
 pub const VGPR_COUNT: usize = 256;
 const NULL_SRC: u32 = 124;
+const SIMM_SRC: usize = 255;
 
 pub struct Thread<'a> {
     pub scalar_reg: &'a mut Vec<u32>,
@@ -814,8 +815,8 @@ impl<'a> Thread<'a> {
                         let s1 = f32::from_bits(*s1 as u32);
                         match *op {
                             0 => f32::mul_add(s0, s1, f32::from_bits(self.vec_reg[*dst])),
-                            1 => f32::mul_add(s0, s1, f32::from_bits(self.simm())),
-                            2 => f32::mul_add(s0, f32::from_bits(self.simm()), s1),
+                            1 => f32::mul_add(s0, s1, f32::from_bits(self.val(SIMM_SRC))),
+                            2 => f32::mul_add(s0, f32::from_bits(self.val(SIMM_SRC)), s1),
                             3 => s0 * s1,
                             4 => s0 + s1,
                             5 => s0 - s1,
@@ -936,8 +937,8 @@ impl<'a> Thread<'a> {
                         51 => s0 - s1,
                         53 => s0 * s1,
                         54 => f16::mul_add(s0, s1, f16::from_bits(self.vec_reg[vdst] as u16)),
-                        55 => f16::mul_add(s0, f16::from_bits(self.simm() as u16), s1),
-                        56 => f16::mul_add(s0, s1, f16::from_bits(self.simm() as u16)),
+                        55 => f16::mul_add(s0, f16::from_bits(self.val(SIMM_SRC)), s1),
+                        56 => f16::mul_add(s0, s1, f16::from_bits(self.val(SIMM_SRC))),
                         57 => f16::max(s0, s1),
                         58 => f16::min(s0, s1),
                         _ => todo_instr!(instruction)?,
@@ -970,8 +971,8 @@ impl<'a> Thread<'a> {
                                 15 => f32::min(s0, s1),
                                 16 => f32::max(s0, s1),
                                 43 => f32::mul_add(s0, s1, f32::from_bits(self.vec_reg[vdst])),
-                                44 => f32::mul_add(s0, f32::from_bits(self.simm()), s1),
-                                45 => f32::mul_add(s0, s1, f32::from_bits(self.simm())),
+                                44 => f32::mul_add(s0, f32::from_bits(self.val(SIMM_SRC)), s1),
+                                45 => f32::mul_add(s0, s1, f32::from_bits(self.val(SIMM_SRC))),
                                 _ => todo_instr!(instruction)?,
                             }
                             .to_bits()
@@ -1848,14 +1849,22 @@ impl<'a> Thread<'a> {
     }
 
     /* ALU utils */
-    fn _common_srcs(&mut self, code: u32) -> u32 {
+    fn _common_srcs(&mut self, code: usize) -> u32 {
         match code {
             106 => self.vcc.value,
             107 => self.scalar_reg[code as usize],
             126 => self.exec.value,
             128 => 0,
             124 => NULL_SRC,
-            255 => self.simm(),
+            255 => match self.simm {
+                None => {
+                    let val = self.stream[self.pc_offset + 1];
+                    self.simm = Some(val);
+                    self.pc_offset += 1;
+                    val
+                }
+                Some(val) => val,
+            },
             _ => todo!("resolve_src={code}"),
         }
     }
@@ -1878,16 +1887,6 @@ impl<'a> Thread<'a> {
         *self.sgpr_co = Some((idx, wv));
     }
 
-    fn simm(&mut self) -> u32 {
-        if let Some(val) = self.simm {
-            val
-        } else {
-            let val = self.stream[self.pc_offset + 1];
-            self.simm = Some(val);
-            self.pc_offset += 1;
-            val
-        }
-    }
     fn u64_instr(&mut self) -> u64 {
         let msb = self.stream[self.pc_offset + 1] as u64;
         let instr = msb << 32 | self.stream[self.pc_offset] as u64;
@@ -1923,7 +1922,7 @@ impl ALUSrc<u16> for Thread<'_> {
                 .1,
             )
             .to_bits(),
-            _ => self._common_srcs(code as u32) as u16,
+            _ => self._common_srcs(code) as u16,
         }
     }
 }
@@ -1949,7 +1948,7 @@ impl ALUSrc<u32> for Thread<'_> {
             .unwrap()
             .1
             .to_bits(),
-            _ => self._common_srcs(code as u32),
+            _ => self._common_srcs(code),
         }
     }
 }
@@ -1975,7 +1974,7 @@ impl ALUSrc<u64> for Thread<'_> {
             .unwrap()
             .1
             .to_bits(),
-            _ => self._common_srcs(code as u32) as u64,
+            _ => self._common_srcs(code) as u64,
         }
     }
 }
@@ -1983,7 +1982,7 @@ impl ALUSrc<f64> for Thread<'_> {
     fn val(&mut self, code: usize) -> f64 {
         let uret: u64 = self.val(code);
         match code {
-            255 => f64::from_bits(uret << 32),
+            SIMM_SRC => f64::from_bits(uret << 32),
             _ => f64::from_bits(uret),
         }
     }
@@ -3574,11 +3573,7 @@ mod test_vop3 {
         let mut thread = _helper_test_thread();
         thread.vec_reg.write64(0, 2.0f64.to_bits());
         let simm = 0x40080000;
-        println!("{}", f64::from_bits((simm as u64) << 32));
-        r(
-            &vec![0xD7280000, 0x000200FF, 0x40080000, simm, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xD7280000, 0x000200FF, simm, END_PRG], &mut thread);
         assert_eq!(f64::from_bits(thread.vec_reg.read64(0)), 6.0);
     }
 }
