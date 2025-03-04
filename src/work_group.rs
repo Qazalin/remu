@@ -23,11 +23,12 @@ pub struct WorkGroup<'a> {
 }
 
 const SYNCS: [u32; 5] = [0xBF89FC07, 0xBFBD0000, 0xBC7C0000, 0xBF890007, 0xbFB60003];
-const BARRIERS: [[u32; 2]; 4] = [
+const BARRIERS: [[u32; 2]; 5] = [
     [SYNCS[0], SYNCS[0]],
     [SYNCS[0], SYNCS[1]],
     [SYNCS[0], SYNCS[2]],
     [SYNCS[3], SYNCS[1]],
+    [SYNCS[1], SYNCS[0]],
 ];
 impl<'a> WorkGroup<'a> {
     pub fn new(
