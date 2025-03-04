@@ -1971,7 +1971,10 @@ impl ALUSrc<u64> for Thread<'_> {
 impl ALUSrc<f64> for Thread<'_> {
     fn val(&mut self, code: usize) -> f64 {
         let uret: u64 = self.val(code);
-        f64::from_bits(uret)
+        match code {
+            255 => f64::from_bits(uret << 32),
+            _ => f64::from_bits(uret),
+        }
     }
 }
 
@@ -3530,6 +3533,31 @@ mod test_vop3 {
         r(&vec![0xD72B0000, 0x00020500, END_PRG], &mut thread);
         let val = f64::from_bits(thread.vec_reg.read64(0));
         assert_eq!(val, 40.0);
+    }
+
+    #[test]
+    fn test_simm_resolve_int_in_double_op() {
+        let mut thread = _helper_test_thread();
+        thread.vec_reg.write64(0, 3.0f64.to_bits());
+        let simm = 0xFFFFFFE0;
+        r(&vec![0xD72B0002, 0x0001FF00, simm, END_PRG], &mut thread);
+        assert_eq!(
+            f64::from_bits(thread.vec_reg.read64(2)),
+            3.0 * 2.0.powi(-32)
+        );
+    }
+
+    #[test]
+    fn test_simm_resolve_double_in_double_op() {
+        let mut thread = _helper_test_thread();
+        thread.vec_reg.write64(0, 2.0f64.to_bits());
+        let simm = 0x40080000;
+        println!("{}", f64::from_bits((simm as u64) << 32));
+        r(
+            &vec![0xD7280000, 0x000200FF, 0x40080000, simm, END_PRG],
+            &mut thread,
+        );
+        assert_eq!(f64::from_bits(thread.vec_reg.read64(0)), 6.0);
     }
 }
 
