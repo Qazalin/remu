@@ -60,17 +60,17 @@ impl<'a> WorkGroup<'a> {
         }
         let waves = blocks.chunks(32).map(|w| w.to_vec()).collect::<Vec<_>>();
 
-        let mut syncs = 0;
-        self.kernel.iter().enumerate().for_each(|(i, x)| {
+        let mut sync = false;
+        for (i, x) in self.kernel.iter().enumerate() {
             if i != 0 && BARRIERS.contains(&[*x, self.kernel[i - 1]]) {
-                syncs += 1;
                 if *PROFILE {
                     GLOBAL_COUNTER.lock().unwrap().wave_syncs += 1;
                 }
+                sync = true;
+                break;
             }
-        });
-        assert!(syncs <= 1);
-        for _ in 0..=syncs {
+        }
+        for _ in 0..=(sync as usize) {
             for w in waves.iter().enumerate() {
                 self.exec_wave(w)?
             }
