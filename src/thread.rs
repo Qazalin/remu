@@ -1302,6 +1302,13 @@ impl<'a> Thread<'a> {
                                 self.vec_reg[vdst] = f32::from(s0).to_bits();
                             }
                         }
+                        399 => {
+                            let s0: f64 = self.val(src.0);
+                            let s0 = s0.negate(0, neg).absolute(0, abs);
+                            if self.exec.read() {
+                                self.vec_reg[vdst] = (s0 as f32).to_bits();
+                            }
+                        }
                         785 => {
                             let (s0, s1) = (self.val(src.0), self.val(src.1));
                             if self.exec.read() {
@@ -1451,6 +1458,10 @@ impl<'a> Thread<'a> {
                                                 _ => todo_instr!(instruction)?,
                                             }) as u32
                                         }
+                                        275 => u32::min(s0, s1),
+                                        276 => u32::max(s0, s1),
+                                        280 => s1 << s0,
+                                        281 => s1 >> s0,
                                         283 => s0 & s1,
                                         284 => s0 | s1,
                                         285 => s0 ^ s1,
@@ -2577,6 +2588,17 @@ mod test_vopd {
 mod test_vop1 {
     use super::*;
     use float_cmp::approx_eq;
+
+    #[test]
+    fn test_v_cvt_f32_f64() {
+        let mut thread = _helper_test_thread();
+        thread.vec_reg.write64(0, 2.0f64.to_bits());
+        r(&vec![0xD58F0101, 0x00000100, END_PRG], &mut thread);
+        assert_eq!(f32::from_bits(thread.vec_reg[1]), 2.0);
+        thread.vec_reg.write64(0, (-2.0f64).to_bits());
+        r(&vec![0xD58F0101, 0x00000100, END_PRG], &mut thread);
+        assert_eq!(f32::from_bits(thread.vec_reg[1]), 2.0);
+    }
 
     #[test]
     fn test_v_mov_b32_srrc_const0() {
