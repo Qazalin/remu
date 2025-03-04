@@ -59,7 +59,7 @@ impl<'a> Thread<'a> {
             match op {
                 0..=4 => (0..2_usize.pow(op as u32)).for_each(|i| {
                     let ret = unsafe { *((addr + (4 * i as u64)) as *const u32) };
-                    self.write_to_sdst((sdata+i) as u32, ret);
+                    self.write_to_sdst((sdata + i) as u32, ret);
                 }),
                 _ => todo_instr!(instruction)?,
             };
@@ -489,7 +489,7 @@ impl<'a> Thread<'a> {
                                     16 => x * y,
                                     17 => f16::min(x, y),
                                     18 => f16::max(x, y),
-                                    _ => unreachable!("op should be in range 0..=18, got {op}")
+                                    _ => unreachable!("op should be in range 0..=18, got {op}"),
                                 };
                                 ret.to_bits()
                             }
@@ -748,7 +748,7 @@ impl<'a> Thread<'a> {
                                                 d0 -= 1.0;
                                             }
                                             d0
-                                        },
+                                        }
                                         37 => f32::exp2(s0),
                                         39 => f32::log2(s0),
                                         42 => 1.0 / s0,
@@ -2041,7 +2041,9 @@ mod test_smem {
         let mut thread = _helper_test_thread();
         let mut buf = vec![0u8; 4];
         let a: u32 = 0xDEADBEEF;
-        unsafe { *(buf.as_mut_ptr() as *mut u32) = a; }
+        unsafe {
+            *(buf.as_mut_ptr() as *mut u32) = a;
+        }
         let base_addr = buf.as_ptr() as u64;
         thread.scalar_reg.write64(0, base_addr);
         r(&vec![0xF4000040, 0xF8000000, END_PRG], &mut thread);
@@ -2054,7 +2056,9 @@ mod test_smem {
         let mut thread = _helper_test_thread();
         let mut buf = vec![0u8; 4];
         let a: u32 = 0xDEADBEEF;
-        unsafe { *(buf.as_mut_ptr() as *mut u32) = a; }
+        unsafe {
+            *(buf.as_mut_ptr() as *mut u32) = a;
+        }
         let base_addr = buf.as_ptr() as u64;
         thread.scalar_reg.write64(0, base_addr);
         r(&vec![0xF4001A80, 0xF8000000, END_PRG], &mut thread);

@@ -64,7 +64,10 @@ impl<'a> Colorize for &'a str {
 #[macro_export]
 macro_rules! todo_instr {
     ($x:expr) => {{
-        if std::env::var("REMU_DEBUG").map(|v| v == "4").unwrap_or(false) {
+        if std::env::var("REMU_DEBUG")
+            .map(|v| v == "4")
+            .unwrap_or(false)
+        {
             panic!("{:08X}", $x)
         }
         Err(1)

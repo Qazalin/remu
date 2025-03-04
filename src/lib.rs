@@ -23,7 +23,8 @@ pub extern "C" fn run_asm(
     if lib.is_null() || (lib_sz % 4) != 0 {
         panic!("Pointer is null or length is not properly aligned to 4 bytes");
     }
-    let kernel = unsafe { slice::from_raw_parts(lib as *const u32, (lib_sz / 4) as usize).to_vec() };
+    let kernel =
+        unsafe { slice::from_raw_parts(lib as *const u32, (lib_sz / 4) as usize).to_vec() };
     let dispatch_dim = match (gy != 1, gz != 1) {
         (true, true) => 3,
         (true, false) => 2,
