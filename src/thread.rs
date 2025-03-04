@@ -870,7 +870,7 @@ impl<'a> Thread<'a> {
                     }
                 }
                 (32..=47) | 127 | (160..=174) => {
-                    let s0 = f64::from_bits(self.val(s0));
+                    let s0 = self.val(s0);
                     match op {
                         127 => {
                             let s1 = self.val(s1);
@@ -1065,7 +1065,7 @@ impl<'a> Thread<'a> {
                         }
                         765 => {
                             assert!(f64::from_bits(self.val(s2)).exponent() <= 1076);
-                            let ret = ldexp(f64::from_bits(self.val(s0)), 128);
+                            let ret = ldexp(self.val(s0), 128);
                             if self.exec.read() {
                                 self.vec_reg.write64(vdst, ret.to_bits());
                             }
@@ -1163,8 +1163,8 @@ impl<'a> Thread<'a> {
                                     }
                                 }
                                 (32..=47) | 127 | (160..=174) => {
-                                    let s0 = self.val(src.0);
-                                    let s0 = f64::from_bits(s0).negate(0, neg).absolute(0, abs);
+                                    let s0: f64 = self.val(src.0);
+                                    let s0 = s0.negate(0, neg).absolute(0, abs);
                                     match op {
                                         127 => {
                                             let s1 = self.val(src.1);
@@ -1227,17 +1227,11 @@ impl<'a> Thread<'a> {
                             }
                         }
                         407 | 532 | 552 | 568 | (807..=811) => {
-                            let (s0, s1, s2) = (
-                                f64::from_bits(self.val(src.0))
-                                    .negate(0, neg)
-                                    .absolute(0, abs),
-                                f64::from_bits(self.val(src.1))
-                                    .negate(1, neg)
-                                    .absolute(1, abs),
-                                f64::from_bits(self.val(src.2))
-                                    .negate(2, neg)
-                                    .absolute(2, abs),
-                            );
+                            let (_s0, _s1, _s2): (f64, f64, f64) =
+                                (self.val(src.0), self.val(src.1), self.val(src.2));
+                            let s0 = _s0.negate(0, neg).absolute(0, abs);
+                            let s1 = _s1.negate(1, neg).absolute(1, abs);
+                            let s2 = _s2.negate(2, neg).absolute(2, abs);
                             let ret = match op {
                                 407 => f64::trunc(s0),
                                 532 => f64::mul_add(s0, s1, s2),
@@ -1972,6 +1966,12 @@ impl ALUSrc<u64> for Thread<'_> {
             .to_bits(),
             _ => self._common_srcs(code as u32) as u64,
         }
+    }
+}
+impl ALUSrc<f64> for Thread<'_> {
+    fn val(&mut self, code: usize) -> f64 {
+        let uret: u64 = self.val(code);
+        f64::from_bits(uret)
     }
 }
 
