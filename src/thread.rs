@@ -60,7 +60,7 @@ impl<'a> Thread<'a> {
             match op {
                 0..=4 => (0..2_usize.pow(op as u32)).for_each(|i| {
                     let ret = unsafe { *((addr + (4 * i as u64)) as *const u32) };
-                    self.write_to_sdst((sdata + i) as u32, ret);
+                    self.write_to_sdst(sdata + i, ret);
                 }),
                 _ => todo_instr!(instruction)?,
             };
@@ -70,7 +70,7 @@ impl<'a> Thread<'a> {
         else if instruction >> 23 == 0b10_1111101 {
             let src = (instruction & 0xFF) as usize;
             let op = (instruction >> 8) & 0xFF;
-            let sdst = (instruction >> 16) & 0x7F;
+            let sdst = ((instruction >> 16) & 0x7F) as usize;
 
             if *GLOBAL_DEBUG {
                 println!("{} src={src} sdst={sdst} op={op}", "SOP1".color("blue"));
@@ -217,7 +217,7 @@ impl<'a> Thread<'a> {
             }
 
             match op {
-                0 => self.write_to_sdst(sdst as u32, simm as i16 as i32 as u32),
+                0 => self.write_to_sdst(sdst, simm as i16 as i32 as u32),
                 3..=8 => {
                     let s1 = simm as i16 as i64;
                     let s0 = s0 as i32 as i64;
@@ -245,7 +245,7 @@ impl<'a> Thread<'a> {
                     let temp = s0 as i32;
                     let simm16 = simm as i16;
                     let dest = (temp as i64 + simm16 as i64) as i32;
-                    self.write_to_sdst(sdst as u32, dest as u32);
+                    self.write_to_sdst(sdst, dest as u32);
                     let temp_sign = ((temp >> 31) & 1) as u32;
                     let simm_sign = ((simm16 >> 15) & 1) as u32;
                     let dest_sign = ((dest >> 31) & 1) as u32;
@@ -254,7 +254,7 @@ impl<'a> Thread<'a> {
                 16 => {
                     let simm16 = simm as i16;
                     let ret = (s0 as i32 * simm16 as i32) as u32;
-                    self.write_to_sdst(sdst as u32, ret);
+                    self.write_to_sdst(sdst, ret);
                 }
                 _ => todo_instr!(instruction)?,
             };
@@ -264,7 +264,7 @@ impl<'a> Thread<'a> {
         else if instruction >> 30 == 0b10 {
             let s0 = (instruction & 0xFF) as usize;
             let s1 = ((instruction >> 8) & 0xFF) as usize;
-            let sdst = (instruction >> 16) & 0x7F;
+            let sdst = ((instruction >> 16) & 0x7F) as usize;
             let op = (instruction >> 23) & 0xFF;
 
             if *GLOBAL_DEBUG {
@@ -1329,7 +1329,7 @@ impl<'a> Thread<'a> {
                                 864 => {
                                     let val =
                                         self.vec_reg.get_lane(s1 as usize)[src.0 - VGPR_COUNT];
-                                    self.write_to_sdst(vdst as u32, val);
+                                    self.write_to_sdst(vdst, val);
                                     return Ok(());
                                 }
                                 826 => {
@@ -1868,10 +1868,10 @@ impl<'a> Thread<'a> {
             _ => todo!("resolve_src={code}"),
         }
     }
-    fn write_to_sdst(&mut self, sdst_bf: u32, val: u32) {
-        match sdst_bf as usize {
+    fn write_to_sdst(&mut self, sdst_bf: usize, val: u32) {
+        match sdst_bf {
             // NOTE: remu is only wave32, vcc_hi is treated as a regular SGPR
-            0..=SGPR_COUNT | 107 => self.scalar_reg[sdst_bf as usize] = val,
+            0..=SGPR_COUNT | 107 => self.scalar_reg[sdst_bf] = val,
             106 => self.vcc.value = val,
             126 => self.exec.value = val,
             _ => todo!("write to sdst {}", sdst_bf),
