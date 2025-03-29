@@ -1,7 +1,9 @@
-use crate::dtype::{extract_mantissa, ldexp, IEEEClass, VOPModifier};
+use crate::helpers::{
+    extract_mantissa, f16_hi, f16_lo, ldexp, nth, sign_ext, IEEEClass, VOPModifier,
+};
+use crate::helpers::{Colorize, END_PRG, GLOBAL_DEBUG};
 use crate::state::{Register, Value, VecDataStore, WaveValue, VGPR};
 use crate::todo_instr;
-use crate::utils::{f16_hi, f16_lo, nth, sign_ext, Colorize, GLOBAL_DEBUG};
 use half::f16;
 use ndarray::Array;
 use num_traits::Float;
@@ -1981,8 +1983,6 @@ impl ALUSrc<f64> for Thread<'_> {
     }
 }
 
-#[allow(unused_imports)]
-use crate::utils::END_PRG;
 #[cfg(test)]
 mod test_alu_utils {
     use super::*;
@@ -3927,7 +3927,7 @@ fn r(prg: &Vec<u32>, thread: &mut Thread) {
     }
 
     loop {
-        if instructions[pc] == crate::utils::END_PRG {
+        if instructions[pc] == END_PRG {
             break;
         }
         if instructions[pc] == 0xbfb60003 || instructions[pc] >> 20 == 0xbf8 {

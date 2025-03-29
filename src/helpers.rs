@@ -1,6 +1,25 @@
 use half::f16;
 use num_traits::float::FloatCore;
 
+pub fn nth(val: u32, pos: usize) -> u32 {
+    (val >> (31 - pos as u32)) & 1
+}
+pub fn f16_lo(val: u32) -> f16 {
+    f16::from_bits((val & 0xffff) as u16)
+}
+pub fn f16_hi(val: u32) -> f16 {
+    f16::from_bits(((val >> 16) & 0xffff) as u16)
+}
+
+pub fn sign_ext(num: u64, bits: usize) -> i64 {
+    let mut value = num;
+    let is_negative = (value >> (bits - 1)) & 1 != 0;
+    if is_negative {
+        value |= !0 << bits;
+    }
+    value as i64
+}
+
 pub trait IEEEClass<T> {
     fn exponent(&self) -> T;
 }
@@ -89,11 +108,6 @@ mod tests {
         assert_eq!(f16::NEG_INFINITY.exponent(), 31);
         assert_eq!(f16::INFINITY.exponent(), 31);
     }
-}
-
-#[cfg(test)]
-mod test_modifiers {
-    use super::*;
 
     #[test]
     fn test_neg() {
@@ -104,4 +118,49 @@ mod test_modifiers {
         assert_eq!(0.3_f32.negate(1, 0b010), -0.3_f32);
         assert_eq!(0.0_f32.negate(0, 0b001).to_bits(), 0);
     }
+
+    #[test]
+    fn test_sign_ext() {
+        assert_eq!(sign_ext(0b000000000000000101000, 21), 40);
+        assert_eq!(sign_ext(0b111111111111111011000, 21), -40);
+        assert_eq!(sign_ext(0b000000000000000000000, 21), 0);
+        assert_eq!(sign_ext(0b111111111111111111111, 21), -1);
+        assert_eq!(sign_ext(0b111000000000000000000, 21), -262144);
+        assert_eq!(sign_ext(0b000111111111111111111, 21), 262143);
+        assert_eq!(sign_ext(7608, 13), -584);
+    }
+}
+
+pub const END_PRG: u32 = 0xbfb00000;
+
+lazy_static::lazy_static! {
+    pub static ref GLOBAL_DEBUG: bool = std::env::var("DEBUG").map(|v| v == "1").unwrap_or(false);
+}
+
+pub trait Colorize {
+    fn color(self, color: &str) -> String;
+}
+impl<'a> Colorize for &'a str {
+    fn color(self, color: &str) -> String {
+        let ansi_code = match color {
+            "blue" => format!("\x1b[{};2;112;184;255m", 38),
+            "green" => format!("\x1b[{};2;39;176;139m", 38),
+            "gray" => format!("\x1b[{};2;169;169;169m", 38),
+            _ => format!("\x1b[{};2;255;255;255m", 38),
+        };
+        format!("{}{}{}", ansi_code, self, "\x1b[0m")
+    }
+}
+
+#[macro_export]
+macro_rules! todo_instr {
+    ($x:expr) => {{
+        if std::env::var("REMU_DEBUG")
+            .map(|v| v == "4")
+            .unwrap_or(false)
+        {
+            panic!("{:08X}", $x)
+        }
+        Err(1)
+    }};
 }

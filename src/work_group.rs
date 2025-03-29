@@ -1,6 +1,6 @@
+use crate::helpers::{Colorize, END_PRG, GLOBAL_DEBUG};
 use crate::state::{Register, VecDataStore, WaveValue, VGPR};
 use crate::thread::Thread;
-use crate::utils::{Colorize, END_PRG, GLOBAL_DEBUG};
 use std::collections::HashMap;
 
 struct WaveState(

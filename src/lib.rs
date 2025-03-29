@@ -1,10 +1,9 @@
 use crate::work_group::WorkGroup;
 use std::os::raw::c_char;
 use std::slice;
-mod dtype;
+mod helpers;
 mod state;
 mod thread;
-mod utils;
 mod work_group;
 
 #[no_mangle]
