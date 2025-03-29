@@ -1,12 +1,9 @@
 use half::f16;
-use lazy_static::lazy_static;
-use std::sync::Mutex;
 use std::{env, str};
 
 pub const END_PRG: u32 = 0xbfb00000;
 lazy_static::lazy_static! {
     pub static ref CI: bool = env::var("CI").map(|v| v == "1").unwrap_or(false);
-    pub static ref PROFILE: bool = env::var("PROFILE").map(|v| v == "1").unwrap_or(false);
     pub static ref GLOBAL_DEBUG: bool = env::var("DEBUG").map(|v| v == "1").unwrap_or(false);
 }
 
@@ -72,22 +69,4 @@ macro_rules! todo_instr {
         }
         Err(1)
     }};
-}
-
-#[derive(Debug)]
-pub struct GlobalCounter {
-    pub vgpr_used: usize,
-    pub gds_ops: usize,
-    pub lds_ops: usize,
-    pub wmma: usize,
-    pub wave_syncs: usize,
-}
-lazy_static! {
-    pub static ref GLOBAL_COUNTER: Mutex<GlobalCounter> = Mutex::new(GlobalCounter {
-        vgpr_used: 0,
-        gds_ops: 0,
-        lds_ops: 0,
-        wmma: 0,
-        wave_syncs: 0
-    });
 }

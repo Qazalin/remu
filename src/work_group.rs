@@ -1,6 +1,6 @@
 use crate::state::{Register, VecDataStore, WaveValue, VGPR};
 use crate::thread::Thread;
-use crate::utils::{Colorize, CI, END_PRG, GLOBAL_COUNTER, GLOBAL_DEBUG, PROFILE};
+use crate::utils::{Colorize, CI, END_PRG, GLOBAL_DEBUG};
 use std::collections::HashMap;
 
 struct WaveState(
@@ -63,9 +63,6 @@ impl<'a> WorkGroup<'a> {
         let mut sync = false;
         for (i, x) in self.kernel.iter().enumerate() {
             if i != 0 && BARRIERS.contains(&[*x, self.kernel[i - 1]]) {
-                if *PROFILE {
-                    GLOBAL_COUNTER.lock().unwrap().wave_syncs += 1;
-                }
                 sync = true;
                 break;
             }

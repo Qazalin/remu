@@ -1,9 +1,7 @@
 use crate::dtype::{extract_mantissa, ldexp, IEEEClass, VOPModifier};
 use crate::state::{Register, Value, VecDataStore, WaveValue, VGPR};
 use crate::todo_instr;
-use crate::utils::{
-    f16_hi, f16_lo, nth, sign_ext, Colorize, GLOBAL_COUNTER, GLOBAL_DEBUG, PROFILE,
-};
+use crate::utils::{f16_hi, f16_lo, nth, sign_ext, Colorize, GLOBAL_DEBUG};
 use half::f16;
 use ndarray::Array;
 use num_traits::Float;
@@ -559,9 +557,6 @@ impl<'a> Thread<'a> {
                     }
                 }
                 64..=69 => {
-                    if *PROFILE {
-                        GLOBAL_COUNTER.lock().unwrap().wmma += 1;
-                    }
                     let f16_matrix = |vsrc: usize| {
                         let values = (0..16)
                             .flat_map(|lane_id| {
@@ -1548,9 +1543,6 @@ impl<'a> Thread<'a> {
                     "LDS".color("blue"),
                 );
             }
-            if *PROFILE {
-                GLOBAL_COUNTER.lock().unwrap().lds_ops += 1;
-            }
 
             let lds_base = self.vec_reg[addr];
             let single_addr = || (lds_base + (instr & 0xffff) as u32) as usize;
@@ -1675,9 +1667,6 @@ impl<'a> Thread<'a> {
                 2 => {
                     if *GLOBAL_DEBUG {
                         println!("{} offset={offset} op={op} addr={addr} data={data} saddr={saddr} vdst={vdst}", "GLOBAL".color("blue"));
-                    }
-                    if *PROFILE {
-                        GLOBAL_COUNTER.lock().unwrap().gds_ops += 1;
                     }
 
                     let addr = match saddr_off {

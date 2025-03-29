@@ -1,4 +1,3 @@
-use crate::utils::{GLOBAL_COUNTER, PROFILE};
 use crate::work_group::WorkGroup;
 use std::os::raw::c_char;
 use std::slice;
@@ -40,9 +39,6 @@ pub extern "C" fn run_asm(
                 }
             }
         }
-    }
-    if *PROFILE {
-        println!("{:?}", GLOBAL_COUNTER.lock().unwrap());
     }
     0
 }

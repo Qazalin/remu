@@ -1,4 +1,3 @@
-use crate::utils::{GLOBAL_COUNTER, PROFILE};
 use std::ops::{Index, IndexMut};
 
 pub trait Register {
@@ -33,9 +32,6 @@ impl Index<usize> for VGPR {
 }
 impl IndexMut<usize> for VGPR {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        if *PROFILE {
-            GLOBAL_COUNTER.lock().unwrap().vgpr_used += 1;
-        }
         &mut self.values[self.default_lane.unwrap()][index]
     }
 }
