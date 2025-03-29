@@ -54,7 +54,11 @@ impl<'a> Thread<'a> {
                     "SMEM".color("blue"),
                 );
             }
-            let base_addr = self.scalar_reg.read64(sbase as usize);
+            // TODO: refactor vcc_lo to store in scalar register 106
+            let base_addr = match sbase {
+                106 => ((self.scalar_reg[107] as u64) << 32) | self.vcc.value as u64,
+                _ => self.scalar_reg.read64(sbase as usize),
+            };
             let addr = (base_addr as i64 + offset + soffset as i64) as u64;
 
             match op {
@@ -2076,6 +2080,24 @@ mod test_smem {
         thread.scalar_reg.write64(0, base_addr);
         r(&vec![0xF4001A80, 0xF8000000, END_PRG], &mut thread);
         assert_eq!(thread.vcc.value, a);
+        std::mem::forget(buf);
+    }
+
+    #[test]
+    fn test_s_load_b32_vcc_addr() {
+        let mut thread = _helper_test_thread();
+        let mut buf = vec![0u8; 4];
+        let a: u32 = 0xDEADBEEF;
+        unsafe {
+            *(buf.as_mut_ptr() as *mut u32) = a;
+        }
+        let addr = buf.as_ptr() as u64;
+        // NOTE: vcc is an alias for s[106:107]
+        thread.scalar_reg.write64(106, addr);
+        // TODO: vcc_lo should just read from s106
+        thread.vcc.value = (addr & 0xffffffff) as u32;
+        r(&vec![0xF4000035, 0xF8000000, END_PRG], &mut thread);
+        assert_eq!(thread.scalar_reg[0], a);
         std::mem::forget(buf);
     }
 }
