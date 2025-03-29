@@ -1,6 +1,6 @@
 use crate::state::{Register, VecDataStore, WaveValue, VGPR};
 use crate::thread::Thread;
-use crate::utils::{Colorize, CI, END_PRG, GLOBAL_DEBUG};
+use crate::utils::{Colorize, END_PRG, GLOBAL_DEBUG};
 use std::collections::HashMap;
 
 struct WaveState(
@@ -119,12 +119,6 @@ impl<'a> WorkGroup<'a> {
         let mut seeded_lanes = vec![];
         loop {
             if self.kernel[pc] == END_PRG {
-                if *CI {
-                    self.wave_state.insert(
-                        wave_id,
-                        WaveState(scalar_reg, scc, vec_reg, vcc, exec, pc, sds),
-                    );
-                }
                 break Ok(());
             }
             if BARRIERS.contains(&[self.kernel[pc], self.kernel[pc + 1]]) && wave_state.is_none() {
@@ -207,65 +201,71 @@ impl<'a> WorkGroup<'a> {
 mod test_workgroup {
     use super::*;
 
+    // TODO: make this generic by adding the assembler
+    fn global_store_sgpr(addr: u64, instructions: Vec<u32>, src: u32) -> Vec<u32> {
+        [
+            instructions,
+            vec![
+                0x7E020200 + src,
+                0x7E0402FF,
+                addr as u32,
+                0x7E0602FF,
+                (addr >> 32) as u32,
+                0xDC6A0000,
+                0x007C0102,
+            ],
+            vec![END_PRG],
+        ]
+        .concat()
+    }
+
     #[test]
     fn test_wave_value_state_vcc() {
-        if *CI == false {
-            println!("WARN: this test needs CI=1");
-            return;
-        }
+        let mut ret: u32 = 0;
         let kernel = vec![
             0xBEEA00FF,
             0b11111111111111111111111111111111, // initial vcc state
             0x7E140282,
             0x7C94010A, // cmp blockDim.x == 2
-            END_PRG,
         ];
-        let args = vec![];
-        let mut wg = WorkGroup::new(1, [0, 0, 0], [3, 1, 1], &kernel, args.as_ptr());
+        let addr = (&mut ret as *mut u32) as u64;
+        let kernel = global_store_sgpr(addr, kernel, 106);
+        let mut wg = WorkGroup::new(1, [0, 0, 0], [3, 1, 1], &kernel, [addr].as_ptr());
         wg.exec_waves().unwrap();
-        let w0 = wg.wave_state.get(&0).unwrap();
-        assert_eq!(w0.3.value, 0b100);
+        assert_eq!(ret, 0b100);
     }
 
     #[test]
     fn test_wave_value_state_exec() {
-        if *CI == false {
-            println!("WARN: this test needs CI=1");
-            return;
-        }
+        let mut ret: u32 = 0;
         let kernel = vec![
             0xBEFE00FF,
             0b11111111111111111111111111111111,
             0x7E140282,
             0x7D9C010A, // cmpx blockDim.x <= 2
-            END_PRG,
         ];
-        let args = vec![];
-        let mut wg = WorkGroup::new(1, [0, 0, 0], [4, 1, 1], &kernel, args.as_ptr());
+        let addr = (&mut ret as *mut u32) as u64;
+        let kernel = global_store_sgpr(addr, kernel, 126);
+        let mut wg = WorkGroup::new(1, [0, 0, 0], [4, 1, 1], &kernel, [addr].as_ptr());
         wg.exec_waves().unwrap();
-        let w0 = wg.wave_state.get(&0).unwrap();
-        assert_eq!(w0.4.value, 0b0111);
+        assert_eq!(ret, 0b0111);
     }
 
     #[test]
     fn test_wave_value_sgpr_co() {
-        if *CI == false {
-            println!("WARN: this test needs CI=1");
-            return;
-        }
+        let mut ret: u32 = 0;
         let kernel = vec![
             0xBE8D00FF,
             0x7FFFFFFF,
             0x7E1402FF,
             u32::MAX,
-            0xD7000D0A,
+            0xD700000A,
             0x0002010A,
-            END_PRG,
         ];
-        let args = vec![];
-        let mut wg = WorkGroup::new(1, [0, 0, 0], [5, 1, 1], &kernel, args.as_ptr());
+        let addr = (&mut ret as *mut u32) as u64;
+        let kernel = global_store_sgpr(addr, kernel, 0);
+        let mut wg = WorkGroup::new(1, [0, 0, 0], [5, 1, 1], &kernel, [addr].as_ptr());
         wg.exec_waves().unwrap();
-        let w0 = wg.wave_state.get(&0).unwrap();
-        assert_eq!(w0.0[13], 0b11110);
+        assert_eq!(ret, 0b11110);
     }
 }
