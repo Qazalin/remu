@@ -1,17 +1,19 @@
 use crate::helpers::{
     extract_mantissa, f16_hi, f16_lo, ldexp, nth, sign_ext, IEEEClass, VOPModifier,
 };
-use crate::helpers::{Colorize, END_PRG, GLOBAL_DEBUG};
+use crate::helpers::{Colorize, GLOBAL_DEBUG};
 use crate::state::{Register, Value, VecDataStore, WaveValue, VGPR};
 use crate::todo_instr;
 use half::f16;
 use ndarray::Array;
 use num_traits::Float;
 
-pub const SGPR_COUNT: usize = 105;
-pub const VGPR_COUNT: usize = 256;
+const SGPR_COUNT: usize = 105;
+const VGPR_COUNT: usize = 256;
 const NULL_SRC: u32 = 124;
 const SIMM_SRC: usize = 255;
+
+pub const END_PRG: u32 = 0xbfb00000;
 
 pub struct Thread<'a> {
     pub scalar_reg: &'a mut Vec<u32>,

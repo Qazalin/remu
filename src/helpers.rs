@@ -131,8 +131,6 @@ mod tests {
     }
 }
 
-pub const END_PRG: u32 = 0xbfb00000;
-
 lazy_static::lazy_static! {
     pub static ref GLOBAL_DEBUG: bool = std::env::var("DEBUG").map(|v| v == "1").unwrap_or(false);
 }
