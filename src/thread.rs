@@ -1711,6 +1711,18 @@ impl<'a> Thread<'a> {
                 }
                 _ => todo_instr!(instruction)?,
             };
+        }
+        // mubuf
+        else if instruction >> 26 == 0b111000 {
+            let instr = self.u64_instr();
+            let op = ((instr >> 18) & 0x7f) as usize;
+            if *GLOBAL_DEBUG {
+                println!("{} op={op}", "MUBUF".color("blue"));
+            }
+            match op {
+                43 => {} // NOTE: remu doesn't have an l0 cache, it just has the software managed lds
+                _ => todo_instr!(instruction)?,
+            };
         } else {
             todo_instr!(instruction)?;
         }
