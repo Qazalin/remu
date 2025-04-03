@@ -4,7 +4,7 @@ use crate::helpers::{
 use crate::helpers::{Colorize, GLOBAL_DEBUG};
 use crate::state::{Register, Value, VecDataStore, WaveValue, VGPR};
 use crate::todo_instr;
-use half::f16;
+use half::{bf16, f16};
 use ndarray::Array;
 use num_traits::Float;
 
@@ -576,6 +576,23 @@ impl<'a> Thread<'a> {
                             .collect::<Vec<_>>();
                         Array::from_shape_vec((16, 16), values).unwrap()
                     };
+
+                    let bf16_matrix = |vsrc: usize| {
+                        let values = (0..16)
+                            .flat_map(|lane_id| {
+                                let lane = self.vec_reg.get_lane(lane_id);
+                                (vsrc..=vsrc + 7).flat_map(move |v| {
+                                    let val = lane[v - VGPR_COUNT];
+                                    [
+                                        bf16::from_bits((val & 0xffff) as u16),
+                                        bf16::from_bits(((val >> 16) & 0xffff) as u16),
+                                    ]
+                                })
+                            })
+                            .collect::<Vec<_>>();
+                        Array::from_shape_vec((16, 16), values).unwrap()
+                    };
+
                     let c_matrix = |v: usize| {
                         let values = (0..256)
                             .into_iter()
@@ -590,6 +607,18 @@ impl<'a> Thread<'a> {
                     match op {
                         64 => {
                             let (a, b, c) = (f16_matrix(s[0]), f16_matrix(s[1]), c_matrix(s[2]));
+                            let (a, b) = (a.mapv(|e| e.to_f32()), b.mapv(|e| e.to_f32()));
+                            let c = c.mapv(|e| f32::from_bits(e));
+
+                            let ret = a.dot(&b.t()) + &c;
+                            for (i, val) in ret.iter().cloned().enumerate() {
+                                let register = (i / 32) + vdst;
+                                let lane = i % 32;
+                                self.vec_reg.get_lane_mut(lane)[register] = val.to_bits()
+                            }
+                        }
+                        65 => {
+                            let (a, b, c) = (bf16_matrix(s[0]), bf16_matrix(s[1]), c_matrix(s[2]));
                             let (a, b) = (a.mapv(|e| e.to_f32()), b.mapv(|e| e.to_f32()));
                             let c = c.mapv(|e| f32::from_bits(e));
 
