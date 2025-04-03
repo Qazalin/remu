@@ -1683,6 +1683,7 @@ impl<'a> Thread<'a> {
                     }
                     let addr = match (sve, saddr_off) {
                         (true, true) => offset as u64 as usize,
+                        (false, false) => saddr_val as usize,
                         _ => todo_instr!(instruction)?,
                     };
                     match op {
