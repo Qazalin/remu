@@ -549,49 +549,15 @@ impl<'a> Thread<'a> {
                     }
                 }
                 64..=69 => {
-                    let f16_matrix = |vsrc: usize| {
-                        let values = (0..16)
-                            .flat_map(|lane_id| {
-                                let lane = self.vec_reg.get_lane(lane_id);
-                                (vsrc..=vsrc + 7).flat_map(move |v| {
-                                    let val = lane[v - VGPR_COUNT];
-                                    [f16::from_bits((val & 0xffff) as u16), f16::from_bits(((val >> 16) & 0xffff) as u16)]
-                                })
-                            })
-                            .collect::<Vec<_>>();
-                        Array::from_shape_vec((16, 16), values).unwrap()
-                    };
-
-                    let bf16_matrix = |vsrc: usize| {
-                        let values = (0..16)
-                            .flat_map(|lane_id| {
-                                let lane = self.vec_reg.get_lane(lane_id);
-                                (vsrc..=vsrc + 7).flat_map(move |v| {
-                                    let val = lane[v - VGPR_COUNT];
-                                    [bf16::from_bits((val & 0xffff) as u16), bf16::from_bits(((val >> 16) & 0xffff) as u16)]
-                                })
-                            })
-                            .collect::<Vec<_>>();
-                        Array::from_shape_vec((16, 16), values).unwrap()
-                    };
-
-                    let c_matrix = |v: usize| {
-                        let values = (0..256)
-                            .into_iter()
-                            .map(|i| {
-                                let val = self.vec_reg.get_lane(i % 32)[(i / 32) + v - VGPR_COUNT];
-                                val
-                            })
-                            .collect::<Vec<_>>();
-                        Array::from_shape_vec((16, 16), values).unwrap()
-                    };
-
                     match op {
                         64 => {
-                            let (a, b, c) = (f16_matrix(s[0]), f16_matrix(s[1]), c_matrix(s[2]));
-                            let (a, b) = (a.mapv(|e| e.to_f32()), b.mapv(|e| e.to_f32()));
-                            let c = c.mapv(|e| f32::from_bits(e));
+                            let a = self.wmma_b16_16x16(s[0]).map(|v| f16::from_bits(v).to_f32());
+                            let b = self.wmma_b16_16x16(s[1]).map(|v| f16::from_bits(v).to_f32());
+                            let c = self.wmma_b32_16x16(s[2]).map(|v| f32::from_bits(v));
 
+                            let a = Array::from_shape_vec((16, 16), a.collect()).unwrap();
+                            let b = Array::from_shape_vec((16, 16), b.collect()).unwrap();
+                            let c = Array::from_shape_vec((16, 16), c.collect()).unwrap();
                             let ret = a.dot(&b.t()) + &c;
                             for (i, val) in ret.iter().cloned().enumerate() {
                                 let register = (i / 32) + vdst;
@@ -600,9 +566,13 @@ impl<'a> Thread<'a> {
                             }
                         }
                         65 => {
-                            let (a, b, c) = (bf16_matrix(s[0]), bf16_matrix(s[1]), c_matrix(s[2]));
-                            let (a, b) = (a.mapv(|e| e.to_f32()), b.mapv(|e| e.to_f32()));
-                            let c = c.mapv(|e| f32::from_bits(e));
+                            let a = self.wmma_b16_16x16(s[0]).map(|v| bf16::from_bits(v).to_f32());
+                            let b = self.wmma_b16_16x16(s[1]).map(|v| bf16::from_bits(v).to_f32());
+                            let c = self.wmma_b32_16x16(s[2]).map(|v| f32::from_bits(v));
+
+                            let a = Array::from_shape_vec((16, 16), a.collect()).unwrap();
+                            let b = Array::from_shape_vec((16, 16), b.collect()).unwrap();
+                            let c = Array::from_shape_vec((16, 16), c.collect()).unwrap();
 
                             let ret = a.dot(&b.t()) + &c;
                             for (i, val) in ret.iter().cloned().enumerate() {
@@ -612,8 +582,14 @@ impl<'a> Thread<'a> {
                             }
                         }
                         66 => {
-                            let (a, b, c) = (f16_matrix(s[0]), f16_matrix(s[1]), c_matrix(s[2]));
-                            let c = c.mapv(|e| f16::from_bits(e as u16));
+                            let a = self.wmma_b16_16x16(s[0]).map(|v| f16::from_bits(v));
+                            let b = self.wmma_b16_16x16(s[1]).map(|v| f16::from_bits(v));
+                            let c = self.wmma_b32_16x16(s[2]).map(|v| f16::from_bits(v as u16));
+
+                            let a = Array::from_shape_vec((16, 16), a.collect()).unwrap();
+                            let b = Array::from_shape_vec((16, 16), b.collect()).unwrap();
+                            let c = Array::from_shape_vec((16, 16), c.collect()).unwrap();
+
                             let ret = a.dot(&b.t()) + &c;
                             for (i, val) in ret.iter().cloned().enumerate() {
                                 let register = (i / 32) + vdst;
@@ -1855,6 +1831,20 @@ impl<'a> Thread<'a> {
         let instr = msb << 32 | self.stream[self.pc_offset] as u64;
         self.pc_offset += 1;
         return instr;
+    }
+
+    fn wmma_b16_16x16(&'a self, vsrc: usize) -> impl Iterator<Item = u16> + 'a {
+        (0..16).flat_map(move |i| {
+            let lane = self.vec_reg.get_lane(i);
+            (vsrc..=vsrc + 7).flat_map(move |j| {
+                let val = lane[j - VGPR_COUNT];
+                [(val & 0xffff) as u16, (val >> 16) as u16]
+            })
+        })
+    }
+
+    fn wmma_b32_16x16(&'a self, vsrc: usize) -> impl Iterator<Item = u32> + 'a {
+        (0..256).map(move |i| self.vec_reg.get_lane(i % 32)[(i / 32) + vsrc - VGPR_COUNT])
     }
 }
 
