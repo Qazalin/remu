@@ -111,12 +111,9 @@ impl VecDataStore {
         if addr + 4 >= self.data.len() {
             self.data.resize(self.data.len() + addr + 5, 0);
         }
-        self.data[addr..addr + 4]
-            .iter_mut()
-            .enumerate()
-            .for_each(|(i, x)| {
-                *x = val.to_le_bytes()[i];
-            });
+        self.data[addr..addr + 4].iter_mut().enumerate().for_each(|(i, x)| {
+            *x = val.to_le_bytes()[i];
+        });
     }
     pub fn write64(&mut self, addr: usize, val: u64) {
         self.write(addr, (val & 0xffffffff) as u32);
@@ -219,9 +216,8 @@ mod test_state {
         assert_eq!(
             val.mutations,
             Some([
-                false, true, false, false, false, false, false, false, false, false, false, false,
-                false, false, false, false, false, false, false, false, false, false, false, false,
-                false, false, false, false, false, false, false, false,
+                false, true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
+                false, false, false, false, false, false, false, false, false, false, false, false, false,
             ])
         );
 

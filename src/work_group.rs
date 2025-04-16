@@ -3,15 +3,7 @@ use crate::state::{Register, VecDataStore, WaveValue, VGPR};
 use crate::thread::{Thread, END_PRG};
 use std::collections::HashMap;
 
-struct WaveState(
-    Vec<u32>,
-    u32,
-    VGPR,
-    WaveValue,
-    WaveValue,
-    usize,
-    HashMap<usize, VecDataStore>,
-);
+struct WaveState(Vec<u32>, u32, VGPR, WaveValue, WaveValue, usize, HashMap<usize, VecDataStore>);
 pub struct WorkGroup<'a> {
     dispatch_dim: u32,
     id: [u32; 3],
@@ -31,13 +23,7 @@ const BARRIERS: [[u32; 2]; 5] = [
     [SYNCS[1], SYNCS[0]],
 ];
 impl<'a> WorkGroup<'a> {
-    pub fn new(
-        dispatch_dim: u32,
-        id: [u32; 3],
-        launch_bounds: [u32; 3],
-        kernel: &'a Vec<u32>,
-        kernel_args: *const u64,
-    ) -> Self {
+    pub fn new(dispatch_dim: u32, id: [u32; 3], launch_bounds: [u32; 3], kernel: &'a Vec<u32>, kernel_args: *const u64) -> Self {
         return Self {
             dispatch_dim,
             id,
@@ -122,16 +108,10 @@ impl<'a> WorkGroup<'a> {
                 break Ok(());
             }
             if BARRIERS.contains(&[self.kernel[pc], self.kernel[pc + 1]]) && wave_state.is_none() {
-                self.wave_state.insert(
-                    wave_id,
-                    WaveState(scalar_reg, scc, vec_reg, vcc, exec, pc, sds),
-                );
+                self.wave_state.insert(wave_id, WaveState(scalar_reg, scc, vec_reg, vcc, exec, pc, sds));
                 break Ok(());
             }
-            if SYNCS.contains(&self.kernel[pc])
-                || self.kernel[pc] >> 20 == 0xbf8
-                || self.kernel[pc] == 0x7E000000
-            {
+            if SYNCS.contains(&self.kernel[pc]) || self.kernel[pc] >> 20 == 0xbf8 || self.kernel[pc] == 0x7E000000 {
                 pc += 1;
                 continue;
             }
@@ -254,14 +234,7 @@ mod test_workgroup {
     #[test]
     fn test_wave_value_sgpr_co() {
         let mut ret: u32 = 0;
-        let kernel = vec![
-            0xBE8D00FF,
-            0x7FFFFFFF,
-            0x7E1402FF,
-            u32::MAX,
-            0xD700000A,
-            0x0002010A,
-        ];
+        let kernel = vec![0xBE8D00FF, 0x7FFFFFFF, 0x7E1402FF, u32::MAX, 0xD700000A, 0x0002010A];
         let addr = (&mut ret as *mut u32) as u64;
         let kernel = global_store_sgpr(addr, kernel, 0);
         let mut wg = WorkGroup::new(1, [0, 0, 0], [5, 1, 1], &kernel, [addr].as_ptr());

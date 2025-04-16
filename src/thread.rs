@@ -1,6 +1,4 @@
-use crate::helpers::{
-    extract_mantissa, f16_hi, f16_lo, ldexp, nth, sign_ext, IEEEClass, VOPModifier,
-};
+use crate::helpers::{extract_mantissa, f16_hi, f16_lo, ldexp, nth, sign_ext, IEEEClass, VOPModifier};
 use crate::helpers::{Colorize, GLOBAL_DEBUG};
 use crate::state::{Register, Value, VecDataStore, WaveValue, VGPR};
 use crate::todo_instr;
@@ -216,10 +214,7 @@ impl<'a> Thread<'a> {
             let s0: u32 = self.val(sdst);
 
             if *GLOBAL_DEBUG {
-                println!(
-                    "{} simm={simm} sdst={sdst} s0={s0} op={op}",
-                    "SOPK".color("blue"),
-                );
+                println!("{} simm={simm} sdst={sdst} s0={s0} op={op}", "SOPK".color("blue"),);
             }
 
             match op {
@@ -274,10 +269,7 @@ impl<'a> Thread<'a> {
             let op = (instruction >> 23) & 0xFF;
 
             if *GLOBAL_DEBUG {
-                println!(
-                    "{} s0={s0} s1={s1} sdst={sdst} op={op}",
-                    "SOP2".color("blue"),
-                );
+                println!("{} s0={s0} s1={s1} sdst={sdst} op={op}", "SOP2".color("blue"),);
             }
 
             match op {
@@ -338,10 +330,7 @@ impl<'a> Thread<'a> {
                             (ret as u32, Some(ret >= 0x100000000))
                         }
                         1 => (s0 - s1, Some(s1 > s0)),
-                        5 => (
-                            s0 - s1 - *self.scc,
-                            Some((s1 as u64 + *self.scc as u64) > s0 as u64),
-                        ),
+                        5 => (s0 - s1 - *self.scc, Some((s1 as u64 + *self.scc as u64) > s0 as u64)),
                         2 | 3 => {
                             let s0 = s0 as i32 as i64;
                             let s1 = s1 as i32 as i64;
@@ -350,8 +339,7 @@ impl<'a> Thread<'a> {
                                 3 => s0 - s1,
                                 _ => todo_instr!(instruction)?,
                             };
-                            let overflow = (nth(s0 as u32, 31) == nth(s1 as u32, 31))
-                                && (nth(s0 as u32, 31) != nth(ret as u32, 31));
+                            let overflow = (nth(s0 as u32, 31) == nth(s1 as u32, 31)) && (nth(s0 as u32, 31) != nth(ret as u32, 31));
 
                             (ret as i32 as u32, Some(overflow))
                         }
@@ -403,10 +391,7 @@ impl<'a> Thread<'a> {
                         }
                         44 => (((s0 as i32) * (s1 as i32)) as u32, None),
                         45 => (((s0 as u64) * (s1 as u64) >> 32) as u32, None),
-                        46 => (
-                            (((s0 as i32 as i64 * s1 as i32 as i64) as u64) >> 32u64) as i32 as u32,
-                            None,
-                        ),
+                        46 => ((((s0 as i32 as i64 * s1 as i32 as i64) as u64) >> 32u64) as i32 as u32, None),
                         48 => match *self.scc != 0 {
                             true => (s0, None),
                             false => (s1, None),
@@ -454,10 +439,7 @@ impl<'a> Thread<'a> {
                 }
             };
 
-            let s = [32, 41, 50]
-                .iter()
-                .map(|x| ((instr >> x) & 0x1ff) as usize)
-                .collect::<Vec<_>>();
+            let s = [32, 41, 50].iter().map(|x| ((instr >> x) & 0x1ff) as usize).collect::<Vec<_>>();
             let src_parts = s.iter().map(|x| src(*x)).collect::<Vec<_>>();
 
             let b = |i: usize| (instr >> i) & 0x1 != 0;
@@ -466,7 +448,15 @@ impl<'a> Thread<'a> {
             let opsel = [b(11), b(12), b(13)];
             let opsel_hi = [b(59), b(60), b(14)];
             if *GLOBAL_DEBUG {
-                println!("{} op={op} vdst={vdst} src2={:?} opsel={:?} opsel_hi={:?} neg={:03b} neg_hi={:03b}", "VOPP".color("blue"), src_parts, opsel, opsel_hi, neg, neg_hi);
+                println!(
+                    "{} op={op} vdst={vdst} src2={:?} opsel={:?} opsel_hi={:?} neg={:03b} neg_hi={:03b}",
+                    "VOPP".color("blue"),
+                    src_parts,
+                    opsel,
+                    opsel_hi,
+                    neg,
+                    neg_hi
+                );
             }
 
             match op {
@@ -488,8 +478,7 @@ impl<'a> Thread<'a> {
                             12 => u16::max(x, y),
                             13 => u16::min(x, y),
                             _ => {
-                                let (x, y, z) =
-                                    (f16::from_bits(x), f16::from_bits(y), f16::from_bits(z));
+                                let (x, y, z) = (f16::from_bits(x), f16::from_bits(y), f16::from_bits(z));
                                 let ret = match op {
                                     14 => f16::mul_add(x, y, z),
                                     15 => x + y,
@@ -523,8 +512,7 @@ impl<'a> Thread<'a> {
                             .collect::<Vec<u16>>()
                     };
                     let (src_hi, src_lo) = (src(opsel_hi), src(opsel));
-                    let ret = ((fxn(src_hi[0], src_hi[1], src_hi[2]) as u32) << 16)
-                        | (fxn(src_lo[0], src_lo[1], src_lo[2]) as u32);
+                    let ret = ((fxn(src_hi[0], src_hi[1], src_hi[2]) as u32) << 16) | (fxn(src_lo[0], src_lo[1], src_lo[2]) as u32);
 
                     if self.exec.read() {
                         self.vec_reg[vdst] = ret;
@@ -567,10 +555,7 @@ impl<'a> Thread<'a> {
                                 let lane = self.vec_reg.get_lane(lane_id);
                                 (vsrc..=vsrc + 7).flat_map(move |v| {
                                     let val = lane[v - VGPR_COUNT];
-                                    [
-                                        f16::from_bits((val & 0xffff) as u16),
-                                        f16::from_bits(((val >> 16) & 0xffff) as u16),
-                                    ]
+                                    [f16::from_bits((val & 0xffff) as u16), f16::from_bits(((val >> 16) & 0xffff) as u16)]
                                 })
                             })
                             .collect::<Vec<_>>();
@@ -583,10 +568,7 @@ impl<'a> Thread<'a> {
                                 let lane = self.vec_reg.get_lane(lane_id);
                                 (vsrc..=vsrc + 7).flat_map(move |v| {
                                     let val = lane[v - VGPR_COUNT];
-                                    [
-                                        bf16::from_bits((val & 0xffff) as u16),
-                                        bf16::from_bits(((val >> 16) & 0xffff) as u16),
-                                    ]
+                                    [bf16::from_bits((val & 0xffff) as u16), bf16::from_bits(((val >> 16) & 0xffff) as u16)]
                                 })
                             })
                             .collect::<Vec<_>>();
@@ -668,8 +650,7 @@ impl<'a> Thread<'a> {
                                         23 => f64::trunc(s0),
                                         25 => {
                                             let mut temp = f64::floor(s0 + 0.5);
-                                            if f64::floor(s0) % 2.0 != 0.0 && f64::fract(s0) == 0.5
-                                            {
+                                            if f64::floor(s0) % 2.0 != 0.0 && f64::fract(s0) == 0.5 {
                                                 temp -= 1.0;
                                             }
                                             temp
@@ -689,15 +670,10 @@ impl<'a> Thread<'a> {
                                         3 => s0 as i32 as u32,
                                         15 => (s0 as f32).to_bits(),
                                         21 => s0 as u32,
-                                        60 => {
-                                            match (s0 == f64::INFINITY)
-                                                || (s0 == f64::NEG_INFINITY)
-                                                || s0.is_nan()
-                                            {
-                                                true => 0,
-                                                false => (s0.exponent() as i32 - 1023 + 1) as u32,
-                                            }
-                                        }
+                                        60 => match (s0 == f64::INFINITY) || (s0 == f64::NEG_INFINITY) || s0.is_nan() {
+                                            true => 0,
+                                            false => (s0.exponent() as i32 - 1023 + 1) as u32,
+                                        },
                                         _ => todo_instr!(instruction)?,
                                     };
                                     if self.exec.read() {
@@ -738,8 +714,7 @@ impl<'a> Thread<'a> {
                         }
                         2 => {
                             let idx = self.exec.value.trailing_zeros() as usize;
-                            self.scalar_reg[vdst] = self.vec_reg.get_lane(idx)
-                                [(instruction & 0x1ff) as usize - VGPR_COUNT];
+                            self.scalar_reg[vdst] = self.vec_reg.get_lane(idx)[(instruction & 0x1ff) as usize - VGPR_COUNT];
                         }
                         _ => {
                             let ret = match op {
@@ -769,8 +744,7 @@ impl<'a> Thread<'a> {
                                         }
                                         35 => {
                                             let mut temp = f32::floor(s0 + 0.5);
-                                            if f32::floor(s0) % 2.0 != 0.0 && f32::fract(s0) == 0.5
-                                            {
+                                            if f32::floor(s0) % 2.0 != 0.0 && f32::fract(s0) == 0.5 {
                                                 temp -= 1.0;
                                             }
                                             temp
@@ -838,9 +812,7 @@ impl<'a> Thread<'a> {
                 );
             }
 
-            for (op, s0, s1, dst) in
-                ([(opx, srcx0, vsrcx1, vdstx), (opy, srcy0, vsrcy1, vdsty)]).iter()
-            {
+            for (op, s0, s1, dst) in ([(opx, srcx0, vsrcx1, vdstx), (opy, srcy0, vsrcy1, vdsty)]).iter() {
                 let ret = match *op {
                     0 | 1 | 2 | 3 | 4 | 5 | 6 | 10 | 11 => {
                         let s0 = f32::from_bits(*s0 as u32);
@@ -955,10 +927,7 @@ impl<'a> Thread<'a> {
             let op = (instruction >> 25) & 0x3F;
 
             if *GLOBAL_DEBUG {
-                println!(
-                    "{} s0={s0} s1={s1} vdst={vdst} op={op}",
-                    "VOP2".color("blue"),
-                );
+                println!("{} s0={s0} s1={s1} vdst={vdst} op={op}", "VOP2".color("blue"),);
             }
 
             match op {
@@ -1034,8 +1003,7 @@ impl<'a> Thread<'a> {
                                 34 => s1 - s0 - self.vcc.read() as u32,
                                 _ => todo_instr!(instruction)?,
                             };
-                            self.vcc
-                                .set_lane((s1 as u64 + self.vcc.read() as u64) > s0 as u64);
+                            self.vcc.set_lane((s1 as u64 + self.vcc.read() as u64) > s0 as u64);
                             temp
                         }
                         11 => s0 * s1,
@@ -1077,17 +1045,12 @@ impl<'a> Thread<'a> {
                     assert_eq!(clmp, 0);
 
                     if *GLOBAL_DEBUG {
-                        println!(
-                            "{} vdst={vdst} sdst={sdst} op={op} src={:?}",
-                            "VOPSD".color("blue"),
-                            (s0, s1, s2)
-                        );
+                        println!("{} vdst={vdst} sdst={sdst} op={op} src={:?}", "VOPSD".color("blue"), (s0, s1, s2));
                     }
 
                     let vcc = match op {
                         766 => {
-                            let (s0, s1, s2): (u32, u32, u64) =
-                                (self.val(s0), self.val(s1), self.val(s2));
+                            let (s0, s1, s2): (u32, u32, u64) = (self.val(s0), self.val(s1), self.val(s2));
                             let (mul_result, overflow_mul) = (s0 as u64).overflowing_mul(s1 as u64);
                             let (ret, overflow_add) = mul_result.overflowing_add(s2);
                             let overflowed = overflow_mul || overflow_add;
@@ -1105,23 +1068,18 @@ impl<'a> Thread<'a> {
                             false
                         }
                         _ => {
-                            let (s0, s1, _s2): (u32, u32, u32) =
-                                (self.val(s0), self.val(s1), self.val(s2));
+                            let (s0, s1, _s2): (u32, u32, u32) = (self.val(s0), self.val(s1), self.val(s2));
                             let (ret, vcc) = match op {
                                 288 => {
                                     let ret = s0 as u64 + s1 as u64 + carry_in.read() as u64;
                                     (ret as u32, ret >= 0x100000000)
                                 }
                                 289 => {
-                                    let ret = (s0 as u64)
-                                        .wrapping_sub(s1 as u64)
-                                        .wrapping_sub(carry_in.read() as u64);
+                                    let ret = (s0 as u64).wrapping_sub(s1 as u64).wrapping_sub(carry_in.read() as u64);
                                     (ret as u32, s1 as u64 + (carry_in.read() as u64) > s0 as u64)
                                 }
                                 290 => {
-                                    let ret = (s1 as u64)
-                                        .wrapping_sub(s0 as u64)
-                                        .wrapping_sub(carry_in.read() as u64);
+                                    let ret = (s1 as u64).wrapping_sub(s0 as u64).wrapping_sub(carry_in.read() as u64);
                                     (ret as u32, s1 as u64 + (carry_in.read() as u64) > s0 as u64)
                                 }
                                 764 => (0, false), // NOTE: div scaling isn't required
@@ -1205,8 +1163,7 @@ impl<'a> Thread<'a> {
                                         }
                                         _ => {
                                             let s1 = self.val(src.1);
-                                            let s1 =
-                                                f64::from_bits(s1).negate(1, neg).absolute(1, abs);
+                                            let s1 = f64::from_bits(s1).negate(1, neg).absolute(1, abs);
                                             self.cmpf(s0, s1, op - 32 - dest_offset)
                                         }
                                     }
@@ -1246,8 +1203,7 @@ impl<'a> Thread<'a> {
                             }
                         }
                         828..=830 => {
-                            let (s0, s1, _s2): (u32, u64, u64) =
-                                (self.val(src.0), self.val(src.1), self.val(src.2));
+                            let (s0, s1, _s2): (u32, u64, u64) = (self.val(src.0), self.val(src.1), self.val(src.2));
                             let shift = s0 & 0x3f;
                             let ret = match op {
                                 828 => s1 << shift,
@@ -1260,8 +1216,7 @@ impl<'a> Thread<'a> {
                             }
                         }
                         407 | 532 | 552 | 568 | (807..=811) => {
-                            let (_s0, _s1, _s2): (f64, f64, f64) =
-                                (self.val(src.0), self.val(src.1), self.val(src.2));
+                            let (_s0, _s1, _s2): (f64, f64, f64) = (self.val(src.0), self.val(src.1), self.val(src.2));
                             let s0 = _s0.negate(0, neg).absolute(0, abs);
                             let s1 = _s1.negate(1, neg).absolute(1, abs);
                             let s2 = _s2.negate(2, neg).absolute(2, abs);
@@ -1312,25 +1267,19 @@ impl<'a> Thread<'a> {
                             }
                         }
                         394 => {
-                            let s0 = f32::from_bits(self.val(src.0))
-                                .negate(0, neg)
-                                .absolute(0, abs);
+                            let s0 = f32::from_bits(self.val(src.0)).negate(0, neg).absolute(0, abs);
                             if self.exec.read() {
                                 self.vec_reg[vdst].mut_lo16(f16::from_f32(s0).to_bits());
                             }
                         }
                         467 => {
-                            let s0 = f16::from_bits(self.val(src.0))
-                                .negate(0, neg)
-                                .absolute(0, abs);
+                            let s0 = f16::from_bits(self.val(src.0)).negate(0, neg).absolute(0, abs);
                             if self.exec.read() {
                                 self.vec_reg[vdst] = s0.to_f32() as i16 as u32;
                             }
                         }
                         395 => {
-                            let s0 = f16::from_bits(self.val(src.0))
-                                .negate(0, neg)
-                                .absolute(0, abs);
+                            let s0 = f16::from_bits(self.val(src.0)).negate(0, neg).absolute(0, abs);
                             if self.exec.read() {
                                 self.vec_reg[vdst] = f32::from(s0).to_bits();
                             }
@@ -1345,8 +1294,7 @@ impl<'a> Thread<'a> {
                         785 => {
                             let (s0, s1) = (self.val(src.0), self.val(src.1));
                             if self.exec.read() {
-                                self.vec_reg[vdst] = (f16::from_bits(s1).to_bits() as u32) << 16
-                                    | f16::from_bits(s0).to_bits() as u32;
+                                self.vec_reg[vdst] = (f16::from_bits(s1).to_bits() as u32) << 16 | f16::from_bits(s0).to_bits() as u32;
                             }
                         }
                         _ => {
@@ -1359,15 +1307,13 @@ impl<'a> Thread<'a> {
                                     return Ok(());
                                 }
                                 864 => {
-                                    let val =
-                                        self.vec_reg.get_lane(s1 as usize)[src.0 - VGPR_COUNT];
+                                    let val = self.vec_reg.get_lane(s1 as usize)[src.0 - VGPR_COUNT];
                                     self.write_to_sdst(vdst, val);
                                     return Ok(());
                                 }
                                 826 => {
                                     if self.exec.read() {
-                                        self.vec_reg[vdst]
-                                            .mut_lo16(((s1 as i16) >> (s0 & 0xf)) as u16);
+                                        self.vec_reg[vdst].mut_lo16(((s1 as i16) >> (s0 & 0xf)) as u16);
                                     }
                                     return Ok(());
                                 }
@@ -1411,8 +1357,7 @@ impl<'a> Thread<'a> {
                             }
 
                             let ret = match op {
-                                257 | 259 | 299 | 260 | 261 | 264 | 272 | 392 | 531 | 537 | 540
-                                | 551 | 567 | 796 => {
+                                257 | 259 | 299 | 260 | 261 | 264 | 272 | 392 | 531 | 537 | 540 | 551 | 567 | 796 => {
                                     let s0 = f32::from_bits(s0).negate(0, neg).absolute(0, abs);
                                     let s1 = f32::from_bits(s1).negate(1, neg).absolute(1, abs);
                                     let s2 = f32::from_bits(s2).negate(2, neg).absolute(2, abs);
@@ -1422,9 +1367,7 @@ impl<'a> Thread<'a> {
                                         261 => s1 - s0,
                                         264 => s0 * s1,
                                         272 => f32::max(s0, s1),
-                                        299 => {
-                                            f32::mul_add(s0, s1, f32::from_bits(self.vec_reg[vdst]))
-                                        }
+                                        299 => f32::mul_add(s0, s1, f32::from_bits(self.vec_reg[vdst])),
                                         531 => f32::mul_add(s0, s1, s2),
                                         537 => f32::min(f32::min(s0, s1), s2),
                                         540 => f32::max(f32::max(s0, s1), s2),
@@ -1439,8 +1382,7 @@ impl<'a> Thread<'a> {
                                         796 => s0 * 2f32.powi(s1.to_bits() as i32),
                                         // cnd_mask isn't a float only ALU but supports neg
                                         257 => {
-                                            let mut cond =
-                                                WaveValue::new(s2.to_bits(), self.warp_size);
+                                            let mut cond = WaveValue::new(s2.to_bits(), self.warp_size);
                                             cond.default_lane = self.vcc.default_lane;
                                             match cond.read() {
                                                 true => s1,
@@ -1469,10 +1411,8 @@ impl<'a> Thread<'a> {
 
                                             (match op {
                                                 522 => {
-                                                    let s0 =
-                                                        sign_ext((s0 & 0xffffff) as u64, 24) as i32;
-                                                    let s1 =
-                                                        sign_ext((s1 & 0xffffff) as u64, 24) as i32;
+                                                    let s0 = sign_ext((s0 & 0xffffff) as u64, 24) as i32;
+                                                    let s1 = sign_ext((s1 & 0xffffff) as u64, 24) as i32;
                                                     s0 * s1 + s2
                                                 }
                                                 538 => i32::min(i32::min(s0, s1), s2),
@@ -1480,8 +1420,7 @@ impl<'a> Thread<'a> {
                                                 544 => {
                                                     if (i32::max(i32::max(s0, s1), s2)) == s0 {
                                                         i32::max(s1, s2)
-                                                    } else if (i32::max(i32::max(s0, s1), s2)) == s1
-                                                    {
+                                                    } else if (i32::max(i32::max(s0, s1), s2)) == s1 {
                                                         i32::max(s0, s2)
                                                     } else {
                                                         i32::max(s0, s1)
@@ -1523,14 +1462,9 @@ impl<'a> Thread<'a> {
                                                 }
                                             }
                                             let combined = ((s0 as u64) << 32) | s1 as u64;
-                                            let d0 = ((byte_permute(combined, s2 >> 24) as u32)
-                                                << 24)
-                                                | ((byte_permute(combined, (s2 >> 16) & 0xFF)
-                                                    as u32)
-                                                    << 16)
-                                                | ((byte_permute(combined, (s2 >> 8) & 0xFF)
-                                                    as u32)
-                                                    << 8)
+                                            let d0 = ((byte_permute(combined, s2 >> 24) as u32) << 24)
+                                                | ((byte_permute(combined, (s2 >> 16) & 0xFF) as u32) << 16)
+                                                | ((byte_permute(combined, (s2 >> 8) & 0xFF) as u32) << 8)
                                                 | (byte_permute(combined, s2 & 0xFF) as u32);
                                             d0
                                         }
@@ -1571,10 +1505,7 @@ impl<'a> Thread<'a> {
             let data1 = ((instr >> 48) & 0xff) as usize;
             let vdst = ((instr >> 56) & 0xff) as usize;
             if *GLOBAL_DEBUG {
-                println!(
-                    "{} op={op} addr={addr} data0={data0} data1={data1} vdst={vdst}",
-                    "LDS".color("blue"),
-                );
+                println!("{} op={op} addr={addr} data0={data0} data1={data1} vdst={vdst}", "LDS".color("blue"),);
             }
 
             let lds_base = self.vec_reg[addr];
@@ -1616,8 +1547,7 @@ impl<'a> Thread<'a> {
                         _ => 1,
                     };
                     (0..dwords).for_each(|i| {
-                        self.lds
-                            .write(single_addr() + 4 * i, self.vec_reg[data0 + i]);
+                        self.lds.write(single_addr() + 4 * i, self.vec_reg[data0 + i]);
                     })
                 }
                 30 => {
@@ -1625,24 +1555,18 @@ impl<'a> Thread<'a> {
                     if addr + 1 >= self.lds.data.len() {
                         self.lds.data.resize(self.lds.data.len() + addr + 2, 0);
                     }
-                    self.lds.data[addr..addr + 1]
-                        .iter_mut()
-                        .enumerate()
-                        .for_each(|(i, x)| {
-                            *x = (self.vec_reg[data0] as u8).to_le_bytes()[i];
-                        });
+                    self.lds.data[addr..addr + 1].iter_mut().enumerate().for_each(|(i, x)| {
+                        *x = (self.vec_reg[data0] as u8).to_le_bytes()[i];
+                    });
                 }
                 31 => {
                     let addr = single_addr();
                     if addr + 2 >= self.lds.data.len() {
                         self.lds.data.resize(self.lds.data.len() + addr + 3, 0);
                     }
-                    self.lds.data[addr..addr + 2]
-                        .iter_mut()
-                        .enumerate()
-                        .for_each(|(i, x)| {
-                            *x = (self.vec_reg[data0] as u16).to_le_bytes()[i];
-                        });
+                    self.lds.data[addr..addr + 2].iter_mut().enumerate().for_each(|(i, x)| {
+                        *x = (self.vec_reg[data0] as u16).to_le_bytes()[i];
+                    });
                 }
                 14 => {
                     let (addr0, addr1) = double_addr(4);
@@ -1679,7 +1603,10 @@ impl<'a> Thread<'a> {
                 1 => {
                     let sve = ((instr >> 50) & 0x1) != 0;
                     if *GLOBAL_DEBUG {
-                        println!("{} offset={offset} op={op} addr={addr} data={data} saddr={saddr} vdst={vdst} sve={sve}", "SCRATCH".color("blue"));
+                        println!(
+                            "{} offset={offset} op={op} addr={addr} data={data} saddr={saddr} vdst={vdst} sve={sve}",
+                            "SCRATCH".color("blue")
+                        );
                     }
                     let addr = match (sve, saddr_off) {
                         (true, true) => offset as u64 as usize,
@@ -1700,7 +1627,10 @@ impl<'a> Thread<'a> {
                 }
                 2 => {
                     if *GLOBAL_DEBUG {
-                        println!("{} offset={offset} op={op} addr={addr} data={data} saddr={saddr} vdst={vdst}", "GLOBAL".color("blue"));
+                        println!(
+                            "{} offset={offset} op={op} addr={addr} data={data} saddr={saddr} vdst={vdst}",
+                            "GLOBAL".color("blue")
+                        );
                     }
 
                     let addr = match saddr_off {
@@ -1729,12 +1659,9 @@ impl<'a> Thread<'a> {
                             24 => *(addr as *mut u8) = self.vec_reg[data] as u8,
                             25 => *(addr as *mut u16) = self.vec_reg[data] as u16,
                             26..=29 => (0..op - 25).for_each(|i| {
-                                *((addr + 4 * i as u64) as u64 as *mut u32) =
-                                    self.vec_reg[data + i];
+                                *((addr + 4 * i as u64) as u64 as *mut u32) = self.vec_reg[data + i];
                             }),
-                            37 => {
-                                *(addr as *mut u16) = ((self.vec_reg[data] >> 16) & 0xffff) as u16
-                            }
+                            37 => *(addr as *mut u16) = ((self.vec_reg[data] >> 16) & 0xffff) as u16,
                             _ => todo_instr!(instruction)?,
                         };
                     }
@@ -1917,10 +1844,7 @@ impl<'a> Thread<'a> {
         }
     }
     fn set_sgpr_co(&mut self, idx: usize, val: bool) {
-        let mut wv = self
-            .sgpr_co
-            .map(|(_, wv)| wv)
-            .unwrap_or_else(|| WaveValue::new(0, self.warp_size));
+        let mut wv = self.sgpr_co.map(|(_, wv)| wv).unwrap_or_else(|| WaveValue::new(0, self.warp_size));
         wv.default_lane = self.vcc.default_lane;
         wv.set_lane(val);
         *self.sgpr_co = Some((idx, wv));
@@ -2276,39 +2200,31 @@ mod test_sop2 {
 
     #[test]
     fn test_s_add_u32() {
-        [
-            [10, 20, 30, 0],
-            [u32::MAX, 10, 9, 1],
-            [u32::MAX, 0, u32::MAX, 0],
-        ]
-        .iter()
-        .for_each(|[a, b, expected, scc]| {
-            let mut thread = _helper_test_thread();
-            thread.scalar_reg[2] = *a;
-            thread.scalar_reg[6] = *b;
-            r(&vec![0x80060206, END_PRG], &mut thread);
-            assert_eq!(thread.scalar_reg[6], *expected);
-            assert_eq!(*thread.scc, *scc);
-        });
+        [[10, 20, 30, 0], [u32::MAX, 10, 9, 1], [u32::MAX, 0, u32::MAX, 0]]
+            .iter()
+            .for_each(|[a, b, expected, scc]| {
+                let mut thread = _helper_test_thread();
+                thread.scalar_reg[2] = *a;
+                thread.scalar_reg[6] = *b;
+                r(&vec![0x80060206, END_PRG], &mut thread);
+                assert_eq!(thread.scalar_reg[6], *expected);
+                assert_eq!(*thread.scc, *scc);
+            });
     }
 
     #[test]
     fn test_s_addc_u32() {
-        [
-            [10, 20, 31, 1, 0],
-            [10, 20, 30, 0, 0],
-            [u32::MAX, 10, 10, 1, 1],
-        ]
-        .iter()
-        .for_each(|[a, b, expected, scc_before, scc_after]| {
-            let mut thread = _helper_test_thread();
-            *thread.scc = *scc_before;
-            thread.scalar_reg[7] = *a;
-            thread.scalar_reg[3] = *b;
-            r(&vec![0x82070307, END_PRG], &mut thread);
-            assert_eq!(thread.scalar_reg[7], *expected);
-            assert_eq!(*thread.scc, *scc_after);
-        });
+        [[10, 20, 31, 1, 0], [10, 20, 30, 0, 0], [u32::MAX, 10, 10, 1, 1]]
+            .iter()
+            .for_each(|[a, b, expected, scc_before, scc_after]| {
+                let mut thread = _helper_test_thread();
+                *thread.scc = *scc_before;
+                thread.scalar_reg[7] = *a;
+                thread.scalar_reg[3] = *b;
+                r(&vec![0x82070307, END_PRG], &mut thread);
+                assert_eq!(thread.scalar_reg[7], *expected);
+                assert_eq!(*thread.scc, *scc_after);
+            });
     }
 
     #[test]
@@ -2341,15 +2257,13 @@ mod test_sop2 {
 
     #[test]
     fn test_s_lshl_b32() {
-        [[20, 40, 1], [0, 0, 0]]
-            .iter()
-            .for_each(|[a, expected, scc]| {
-                let mut thread = _helper_test_thread();
-                thread.scalar_reg[15] = *a as u32;
-                r(&vec![0x8408810F, END_PRG], &mut thread);
-                assert_eq!(thread.scalar_reg[8], *expected as u32);
-                assert_eq!(*thread.scc, *scc as u32);
-            });
+        [[20, 40, 1], [0, 0, 0]].iter().for_each(|[a, expected, scc]| {
+            let mut thread = _helper_test_thread();
+            thread.scalar_reg[15] = *a as u32;
+            r(&vec![0x8408810F, END_PRG], &mut thread);
+            assert_eq!(thread.scalar_reg[8], *expected as u32);
+            assert_eq!(*thread.scc, *scc as u32);
+        });
     }
 
     #[test]
@@ -2392,15 +2306,13 @@ mod test_sop2 {
 
     #[test]
     fn test_s_mul_hi_u32() {
-        [[u32::MAX, 10, 9], [u32::MAX / 2, 4, 1]]
-            .iter()
-            .for_each(|[a, b, expected]| {
-                let mut thread = _helper_test_thread();
-                thread.scalar_reg[0] = *a;
-                thread.scalar_reg[8] = *b;
-                r(&vec![0x96810800, END_PRG], &mut thread);
-                assert_eq!(thread.scalar_reg[1], *expected);
-            });
+        [[u32::MAX, 10, 9], [u32::MAX / 2, 4, 1]].iter().for_each(|[a, b, expected]| {
+            let mut thread = _helper_test_thread();
+            thread.scalar_reg[0] = *a;
+            thread.scalar_reg[8] = *b;
+            r(&vec![0x96810800, END_PRG], &mut thread);
+            assert_eq!(thread.scalar_reg[1], *expected);
+        });
     }
 
     #[test]
@@ -2418,52 +2330,41 @@ mod test_sop2 {
 
     #[test]
     fn test_s_mul_i32() {
-        [[40, 2, 80], [-10, -10, 100]]
-            .iter()
-            .for_each(|[a, b, expected]| {
-                let mut thread = _helper_test_thread();
-                thread.scalar_reg[0] = *a as u32;
-                thread.scalar_reg[6] = *b as u32;
-                r(&vec![0x96000600, END_PRG], &mut thread);
-                assert_eq!(thread.scalar_reg[0], *expected as u32);
-            });
+        [[40, 2, 80], [-10, -10, 100]].iter().for_each(|[a, b, expected]| {
+            let mut thread = _helper_test_thread();
+            thread.scalar_reg[0] = *a as u32;
+            thread.scalar_reg[6] = *b as u32;
+            r(&vec![0x96000600, END_PRG], &mut thread);
+            assert_eq!(thread.scalar_reg[0], *expected as u32);
+        });
     }
 
     #[test]
     fn test_s_bfe_u64() {
-        [
-            [2, 4, 2, 0],
-            [800, 400, 32, 0],
-            [-10i32 as u32, 3, 246, 0],
-            [u32::MAX, u32::MAX, 255, 0],
-        ]
-        .iter()
-        .for_each(|[a_lo, a_hi, ret_lo, ret_hi]| {
-            let mut thread = _helper_test_thread();
-            thread.scalar_reg[6] = *a_lo;
-            thread.scalar_reg[7] = *a_hi;
-            r(&vec![0x940cff06, 524288, END_PRG], &mut thread);
-            assert_eq!(thread.scalar_reg[12], *ret_lo);
-            assert_eq!(thread.scalar_reg[13], *ret_hi);
-        });
+        [[2, 4, 2, 0], [800, 400, 32, 0], [-10i32 as u32, 3, 246, 0], [u32::MAX, u32::MAX, 255, 0]]
+            .iter()
+            .for_each(|[a_lo, a_hi, ret_lo, ret_hi]| {
+                let mut thread = _helper_test_thread();
+                thread.scalar_reg[6] = *a_lo;
+                thread.scalar_reg[7] = *a_hi;
+                r(&vec![0x940cff06, 524288, END_PRG], &mut thread);
+                assert_eq!(thread.scalar_reg[12], *ret_lo);
+                assert_eq!(thread.scalar_reg[13], *ret_hi);
+            });
     }
 
     #[test]
     fn test_s_bfe_i64() {
-        [
-            [131073, 0, 1, 0, 0x100000],
-            [-2, 0, -2, -1, 524288],
-            [2, 0, 2, 0, 524288],
-        ]
-        .iter()
-        .for_each(|[a_lo, a_hi, ret_lo, ret_hi, shift]| {
-            let mut thread = _helper_test_thread();
-            thread.scalar_reg[6] = *a_lo as u32;
-            thread.scalar_reg[7] = *a_hi as u32;
-            r(&vec![0x948cff06, *shift as u32, END_PRG], &mut thread);
-            assert_eq!(thread.scalar_reg[12], *ret_lo as u32);
-            assert_eq!(thread.scalar_reg[13], *ret_hi as u32);
-        });
+        [[131073, 0, 1, 0, 0x100000], [-2, 0, -2, -1, 524288], [2, 0, 2, 0, 524288]]
+            .iter()
+            .for_each(|[a_lo, a_hi, ret_lo, ret_hi, shift]| {
+                let mut thread = _helper_test_thread();
+                thread.scalar_reg[6] = *a_lo as u32;
+                thread.scalar_reg[7] = *a_hi as u32;
+                r(&vec![0x948cff06, *shift as u32, END_PRG], &mut thread);
+                assert_eq!(thread.scalar_reg[12], *ret_lo as u32);
+                assert_eq!(thread.scalar_reg[13], *ret_hi as u32);
+            });
     }
 
     #[test]
@@ -2509,20 +2410,15 @@ mod test_sopc {
 
     #[test]
     fn test_s_bitcmp0_b32() {
-        [
-            [0b00, 0b1, 0],
-            [0b01, 0b1, 1],
-            [0b10, 0b1, 1],
-            [0b10000000, 0b1, 0],
-        ]
-        .iter()
-        .for_each(|[s0, s1, scc]| {
-            let mut thread = _helper_test_thread();
-            thread.scalar_reg[3] = *s0;
-            thread.scalar_reg[4] = *s1;
-            r(&vec![0xBF0C0304, END_PRG], &mut thread);
-            assert_eq!(*thread.scc, *scc);
-        })
+        [[0b00, 0b1, 0], [0b01, 0b1, 1], [0b10, 0b1, 1], [0b10000000, 0b1, 0]]
+            .iter()
+            .for_each(|[s0, s1, scc]| {
+                let mut thread = _helper_test_thread();
+                thread.scalar_reg[3] = *s0;
+                thread.scalar_reg[4] = *s1;
+                r(&vec![0xBF0C0304, END_PRG], &mut thread);
+                assert_eq!(*thread.scc, *scc);
+            })
     }
 }
 
@@ -2536,10 +2432,7 @@ mod test_vopd {
         thread.vec_reg[0] = f32::to_bits(0.5);
         let constant = f32::from_bits(0x39a8b099);
         thread.vec_reg[1] = 10;
-        r(
-            &vec![0xC8D000FF, 0x00000080, 0x39A8B099, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xC8D000FF, 0x00000080, 0x39A8B099, END_PRG], &mut thread);
         assert_eq!(f32::from_bits(thread.vec_reg[0]), 0.5 * constant);
         assert_eq!(thread.vec_reg[1], 0);
     }
@@ -2549,10 +2442,7 @@ mod test_vopd {
         let mut thread = _helper_test_thread();
         thread.vec_reg[0] = 10;
         thread.vec_reg[1] = 10;
-        r(
-            &vec![0xCA100080, 0x000000FF, 0x3E15F480, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xCA100080, 0x000000FF, 0x3E15F480, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[0], 0);
         assert_eq!(thread.vec_reg[1], 0x3e15f480);
 
@@ -2560,10 +2450,7 @@ mod test_vopd {
         thread.vec_reg[18] = f32::to_bits(2.0);
         thread.vec_reg[32] = f32::to_bits(4.0);
         thread.vec_reg[7] = 10;
-        r(
-            &vec![0xC9204112, 0x00060EFF, 0x0000006E, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xC9204112, 0x00060EFF, 0x0000006E, END_PRG], &mut thread);
         assert_eq!(f32::from_bits(thread.vec_reg[0]), 2.0f32 + 4.0f32);
         assert_eq!(thread.vec_reg[7], 120);
     }
@@ -2574,10 +2461,7 @@ mod test_vopd {
         thread.vec_reg[2] = f32::to_bits(2.0);
         thread.vec_reg[3] = f32::to_bits(4.0);
         let constant = f32::from_bits(0x3e800000);
-        r(
-            &vec![0xC8C604FF, 0x020206FF, 0x3E800000, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xC8C604FF, 0x020206FF, 0x3E800000, END_PRG], &mut thread);
         assert_eq!(f32::from_bits(thread.vec_reg[2]), 2.0 * constant);
         assert_eq!(f32::from_bits(thread.vec_reg[3]), 4.0 * constant);
     }
@@ -2592,10 +2476,7 @@ mod test_vopd {
         thread.vec_reg[24] = f32::to_bits(3.0);
 
         let simm = f32::from_bits(0x3e000000);
-        r(
-            &vec![0xC8841917, 0x0C0C1B18, 0x3E000000, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xC8841917, 0x0C0C1B18, 0x3E000000, END_PRG], &mut thread);
         assert_eq!(f32::from_bits(thread.vec_reg[12]), 4.0 * simm + 2.0);
         assert_eq!(f32::from_bits(thread.vec_reg[13]), 3.0 * simm + 10.0);
     }
@@ -2610,10 +2491,7 @@ mod test_vopd {
         thread.vec_reg[26] = f32::to_bits(6.5);
 
         let simm = 0.125;
-        r(
-            &vec![0xC880151D, 0x0A0A34FF, 0x3E000000, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xC880151D, 0x0A0A34FF, 0x3E000000, END_PRG], &mut thread);
         assert_eq!(f32::from_bits(thread.vec_reg[10]), 4.0 * simm + 2.0);
         assert_eq!(f32::from_bits(thread.vec_reg[11]), simm * 6.5 + 10.0);
     }
@@ -2693,22 +2571,17 @@ mod test_vop1 {
     fn test_fexp_flush_denormals() {
         assert_eq!(helper_test_fexp(f32::from_bits(0xff800000)), 0.0);
         assert_eq!(helper_test_fexp(f32::from_bits(0x80000000)), 1.0);
-        assert_eq!(
-            helper_test_fexp(f32::from_bits(0x7f800000)),
-            f32::from_bits(0x7f800000)
-        );
+        assert_eq!(helper_test_fexp(f32::from_bits(0x7f800000)), f32::from_bits(0x7f800000));
     }
 
     #[test]
     fn test_cast_f32_i32() {
         let mut thread = _helper_test_thread();
-        [(10.42, 10i32), (-20.08, -20i32)]
-            .iter()
-            .for_each(|(src, expected)| {
-                thread.scalar_reg[2] = f32::to_bits(*src);
-                r(&vec![0x7E001002, END_PRG], &mut thread);
-                assert_eq!(thread.vec_reg[0] as i32, *expected);
-            })
+        [(10.42, 10i32), (-20.08, -20i32)].iter().for_each(|(src, expected)| {
+            thread.scalar_reg[2] = f32::to_bits(*src);
+            r(&vec![0x7E001002, END_PRG], &mut thread);
+            assert_eq!(thread.vec_reg[0] as i32, *expected);
+        })
     }
 
     #[test]
@@ -2730,13 +2603,11 @@ mod test_vop1 {
     #[test]
     fn test_cast_i32_f32() {
         let mut thread = _helper_test_thread();
-        [(10.0, 10i32), (-20.0, -20i32)]
-            .iter()
-            .for_each(|(expected, src)| {
-                thread.vec_reg[0] = *src as u32;
-                r(&vec![0x7E000B00, END_PRG], &mut thread);
-                assert_eq!(f32::from_bits(thread.vec_reg[0]), *expected);
-            })
+        [(10.0, 10i32), (-20.0, -20i32)].iter().for_each(|(expected, src)| {
+            thread.vec_reg[0] = *src as u32;
+            r(&vec![0x7E000B00, END_PRG], &mut thread);
+            assert_eq!(f32::from_bits(thread.vec_reg[0]), *expected);
+        })
     }
 
     #[test]
@@ -2851,19 +2722,14 @@ mod test_vop1 {
 
     #[test]
     fn test_v_frexp_exp_i32_f64() {
-        [
-            (3573412790272.0, 42),
-            (69.0, 7),
-            (2.0, 2),
-            (f64::NEG_INFINITY, 0),
-        ]
-        .iter()
-        .for_each(|(x, ret)| {
-            let mut thread = _helper_test_thread();
-            thread.vec_reg.write64(0, f64::to_bits(*x));
-            r(&vec![0x7E047900, END_PRG], &mut thread);
-            assert_eq!(thread.vec_reg[2], *ret);
-        })
+        [(3573412790272.0, 42), (69.0, 7), (2.0, 2), (f64::NEG_INFINITY, 0)]
+            .iter()
+            .for_each(|(x, ret)| {
+                let mut thread = _helper_test_thread();
+                thread.vec_reg.write64(0, f64::to_bits(*x));
+                r(&vec![0x7E047900, END_PRG], &mut thread);
+                assert_eq!(thread.vec_reg[2], *ret);
+            })
     }
 
     #[test]
@@ -2873,12 +2739,7 @@ mod test_vop1 {
             thread.vec_reg.write64(0, f64::to_bits(*x));
             println!("{} {}", thread.vec_reg[0], thread.vec_reg[1]);
             r(&vec![0x7E046300, END_PRG], &mut thread);
-            assert!(approx_eq!(
-                f64,
-                f64::from_bits(thread.vec_reg.read64(2)),
-                *ret,
-                (0.01, 2)
-            ));
+            assert!(approx_eq!(f64, f64::from_bits(thread.vec_reg.read64(2)), *ret, (0.01, 2)));
         })
     }
 }
@@ -3016,11 +2877,7 @@ mod test_vop2 {
         [
             [18, 0x64, 1800],
             [0b10000000000000000000000000, 0b1, 0],
-            [
-                0b100000000000000000000000,
-                0b1,
-                0b11111111100000000000000000000000,
-            ],
+            [0b100000000000000000000000, 0b1, 0b11111111100000000000000000000000],
         ]
         .iter()
         .for_each(|[a, b, ret]| {
@@ -3083,36 +2940,32 @@ mod test_vopsd {
 
     #[test]
     fn test_v_add_co_ci_u32() {
-        [[0, 0, 0b0], [1, -1i32 as usize, 0b10]]
-            .iter()
-            .for_each(|[lane_id, result, carry_out]| {
-                let mut thread = _helper_test_thread();
-                thread.vcc.default_lane = Some(*lane_id);
-                thread.vec_reg.default_lane = Some(*lane_id);
-                thread.scalar_reg[20] = 0b10;
-                thread.vec_reg[1] = 2;
-                thread.vec_reg[2] = 2;
-                r(&vec![0xD5211401, 0x00520501, END_PRG], &mut thread);
-                assert_eq!(thread.vec_reg[1], *result as u32);
-                assert_eq!(thread.scalar_reg[20], *carry_out as u32);
-            })
+        [[0, 0, 0b0], [1, -1i32 as usize, 0b10]].iter().for_each(|[lane_id, result, carry_out]| {
+            let mut thread = _helper_test_thread();
+            thread.vcc.default_lane = Some(*lane_id);
+            thread.vec_reg.default_lane = Some(*lane_id);
+            thread.scalar_reg[20] = 0b10;
+            thread.vec_reg[1] = 2;
+            thread.vec_reg[2] = 2;
+            r(&vec![0xD5211401, 0x00520501, END_PRG], &mut thread);
+            assert_eq!(thread.vec_reg[1], *result as u32);
+            assert_eq!(thread.scalar_reg[20], *carry_out as u32);
+        })
     }
 
     #[test]
     fn test_v_sub_co_ci_u32() {
-        [[3, 2, 0b1000], [2, 0, 0b100]]
-            .iter()
-            .for_each(|[lane_id, result, carry_out]| {
-                let mut thread = _helper_test_thread();
-                thread.vcc.default_lane = Some(*lane_id);
-                thread.vec_reg.default_lane = Some(*lane_id);
-                thread.scalar_reg[20] = 0b1010;
-                thread.vec_reg[1] = *lane_id as u32;
-                thread.vec_reg[2] = u32::MAX - 1;
-                r(&vec![0xD5201401, 0x00520501, END_PRG], &mut thread);
-                assert_eq!(thread.vec_reg[1], *result as u32);
-                assert_eq!(thread.scalar_reg[20], *carry_out as u32);
-            })
+        [[3, 2, 0b1000], [2, 0, 0b100]].iter().for_each(|[lane_id, result, carry_out]| {
+            let mut thread = _helper_test_thread();
+            thread.vcc.default_lane = Some(*lane_id);
+            thread.vec_reg.default_lane = Some(*lane_id);
+            thread.scalar_reg[20] = 0b1010;
+            thread.vec_reg[1] = *lane_id as u32;
+            thread.vec_reg[2] = u32::MAX - 1;
+            r(&vec![0xD5201401, 0x00520501, END_PRG], &mut thread);
+            assert_eq!(thread.vec_reg[1], *result as u32);
+            assert_eq!(thread.scalar_reg[20], *carry_out as u32);
+        })
     }
 
     #[test]
@@ -3147,16 +3000,14 @@ mod test_vopsd {
 
     #[test]
     fn test_v_sub_co_u32() {
-        [[69, 0, 69, 0], [100, 200, 4294967196, 1]]
-            .iter()
-            .for_each(|[a, b, ret, scc]| {
-                let mut thread = _helper_test_thread();
-                thread.vec_reg[4] = *a;
-                thread.vec_reg[15] = *b;
-                r(&vec![0xD7016A04, 0x00021F04, END_PRG], &mut thread);
-                assert_eq!(thread.vec_reg[4], *ret);
-                assert_eq!(thread.vcc.read(), *scc != 0);
-            })
+        [[69, 0, 69, 0], [100, 200, 4294967196, 1]].iter().for_each(|[a, b, ret, scc]| {
+            let mut thread = _helper_test_thread();
+            thread.vec_reg[4] = *a;
+            thread.vec_reg[15] = *b;
+            r(&vec![0xD7016A04, 0x00021F04, END_PRG], &mut thread);
+            assert_eq!(thread.vec_reg[4], *ret);
+            assert_eq!(thread.vcc.read(), *scc != 0);
+        })
     }
 
     #[test]
@@ -3268,35 +3119,24 @@ mod test_vop3 {
 
     #[test]
     fn test_v_cndmask_b32_e64_neg() {
-        [[0.0f32, 0.0], [1.0f32, -1.0], [-1.0f32, 1.0]]
-            .iter()
-            .for_each(|[input, ret]| {
-                let mut thread = _helper_test_thread();
-                thread.scalar_reg[0] = false as u32;
-                thread.vec_reg[3] = input.to_bits();
-                r(
-                    &vec![0xD5010003, 0x2001FF03, 0x80000000, END_PRG],
-                    &mut thread,
-                );
-                assert_eq!(thread.vec_reg[3], ret.to_bits());
-            });
+        [[0.0f32, 0.0], [1.0f32, -1.0], [-1.0f32, 1.0]].iter().for_each(|[input, ret]| {
+            let mut thread = _helper_test_thread();
+            thread.scalar_reg[0] = false as u32;
+            thread.vec_reg[3] = input.to_bits();
+            r(&vec![0xD5010003, 0x2001FF03, 0x80000000, END_PRG], &mut thread);
+            assert_eq!(thread.vec_reg[3], ret.to_bits());
+        });
     }
 
     #[test]
     fn test_v_mul_hi_i32() {
         let mut thread = _helper_test_thread();
         thread.vec_reg[2] = -2i32 as u32;
-        r(
-            &vec![0xD72E0003, 0x000204FF, 0x2E8BA2E9, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xD72E0003, 0x000204FF, 0x2E8BA2E9, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[3] as i32, -1);
 
         thread.vec_reg[2] = 2;
-        r(
-            &vec![0xD72E0003, 0x000204FF, 0x2E8BA2E9, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xD72E0003, 0x000204FF, 0x2E8BA2E9, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[3], 0);
     }
 
@@ -3356,12 +3196,7 @@ mod test_vop3 {
             let mut thread = _helper_test_thread();
             thread.vec_reg[1] = f16::from_f32_const(*a).to_bits() as u32;
             r(&vec![0xD58B0102, 0x00000101, END_PRG], &mut thread);
-            assert!(approx_eq!(
-                f32,
-                f32::from_bits(thread.vec_reg[2]),
-                *ret,
-                (0.01, 2)
-            ));
+            assert!(approx_eq!(f32, f32::from_bits(thread.vec_reg[2]), *ret, (0.01, 2)));
         });
     }
 
@@ -3404,10 +3239,7 @@ mod test_vop3 {
         });
 
         [
-            [
-                0b00100000000000000000000000000000,
-                0b100000000000000000000000000000,
-            ],
+            [0b00100000000000000000000000000000, 0b100000000000000000000000000000],
             [0b00000000000000001000000000000000, 0b1000000000000000],
             [-1, -1],
         ]
@@ -3438,10 +3270,7 @@ mod test_vop3 {
         .for_each(|[a, ret]| {
             thread.vec_reg[2] = *a;
             thread.scalar_reg[1] = 1;
-            r(
-                &vec![0xd73a0005, 0b11000001100000010000000001, END_PRG],
-                &mut thread,
-            );
+            r(&vec![0xd73a0005, 0b11000001100000010000000001, END_PRG], &mut thread);
             assert_eq!(thread.vec_reg[5], *ret);
         });
 
@@ -3454,20 +3283,14 @@ mod test_vop3 {
         .for_each(|[a, shift, ret]| {
             thread.vec_reg[2] = *a;
             thread.scalar_reg[1] = *shift;
-            r(
-                &vec![0xd73a0005, 0b11000001100000010000000001, END_PRG],
-                &mut thread,
-            );
+            r(&vec![0xd73a0005, 0b11000001100000010000000001, END_PRG], &mut thread);
             assert_eq!(thread.vec_reg[5], *ret);
         });
 
         thread.vec_reg[5] = 0b11100000000000001111111111111111;
         thread.vec_reg[2] = 0b0100000000000000;
         thread.scalar_reg[1] = 1;
-        r(
-            &vec![0xd73a0005, 0b11000001100000010000000001, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xd73a0005, 0b11000001100000010000000001, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[5], 0b11100000000000000010000000000000);
     }
 
@@ -3499,31 +3322,20 @@ mod test_vop3 {
         let mut thread = _helper_test_thread();
         thread.vec_reg[1] = 52431;
         thread.scalar_reg[5] = 0;
-        r(
-            &vec![0xD43C0005, 0x000202FF, 0x00003334, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xD43C0005, 0x000202FF, 0x00003334, END_PRG], &mut thread);
         assert_eq!(thread.scalar_reg[5], 0);
     }
 
     #[test]
     fn test_v_cmp_ngt_f32_abs() {
-        [
-            (0.5f32, 0.5f32, 1),
-            (-0.5, 0.5, 1),
-            (0.1, 0.2, 0),
-            (-0.1, 0.2, 0),
-        ]
-        .iter()
-        .for_each(|(x, y, ret)| {
-            let mut thread = _helper_test_thread();
-            thread.scalar_reg[2] = x.to_bits();
-            r(
-                &vec![0xD41B0203, 0x000004FF, y.to_bits(), END_PRG],
-                &mut thread,
-            );
-            assert_eq!(thread.scalar_reg[3], *ret);
-        })
+        [(0.5f32, 0.5f32, 1), (-0.5, 0.5, 1), (0.1, 0.2, 0), (-0.1, 0.2, 0)]
+            .iter()
+            .for_each(|(x, y, ret)| {
+                let mut thread = _helper_test_thread();
+                thread.scalar_reg[2] = x.to_bits();
+                r(&vec![0xD41B0203, 0x000004FF, y.to_bits(), END_PRG], &mut thread);
+                assert_eq!(thread.scalar_reg[3], *ret);
+            })
     }
     #[test]
     fn test_fma() {
@@ -3542,12 +3354,10 @@ mod test_vop3 {
             r(&vec![0xd52b0000, 0x401, END_PRG], &mut thread);
             assert_eq!(thread.vec_reg[0], ret);
         }
-        [[0xbfc90fda, 1186963456, 1192656896, 3204127872]]
-            .iter()
-            .for_each(|[a, b, c, ret]| {
-                v_fma_f32(*a, *b, *c, *ret);
-                v_fmac_f32(*a, *b, *c, *ret);
-            })
+        [[0xbfc90fda, 1186963456, 1192656896, 3204127872]].iter().for_each(|[a, b, c, ret]| {
+            v_fma_f32(*a, *b, *c, *ret);
+            v_fmac_f32(*a, *b, *c, *ret);
+        })
     }
 
     #[test]
@@ -3555,10 +3365,7 @@ mod test_vop3 {
         let mut thread = _helper_test_thread();
         thread.vec_reg[1] = 15944;
         thread.vec_reg[0] = 84148480;
-        r(
-            &vec![0xD644000F, 0x03FE0101, 0x05040100, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xD644000F, 0x03FE0101, 0x05040100, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[15], 1044906240);
     }
 
@@ -3617,10 +3424,7 @@ mod test_vop3 {
         thread.vec_reg.write64(0, 3.0f64.to_bits());
         let simm = 0xFFFFFFE0;
         r(&vec![0xD72B0002, 0x0001FF00, simm, END_PRG], &mut thread);
-        assert_eq!(
-            f64::from_bits(thread.vec_reg.read64(2)),
-            3.0 * 2.0.powi(-32)
-        );
+        assert_eq!(f64::from_bits(thread.vec_reg.read64(2)), 3.0 * 2.0.powi(-32));
     }
 
     #[test]
@@ -3659,10 +3463,7 @@ mod test_vopp {
         thread.vec_reg[1] = 1;
         thread.vec_reg[2] = 2;
         thread.vec_reg[3] = 3;
-        r(
-            &vec![0xCC090004, 0x040E0501, 0xBFB00000, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xCC090004, 0x040E0501, 0xBFB00000, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[4], 0b1010000000000000101);
     }
 
@@ -3672,10 +3473,7 @@ mod test_vopp {
         thread.vec_reg[1] = 1;
         thread.vec_reg[2] = 2;
         thread.vec_reg[3] = 3;
-        r(
-            &vec![0xCC092004, 0x0C0E0501, 0xBFB00000, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xCC092004, 0x0C0E0501, 0xBFB00000, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[4], 0b110000000000000010);
     }
 
@@ -3686,28 +3484,16 @@ mod test_vopp {
         thread.vec_reg[2] = 2;
         thread.vec_reg[3] = 3;
 
-        r(
-            &vec![0xCC090004, 0x020E0501, 0xBFB00000, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xCC090004, 0x020E0501, 0xBFB00000, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[4], 0b1010000000000000101);
 
-        r(
-            &vec![0xCC090804, 0x0A0E0501, 0xBFB00000, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xCC090804, 0x0A0E0501, 0xBFB00000, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[4], 0b110000000000000011);
 
-        r(
-            &vec![0xCC096004, 0x020E0501, 0xBFB00000, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xCC096004, 0x020E0501, 0xBFB00000, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[4], 0b100000000000000010);
 
-        r(
-            &vec![0xCC090004, 0x03FE0501, 0x00000080, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xCC090004, 0x03FE0501, 0x00000080, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[4], 8519810);
     }
 
@@ -3717,34 +3503,19 @@ mod test_vopp {
         thread.vec_reg[2] = 0x393a35f6;
         thread.vec_reg[3] = 0x2800;
 
-        r(
-            &vec![0xCC0E0004, 0x03FE0702, 0x0000A400, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xCC0E0004, 0x03FE0702, 0x0000A400, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[4], 2618596372);
 
-        r(
-            &vec![0xCC0E0004, 0x0BFE0702, 0x0000A400, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xCC0E0004, 0x0BFE0702, 0x0000A400, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[4], 485006356);
 
-        r(
-            &vec![0xCC0E0004, 0x1BFE0702, 0x0000A400, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xCC0E0004, 0x1BFE0702, 0x0000A400, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[4], 2751503380);
 
-        r(
-            &vec![0xCC0E0804, 0x03FE0702, 0x0000A400, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xCC0E0804, 0x03FE0702, 0x0000A400, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[4], 2618563816);
 
-        r(
-            &vec![0xCC0E1804, 0x03FE0702, 0x0000A400, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xCC0E1804, 0x03FE0702, 0x0000A400, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[4], 2618598400);
     }
 
@@ -3775,31 +3546,16 @@ mod test_vopp {
         r(&vec![0xCC044004, 0x1002068E, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[4], 0b100000000000000);
 
-        r(
-            &vec![0xCC044004, 0x100206FF, 0x00010002, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xCC044004, 0x100206FF, 0x00010002, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[4], 0b1010101110110100);
-        r(
-            &vec![0xCC044004, 0x100206FF, 0x05012002, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xCC044004, 0x100206FF, 0x05012002, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[4], 0b1010101110110100);
 
-        r(
-            &vec![0xCC044004, 0x100206FF, 0x0503E00F, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xCC044004, 0x100206FF, 0x0503E00F, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[4], 0b1000000000000000);
-        r(
-            &vec![0xCC044004, 0x100206FF, 0x0503E007, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xCC044004, 0x100206FF, 0x0503E007, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[4], 0b111011010000000);
-        r(
-            &vec![0xCC044004, 0x100206FF, 0x0503E01F, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xCC044004, 0x100206FF, 0x0503E01F, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[4], 0b1000000000000000);
     }
 
@@ -3864,8 +3620,7 @@ mod test_flat {
         thread.vec_reg[14] = 10;
         r(
             &vec![
-                0xDC690096, 0x007C0D00, 0xDC69001E, 0x007C0E00, 0xDC51001E, 0x0D7C0000, 0xDC510096,
-                0x0E7C0000, END_PRG,
+                0xDC690096, 0x007C0D00, 0xDC69001E, 0x007C0E00, 0xDC51001E, 0x0D7C0000, 0xDC510096, 0x0E7C0000, END_PRG,
             ],
             &mut thread,
         );
@@ -3878,16 +3633,10 @@ mod test_flat {
         let mut thread = _helper_test_thread();
         thread.vec_reg[14] = 14;
         thread.vec_reg[15] = 23;
-        r(
-            &vec![0xDC6D000A, 0x007C0E00, 0xDC51000A, 0x0E7C0000, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xDC6D000A, 0x007C0E00, 0xDC51000A, 0x0E7C0000, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[14], 14);
 
-        r(
-            &vec![0xDC6D000A, 0x007C0E00, 0xDC51000E, 0x0E7C0000, END_PRG],
-            &mut thread,
-        );
+        r(&vec![0xDC6D000A, 0x007C0E00, 0xDC51000E, 0x0E7C0000, END_PRG], &mut thread);
         assert_eq!(thread.vec_reg[14], 23);
     }
 
