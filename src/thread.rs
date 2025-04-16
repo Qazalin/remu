@@ -3,7 +3,6 @@ use crate::helpers::{Colorize, GLOBAL_DEBUG};
 use crate::state::{Register, Value, VecDataStore, WaveValue, VGPR};
 use crate::todo_instr;
 use half::{bf16, f16};
-use ndarray::Array;
 use num_traits::Float;
 
 const SGPR_COUNT: usize = 105;
@@ -554,28 +553,18 @@ impl<'a> Thread<'a> {
                             let a = self.wmma_b16_16x16(s[0]).map(|v| f16::from_bits(v).to_f32());
                             let b = self.wmma_b16_16x16(s[1]).map(|v| f16::from_bits(v).to_f32());
                             let c = self.wmma_b32_16x16(s[2]).map(|v| f32::from_bits(v));
-
-                            let a = Array::from_shape_vec((16, 16), a.collect()).unwrap();
-                            let b = Array::from_shape_vec((16, 16), b.collect()).unwrap();
-                            let c = Array::from_shape_vec((16, 16), c.collect()).unwrap();
-                            let ret = a.dot(&b.t()) + &c;
-                            for (i, val) in ret.iter().cloned().enumerate() {
-                                let register = (i / 32) + vdst;
+                            let ret = wmma(a.collect(), b.collect(), c.collect());
+                            for (i, val) in ret.into_iter().enumerate() {
                                 let lane = i % 32;
-                                self.vec_reg.get_lane_mut(lane)[register] = val.to_bits()
+                                self.vec_reg.get_lane_mut(lane)[(i / 32) + vdst] = val.to_bits();
                             }
                         }
                         65 => {
                             let a = self.wmma_b16_16x16(s[0]).map(|v| bf16::from_bits(v).to_f32());
                             let b = self.wmma_b16_16x16(s[1]).map(|v| bf16::from_bits(v).to_f32());
                             let c = self.wmma_b32_16x16(s[2]).map(|v| f32::from_bits(v));
-
-                            let a = Array::from_shape_vec((16, 16), a.collect()).unwrap();
-                            let b = Array::from_shape_vec((16, 16), b.collect()).unwrap();
-                            let c = Array::from_shape_vec((16, 16), c.collect()).unwrap();
-
-                            let ret = a.dot(&b.t()) + &c;
-                            for (i, val) in ret.iter().cloned().enumerate() {
+                            let ret = wmma(a.collect(), b.collect(), c.collect());
+                            for (i, val) in ret.into_iter().enumerate() {
                                 let register = (i / 32) + vdst;
                                 let lane = i % 32;
                                 self.vec_reg.get_lane_mut(lane)[register] = val.to_bits()
@@ -585,13 +574,8 @@ impl<'a> Thread<'a> {
                             let a = self.wmma_b16_16x16(s[0]).map(|v| f16::from_bits(v));
                             let b = self.wmma_b16_16x16(s[1]).map(|v| f16::from_bits(v));
                             let c = self.wmma_b32_16x16(s[2]).map(|v| f16::from_bits(v as u16));
-
-                            let a = Array::from_shape_vec((16, 16), a.collect()).unwrap();
-                            let b = Array::from_shape_vec((16, 16), b.collect()).unwrap();
-                            let c = Array::from_shape_vec((16, 16), c.collect()).unwrap();
-
-                            let ret = a.dot(&b.t()) + &c;
-                            for (i, val) in ret.iter().cloned().enumerate() {
+                            let ret = wmma(a.collect(), b.collect(), c.collect());
+                            for (i, val) in ret.into_iter().enumerate() {
                                 let register = (i / 32) + vdst;
                                 let lane = i % 32;
                                 self.vec_reg.get_lane_mut(lane)[register].mut_lo16(val.to_bits());
@@ -1846,6 +1830,23 @@ impl<'a> Thread<'a> {
     fn wmma_b32_16x16(&'a self, vsrc: usize) -> impl Iterator<Item = u32> + 'a {
         (0..256).map(move |i| self.vec_reg.get_lane(i % 32)[(i / 32) + vsrc - VGPR_COUNT])
     }
+}
+
+fn wmma<T: Float>(a: Vec<T>, b: Vec<T>, c: Vec<T>) -> [T; 256] {
+    let mut ret = [T::zero(); 256];
+    for row in 0..16 {
+        for col in 0..16 {
+            let mut sum = T::zero();
+            for k in 0..16 {
+                let a_val = a[row * 16 + k];
+                let b_val = b[col * 16 + k];
+                sum = sum + (a_val * b_val);
+            }
+            let c_val = c[row * 16 + col];
+            ret[row * 16 + col] = sum + c_val;
+        }
+    }
+    ret
 }
 
 pub trait ALUSrc<T> {
