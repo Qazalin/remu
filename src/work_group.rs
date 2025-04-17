@@ -3,7 +3,6 @@ use crate::state::{Register, VecDataStore, WaveValue, VGPR};
 use crate::thread::{Thread, END_PRG};
 use std::collections::HashMap;
 
-struct WaveState(Vec<u32>, u32, VGPR, WaveValue, WaveValue, usize, HashMap<usize, VecDataStore>);
 pub struct WorkGroup<'a> {
     dispatch_dim: u32,
     id: [u32; 3],
@@ -12,6 +11,16 @@ pub struct WorkGroup<'a> {
     kernel_args: *const u64,
     launch_bounds: [u32; 3],
     wave_state: HashMap<usize, WaveState>,
+}
+
+struct WaveState {
+    scalar_reg: Vec<u32>,
+    scc: u32,
+    vec_reg: VGPR,
+    vcc: WaveValue,
+    exec: WaveValue,
+    pc: usize,
+    sds: HashMap<usize, VecDataStore>,
 }
 
 const SYNCS: [u32; 5] = [0xBF89FC07, 0xBFBD0000, 0xBC7C0000, 0xBF890007, 0xbFB60003];
@@ -64,7 +73,7 @@ impl<'a> WorkGroup<'a> {
     fn exec_wave(&mut self, (wave_id, threads): (usize, &Vec<[u32; 3]>)) -> Result<(), i32> {
         let wave_state = self.wave_state.get(&wave_id);
         let mut sds = match wave_state {
-            Some(val) => val.6.clone(),
+            Some(val) => val.sds.clone(),
             None => {
                 let mut sds = HashMap::new();
                 for i in 0..=31 {
@@ -74,7 +83,7 @@ impl<'a> WorkGroup<'a> {
             }
         };
         let (mut scalar_reg, mut scc, mut pc) = match wave_state {
-            Some(val) => (val.0.to_vec(), val.1, val.5),
+            Some(val) => (val.scalar_reg.to_vec(), val.scc, val.pc),
             None => {
                 let mut scalar_reg = vec![0; 256];
                 scalar_reg.write64(0, self.kernel_args as u64);
@@ -88,11 +97,11 @@ impl<'a> WorkGroup<'a> {
             }
         };
         let (mut vec_reg, mut vcc) = match wave_state {
-            Some(val) => (val.2.clone(), val.3.clone()),
+            Some(val) => (val.vec_reg.clone(), val.vcc.clone()),
             None => (VGPR::new(), WaveValue::new(0, threads.len())),
         };
         let mut exec = match wave_state {
-            Some(val) => val.4.clone(),
+            Some(val) => val.exec.clone(),
             None => {
                 let active = match threads.len() == 32 {
                     true => u32::MAX,
@@ -108,7 +117,18 @@ impl<'a> WorkGroup<'a> {
                 break Ok(());
             }
             if BARRIERS.contains(&[self.kernel[pc], self.kernel[pc + 1]]) && wave_state.is_none() {
-                self.wave_state.insert(wave_id, WaveState(scalar_reg, scc, vec_reg, vcc, exec, pc, sds));
+                self.wave_state.insert(
+                    wave_id,
+                    WaveState {
+                        scalar_reg,
+                        scc,
+                        vec_reg,
+                        vcc,
+                        exec,
+                        pc,
+                        sds,
+                    },
+                );
                 break Ok(());
             }
             if SYNCS.contains(&self.kernel[pc]) || self.kernel[pc] >> 20 == 0xbf8 || self.kernel[pc] == 0x7E000000 {
