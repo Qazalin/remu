@@ -131,9 +131,8 @@ mod tests {
     }
 }
 
-lazy_static::lazy_static! {
-    pub static ref DEBUG: bool = std::env::var("DEBUG").map(|v| v == "1").unwrap_or(false);
-}
+use std::sync::LazyLock;
+pub static DEBUG: LazyLock<bool> = LazyLock::new(|| std::env::var("DEBUG").map(|v| v.parse::<usize>().unwrap_or(0) >= 6).unwrap_or(false));
 
 pub trait Colorize {
     fn color(self, color: &str) -> String;
