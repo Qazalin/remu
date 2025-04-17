@@ -6,11 +6,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-linux:
-    name: test / build (linux)
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, macos-14]
     env:
       REMU_LOC: tinygrad/extra/remu
-    runs-on: ubuntu-22.04
 
     steps:
     - name: Clone tinygrad
@@ -31,30 +33,5 @@ jobs:
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: libremu.so
-        path: ${{ env.REMU_LOC }}/target/release/libremu.so
-
-  build-macos:
-    name: test / build (macos)
-    env:
-      REMU_LOC: tinygrad/extra/remu
-    runs-on: macos-14
-
-    steps:
-    - name: Clone tinygrad
-      run: |
-        git clone https://github.com/tinygrad/tinygrad
-        cd tinygrad
-        git checkout 16dfe0a9024e3930f1b9d700ca0f3577d4895a27
-
-    - name: Run unit tests
-      run: cargo test --manifest-path ${{ env.REMU_LOC }}/Cargo.toml
-
-    - name: Build release binary
-      run: cargo build --release --manifest-path ${{ env.REMU_LOC }}/Cargo.toml
-
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: libremu.dylib
-        path: ${{ env.REMU_LOC }}/target/release/libremu.dylib
+        name: ${{ matrix.os == 'macos-14' && 'libremu.dylib' || 'libremu.so' }}
+        path: ${{ env.REMU_LOC }}/target/release/${{ matrix.os == 'macos-14' && 'libremu.dylib' || 'libremu.so' }}
