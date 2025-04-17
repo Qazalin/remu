@@ -1,4 +1,4 @@
-use crate::helpers::{Colorize, GLOBAL_DEBUG};
+use crate::helpers::{Colorize, DEBUG};
 use crate::state::{Register, VecDataStore, WaveValue, VGPR};
 use crate::thread::{Thread, END_PRG};
 use std::collections::HashMap;
@@ -121,13 +121,14 @@ impl<'a> WorkGroup<'a> {
                 vec_reg.default_lane = Some(lane_id);
                 vcc.default_lane = Some(lane_id);
                 exec.default_lane = Some(lane_id);
-                if *GLOBAL_DEBUG {
-                    let lane = format!("{lane_id} {:08X} ", self.kernel[pc]);
+                if *DEBUG {
+                    let lane = format!("{:<2} {:08X} ", lane_id, self.kernel[pc]);
                     let state = match exec.read() {
                         true => "green",
                         false => "gray",
                     };
-                    print!("{:?} {:?} {}", self.id, [x, y, z], lane.color(state));
+                    let [id0, id1, id2] = self.id;
+                    print!("[{id0:<3} {id1:<3} {id2:<3}] [{x:<3} {y:<3} {z:<3}] {}", lane.color(state));
                 }
                 if !seeded_lanes.contains(&lane_id) && self.wave_state.get(&wave_id).is_none() {
                     match (self.launch_bounds[1] != 1, self.launch_bounds[2] != 1) {
@@ -152,6 +153,9 @@ impl<'a> WorkGroup<'a> {
                     sgpr_co: &mut sgpr_co,
                 };
                 thread.interpret()?;
+                if *DEBUG {
+                    println!();
+                }
                 if thread.scalar {
                     pc = ((pc as isize) + 1 + (thread.pc_offset as isize)) as usize;
                     break;

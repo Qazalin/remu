@@ -132,7 +132,7 @@ mod tests {
 }
 
 lazy_static::lazy_static! {
-    pub static ref GLOBAL_DEBUG: bool = std::env::var("DEBUG").map(|v| v == "1").unwrap_or(false);
+    pub static ref DEBUG: bool = std::env::var("DEBUG").map(|v| v == "1").unwrap_or(false);
 }
 
 pub trait Colorize {
@@ -153,9 +153,19 @@ impl<'a> Colorize for &'a str {
 #[macro_export]
 macro_rules! todo_instr {
     ($x:expr) => {{
-        if std::env::var("REMU_DEBUG").map(|v| v == "4").unwrap_or(false) {
-            panic!("{:08X}", $x)
-        }
+        println!("{:08X}", $x);
         Err(1)
     }};
+}
+
+#[macro_export]
+macro_rules! print_instr {
+  ($name:expr $(, $arg:ident)* $(,)?) => {
+    if *DEBUG {
+      print!("{}", format!("{:<8}", $name).color("blue"));
+      $(
+        print!(" {:<16}", format!("{}={:?}", stringify!($arg), $arg));
+      )*
+    }
+  };
 }
