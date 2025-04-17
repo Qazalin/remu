@@ -8,43 +8,53 @@ on:
 jobs:
   build-linux:
     name: test / build (linux)
+    env:
+      REMU_LOC: tinygrad/extra/remu
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - name: Clone tinygrad
+      run: |
+        git clone https://github.com/tinygrad/tinygrad
+        cd tinygrad
+        git checkout 16dfe0a9024e3930f1b9d700ca0f3577d4895a27
 
     - name: Check format
-      run: cargo fmt --check
+      run: cargo fmt --check --manifest-path ${{ env.REMU_LOC }}/Cargo.toml
 
     - name: Run unit tests
-      run: CI=1 cargo test
+      run: cargo test --manifest-path ${{ env.REMU_LOC }}/Cargo.toml
 
     - name: Build release binary
-      run: cargo build --release
+      run: cargo build --release --manifest-path ${{ env.REMU_LOC }}/Cargo.toml
 
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
         name: libremu.so
-        path: target/release/libremu.so
+        path: ${{ env.REMU_LOC }}/target/release/libremu.so
 
   build-macos:
     name: test / build (macos)
+    env:
+      REMU_LOC: tinygrad/extra/remu
     runs-on: macos-14
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - name: Clone tinygrad
+      run: |
+        git clone https://github.com/tinygrad/tinygrad
+        cd tinygrad
+        git checkout 16dfe0a9024e3930f1b9d700ca0f3577d4895a27
 
     - name: Run unit tests
-      run: CI=1 cargo test
+      run: cargo test --manifest-path ${{ env.REMU_LOC }}/Cargo.toml
 
     - name: Build release binary
-      run: cargo build --release
+      run: cargo build --release --manifest-path ${{ env.REMU_LOC }}/Cargo.toml
 
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
         name: libremu.dylib
-        path: target/release/libremu.dylib
+        path: ${{ env.REMU_LOC }}/target/release/libremu.dylib
