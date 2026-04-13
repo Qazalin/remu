@@ -11,24 +11,19 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-22.04, macos-14]
-    env:
-      REMU_LOC: tinygrad/extra/remu
 
     steps:
-    - name: Clone tinygrad
-      run: |
-        git clone https://github.com/tinygrad/tinygrad
-        cd tinygrad
-        git checkout 16dfe0a9024e3930f1b9d700ca0f3577d4895a27
+    - name: Checkout code
+      uses: actions/checkout@v4
 
     - name: Check format
-      run: cargo fmt --check --manifest-path ${{ env.REMU_LOC }}/Cargo.toml
+      run: cargo fmt
 
     - name: Run unit tests
-      run: cargo test --manifest-path ${{ env.REMU_LOC }}/Cargo.toml
+      run: cargo test
 
     - name: Build release binary
-      run: cargo build --release --manifest-path ${{ env.REMU_LOC }}/Cargo.toml
+      run: cargo build --release
 
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
