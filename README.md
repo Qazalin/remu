@@ -13,10 +13,10 @@ Remu is written in Rust. Make sure you have [Cargo](https://doc.rust-lang.org/ca
 To build the project, run:
 
 ```bash
-cargo build --release --manifest-path ./extra/remu/Cargo.toml
+cargo build --release
 ```
 
-This will produce a binary in the `extra/remu/target/release` directory.
+This will produce a binary in the `target/release` directory.
 
 ## Usage
 
@@ -75,4 +75,4 @@ Remu output vs llvm-objdump:
 ```
 s_load_b64 s[0:1], s[0:1], 0x10                            // 00000000160C: F4040000 F8000010
 SMEM { op: 1, sdata: 0, sbase: 0, offset: 16, soffset: 124, glc: false, dlc: false }
-```
+``
